@@ -1,6 +1,8 @@
 const PRODUCT_STATUS = {
   DRAFT: 'draft',
-  PUBLISHED: 'published',
+  AVAILABLE: 'available',
+  // 保留旧名称，避免已有页面或开发数据因状态迁移失效。
+  PUBLISHED: 'available',
   RESERVED: 'reserved',
   SOLD: 'sold',
   OFFLINE: 'offline',
@@ -12,9 +14,9 @@ const PRODUCT_STATUS_META = {
     text: '草稿',
     className: 'draft'
   },
-  [PRODUCT_STATUS.PUBLISHED]: {
+  [PRODUCT_STATUS.AVAILABLE]: {
     text: '在售',
-    className: 'published'
+    className: 'available'
   },
   [PRODUCT_STATUS.RESERVED]: {
     text: '已预订',
@@ -35,7 +37,7 @@ const PRODUCT_STATUS_META = {
 };
 
 const PUBLIC_PRODUCT_STATUSES = [
-  PRODUCT_STATUS.PUBLISHED,
+  PRODUCT_STATUS.AVAILABLE,
   PRODUCT_STATUS.RESERVED,
   PRODUCT_STATUS.SOLD
 ];

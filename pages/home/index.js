@@ -108,6 +108,11 @@ Page({
       });
     } else if (mode === 'query') {
       this.setData({
+        products: [],
+        viewState: 'loading',
+        page: 1,
+        total: 0,
+        hasMore: false,
         isLoading: true,
         isQuerying: true,
         errorMessage: '',
@@ -139,7 +144,7 @@ Page({
       }
 
       const products = isLoadMore
-        ? this.data.products.concat(result.list)
+        ? this.mergeProducts(this.data.products, result.list)
         : result.list;
       const emptyState = this.buildEmptyState();
 
@@ -172,7 +177,9 @@ Page({
       } else {
         this.setData({
           viewState: 'error',
-          errorMessage: '商品加载失败，请检查网络后重试'
+          errorMessage: error && error.message
+            ? error.message
+            : '商品服务暂不可用，请稍后重试'
         });
       }
 
@@ -187,6 +194,21 @@ Page({
         });
       }
     }
+  },
+
+  mergeProducts(currentProducts, nextProducts) {
+    const list = [];
+    const seenIds = new Set();
+
+    currentProducts.concat(nextProducts).forEach((product) => {
+      if (!product || !product.id || seenIds.has(product.id)) {
+        return;
+      }
+      seenIds.add(product.id);
+      list.push(product);
+    });
+
+    return list;
   },
 
   buildQuerySummary(total) {
@@ -257,7 +279,15 @@ Page({
 
   onKeywordInput(event) {
     this.requestVersion += 1;
-    this.setData({ keyword: event.detail.value });
+    this.setData({
+      keyword: event.detail.value,
+      products: [],
+      viewState: 'loading',
+      page: 1,
+      total: 0,
+      hasMore: false,
+      loadMoreError: false
+    });
     this.scheduleSearch();
   },
 

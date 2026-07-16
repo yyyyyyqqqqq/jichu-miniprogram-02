@@ -86,8 +86,8 @@ Page({
           viewState: 'notFound',
           showErrorState: true,
           canRetry: true,
-          errorTitle: '商品不存在或暂不可查看',
-          errorDescription: '商品可能已删除、下架，或当前链接已经失效',
+          errorTitle: '商品不存在或已下架',
+          errorDescription: '当前商品不可公开查看，或分享链接已经失效',
           errorActionText: '重新加载'
         });
         return;
@@ -110,7 +110,9 @@ Page({
         showErrorState: true,
         canRetry: true,
         errorTitle: '商品详情加载失败',
-        errorDescription: '请稍后重试，或返回首页浏览其他商品',
+        errorDescription: error && error.message
+          ? error.message
+          : '商品服务暂不可用，请稍后重试',
         errorActionText: '重新加载'
       });
     }

@@ -37,7 +37,13 @@ function readJson(filePath) {
 function walk(directory) {
   const result = [];
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (['.git', 'node_modules', 'miniprogram_npm'].includes(entry.name)) {
+    if ([
+      '.git',
+      'node_modules',
+      'miniprogram_npm',
+      'temp',
+      'tmp'
+    ].includes(entry.name)) {
       continue;
     }
     const fullPath = path.join(directory, entry.name);
@@ -343,17 +349,22 @@ record('cloud function project structure is complete', () => {
   const functionRoot = projectConfig.cloudfunctionRoot;
   assert(functionRoot === 'cloudfunctions/', 'cloudfunctionRoot is not configured');
 
-  const functionDirectory = path.join(root, functionRoot, 'authUser');
-  ['index.js', 'package.json', 'package-lock.json'].forEach((name) => {
-    assert(fs.existsSync(path.join(functionDirectory, name)), `authUser/${name} is missing`);
-  });
+  ['authUser', 'productQuery'].forEach((functionName) => {
+    const functionDirectory = path.join(root, functionRoot, functionName);
+    ['index.js', 'package.json', 'package-lock.json'].forEach((name) => {
+      assert(
+        fs.existsSync(path.join(functionDirectory, name)),
+        `${functionName}/${name} is missing`
+      );
+    });
 
-  const functionPackage = readJson(path.join(functionDirectory, 'package.json'));
-  assert(
-    functionPackage.dependencies
-    && typeof functionPackage.dependencies['wx-server-sdk'] === 'string',
-    'authUser does not depend on wx-server-sdk'
-  );
+    const functionPackage = readJson(path.join(functionDirectory, 'package.json'));
+    assert(
+      functionPackage.dependencies
+      && typeof functionPackage.dependencies['wx-server-sdk'] === 'string',
+      `${functionName} does not depend on wx-server-sdk`
+    );
+  });
 });
 
 record('authUser obtains identity securely and returns a safe envelope', () => {
@@ -399,6 +410,43 @@ record('AuthService and AuthStore expose the required boundaries', () => {
   ['idle', 'restoring', 'anonymous', 'authenticated', 'error'].forEach((status) => {
     assert(statusValues.includes(status), `AuthStore status ${status} is missing`);
   });
+});
+
+record('productQuery enforces public reads, real pagination and safe errors', () => {
+  const source = readText(path.join(root, 'cloudfunctions/productQuery/index.js'));
+  const seedSource = readText(path.join(root, 'cloudfunctions/productQuery/seed-products.js'));
+
+  assert(/['"]list['"]/.test(source) && /['"]detail['"]/.test(source), 'productQuery actions are incomplete');
+  assert(/status:\s*command\.in\(PUBLIC_STATUSES\)/.test(source), 'productQuery detail does not filter public statuses');
+  assert(/\.skip\(offset\)\.limit\(pageSize\)/.test(source), 'productQuery does not use database pagination');
+  assert(/\.count\(\)/.test(source), 'productQuery does not calculate a real total');
+  assert(/PRODUCT_NOT_FOUND/.test(source), 'productQuery does not expose PRODUCT_NOT_FOUND');
+  assert(/INVALID_PARAMS/.test(source), 'productQuery does not expose INVALID_PARAMS');
+  assert(/DATABASE_ERROR/.test(source), 'productQuery does not expose DATABASE_ERROR');
+  assert(!/wx\.cloud\.database/.test(source), 'productQuery uses a client database API');
+  assert(/PRODUCT_SEED_ENABLED/.test(source), 'product seed action is not explicitly protected');
+  assert(/SEED_PRODUCTS_V1/.test(source), 'product seed action lacks an explicit confirmation');
+  assert((seedSource.match(/product-\d{3}/g) || []).length >= 10, 'product seed has fewer than ten fixtures');
+  ['available', 'reserved', 'sold', 'offline'].forEach((status) => {
+    assert(seedSource.includes(`'${status}'`), `product seed does not include ${status}`);
+  });
+  assert(/new Date\(createdAt\)/.test(seedSource), 'product seed timestamps are not real Date values');
+});
+
+record('ProductService centralizes cloud access and data normalization', () => {
+  const source = readText(path.join(root, 'services/product-service.js'));
+  const cloudConfigSource = readText(path.join(root, 'config/cloud.js'));
+  const homeSource = readText(path.join(root, 'pages/home/index.js'));
+  const detailSource = readText(path.join(root, 'pages/product-detail/index.js'));
+
+  assert(/wx\.cloud\.callFunction/.test(source), 'ProductService does not call the query cloud function');
+  assert(/normalizeProduct/.test(source) && /normalizeProductList/.test(source), 'product normalization is incomplete');
+  assert(/productFunctionName/.test(cloudConfigSource), 'product cloud function name is not centralized');
+  assert(/productTimeoutMs/.test(cloudConfigSource), 'product request timeout is not centralized');
+  assert(!/wx\.cloud\.(?:database|callFunction)/.test(homeSource), 'home accesses cloud data directly');
+  assert(!/wx\.cloud\.(?:database|callFunction)/.test(detailSource), 'detail accesses cloud data directly');
+  assert(/requestVersion/.test(homeSource), 'home stale-request protection is missing');
+  assert(/mergeProducts/.test(homeSource), 'home product de-duplication is missing');
 });
 
 record('App bootstrap is non-blocking and cloud initialization is centralized', () => {
@@ -478,152 +526,265 @@ record('login and profile pages implement auth state UI', () => {
 });
 
 record('cloud function dependencies are ignored and not tracked', () => {
-  const ignored = spawnSync(
-    'git',
-    ['check-ignore', 'cloudfunctions/authUser/node_modules'],
-    { cwd: root, encoding: 'utf8' }
-  );
-  assert(ignored.status === 0, 'cloud function node_modules is not ignored');
+  ['authUser', 'productQuery'].forEach((functionName) => {
+    const modulePath = `cloudfunctions/${functionName}/node_modules`;
+    const ignored = spawnSync(
+      'git',
+      ['check-ignore', '--no-index', `${modulePath}/verification-placeholder.js`],
+      { cwd: root, encoding: 'utf8' }
+    );
+    assert(ignored.status === 0, `${functionName} node_modules is not ignored`);
 
-  const tracked = spawnSync(
-    'git',
-    ['ls-files', 'cloudfunctions/authUser/node_modules'],
-    { cwd: root, encoding: 'utf8' }
-  );
-  assert(!tracked.stdout.trim(), 'cloud function node_modules is tracked');
+    const tracked = spawnSync(
+      'git',
+      ['ls-files', modulePath],
+      { cwd: root, encoding: 'utf8' }
+    );
+    assert(!tracked.stdout.trim(), `${functionName} node_modules is tracked`);
+  });
 });
 
 async function verifyServiceFlow() {
   const ProductService = require(path.join(root, 'services/product-service'));
+  const { SEED_PRODUCTS } = require(path.join(
+    root,
+    'cloudfunctions/productQuery/seed-products'
+  ));
   const {
     PRODUCT_STATUS,
     PUBLIC_PRODUCT_STATUSES,
     PRODUCT_SORT
   } = require(path.join(root, 'constants/product'));
+  const originalWx = global.wx;
 
-  const firstPage = await ProductService.getProducts({ page: 1, pageSize: 6 });
-  assert(firstPage.list.length === 6, 'home first page did not return 6 products');
-  assert(firstPage.hasMore === true, 'home first page should have more products');
-  assert(firstPage.total === 15, 'public product total is incorrect');
-  assert(firstPage.list.every((product) => PUBLIC_PRODUCT_STATUSES.includes(product.status)), 'home returned a hidden status');
-
-  const digital = await ProductService.getProducts({ categoryId: 'digital', pageSize: 20 });
-  assert(digital.list.length >= 3, 'digital category result is incomplete');
-  assert(digital.list.every((product) => product.categoryId === 'digital'), 'category filter leaked data');
-
-  const search = await ProductService.searchProducts('  键盘  ');
-  assert(search.list.some((product) => product.id === 'product-001'), 'search did not find product-001');
-
-  const spacedSearch = await ProductService.searchProducts('机械   键盘');
-  assert(spacedSearch.list.some((product) => product.id === 'product-001'), 'multi-word search normalization is incorrect');
-
-  const locationSearch = await ProductService.searchProducts('图书馆南门');
-  assert(locationSearch.list.some((product) => product.id === 'product-002'), 'location search did not find product-002');
-
-  const combined = await ProductService.getProducts({
-    categoryId: 'digital',
-    keyword: ' 键盘 ',
-    sortBy: PRODUCT_SORT.PRICE_ASC,
-    pageSize: 20
-  });
-  assert(combined.list.length === 1 && combined.list[0].id === 'product-001', 'category and search combination is incorrect');
-
-  const newest = await ProductService.getProducts({
-    sortBy: PRODUCT_SORT.NEWEST,
-    pageSize: 20
-  });
-  for (let index = 1; index < newest.list.length; index += 1) {
-    assert(
-      new Date(newest.list[index - 1].publishedAt).getTime()
-      >= new Date(newest.list[index].publishedAt).getTime(),
-      'newest sorting is incorrect'
-    );
+  function matchesKeyword(product, keyword) {
+    if (!keyword) {
+      return true;
+    }
+    const searchable = [
+      product.title,
+      product.description,
+      product.categoryName,
+      product.condition,
+      product.location,
+      ...product.tags
+    ].join(' ').toLowerCase();
+    return keyword.toLowerCase().split(' ').every((token) => searchable.includes(token));
   }
 
-  const priceAscending = await ProductService.getProducts({
-    sortBy: PRODUCT_SORT.PRICE_ASC,
-    pageSize: 20
-  });
-  for (let index = 1; index < priceAscending.list.length; index += 1) {
-    assert(
-      priceAscending.list[index - 1].price <= priceAscending.list[index].price,
-      'ascending price sorting is incorrect'
-    );
-  }
-  assert(priceAscending.list[0].price === 0, 'free product is not first in ascending price sort');
-  assert(priceAscending.list[0].priceDisplay === '免费送', 'free product display is incorrect');
-
-  const priceDescending = await ProductService.getProducts({
-    sortBy: PRODUCT_SORT.PRICE_DESC,
-    pageSize: 20
-  });
-  for (let index = 1; index < priceDescending.list.length; index += 1) {
-    assert(
-      priceDescending.list[index - 1].price >= priceDescending.list[index].price,
-      'descending price sorting is incorrect'
-    );
+  function sortProducts(list, sortBy) {
+    const sorted = [...list];
+    if (sortBy === PRODUCT_SORT.NEWEST) {
+      return sorted.sort((left, right) => right.createdAt - left.createdAt);
+    }
+    if (sortBy === PRODUCT_SORT.PRICE_ASC) {
+      return sorted.sort((left, right) => (
+        left.price - right.price || right.createdAt - left.createdAt
+      ));
+    }
+    if (sortBy === PRODUCT_SORT.PRICE_DESC) {
+      return sorted.sort((left, right) => (
+        right.price - left.price || right.createdAt - left.createdAt
+      ));
+    }
+    return sorted.sort((left, right) => (
+      right.favoriteCount - left.favoriteCount
+      || right.viewCount - left.viewCount
+      || right.createdAt - left.createdAt
+    ));
   }
 
-  const reservedOnly = await ProductService.getProducts({
-    status: PRODUCT_STATUS.RESERVED,
-    pageSize: 20
-  });
-  assert(
-    reservedOnly.list.length === 1
-    && reservedOnly.list[0].status === PRODUCT_STATUS.RESERVED,
-    'status filtering is incorrect'
-  );
+  global.wx = {
+    cloud: {
+      callFunction({ name, data, success, fail }) {
+        if (name !== 'productQuery') {
+          fail({ errMsg: 'cloud function not found' });
+          return;
+        }
 
-  const hiddenStatusQuery = await ProductService.getProducts({
-    status: [
-      PRODUCT_STATUS.DRAFT,
-      PRODUCT_STATUS.OFFLINE,
-      PRODUCT_STATUS.DELETED
-    ],
-    pageSize: 20
-  });
-  assert(hiddenStatusQuery.list.length === 0, 'hidden status query leaked public products');
+        const request = data.data || {};
+        if (data.action === 'list') {
+          const statuses = Array.isArray(request.statuses)
+            ? request.statuses
+            : PUBLIC_PRODUCT_STATUSES;
+          const filtered = SEED_PRODUCTS.filter((product) => (
+            statuses.includes(product.status)
+            && (request.categoryId === 'all' || product.categoryId === request.categoryId)
+            && matchesKeyword(product, request.keyword)
+          ));
+          const sorted = sortProducts(filtered, request.sortBy);
+          const start = (request.page - 1) * request.pageSize;
+          const list = sorted.slice(start, start + request.pageSize);
+          success({
+            result: {
+              success: true,
+              code: 'OK',
+              message: '',
+              data: {
+                list,
+                total: sorted.length,
+                page: request.page,
+                pageSize: request.pageSize,
+                hasMore: start + list.length < sorted.length
+              }
+            }
+          });
+          return;
+        }
 
-  const clamped = await ProductService.getProducts({ page: 0, pageSize: 999 });
-  assert(clamped.page === 1, 'page lower bound is incorrect');
-  assert(clamped.pageSize === 20, 'pageSize upper bound is incorrect');
+        if (data.action === 'detail') {
+          const product = SEED_PRODUCTS.find((item) => (
+            item._id === request.productId
+            && PUBLIC_PRODUCT_STATUSES.includes(item.status)
+          ));
+          success({
+            result: product
+              ? {
+                success: true,
+                code: 'OK',
+                message: '',
+                data: { product }
+              }
+              : {
+                success: false,
+                code: 'PRODUCT_NOT_FOUND',
+                message: '商品不存在或已下架',
+                data: null
+              }
+          });
+          return;
+        }
 
-  const pagedIds = [];
-  let page = 1;
-  let pageResult;
-  do {
-    pageResult = await ProductService.getProducts({ page, pageSize: 6 });
-    pagedIds.push(...pageResult.list.map((product) => product.id));
-    page += 1;
-  } while (pageResult.hasMore);
-  assert(pagedIds.length === firstPage.total, 'pagination did not return the full public list');
-  assert(new Set(pagedIds).size === pagedIds.length, 'pagination returned duplicate products');
-  assert(pageResult.hasMore === false, 'final page hasMore should be false');
+        fail({ errMsg: 'unsupported action' });
+      }
+    }
+  };
 
-  const detail = await ProductService.getProductById('product-001');
-  assert(detail && detail.id === 'product-001', 'detail lookup failed');
-  assert(detail.priceDisplay === '¥129', 'detail price display is incorrect');
+  try {
+    const firstPage = await ProductService.getProducts({ page: 1, pageSize: 6 });
+    assert(firstPage.list.length === 6, 'home first page did not return 6 products');
+    assert(firstPage.hasMore === true, 'home first page should have more products');
+    assert(firstPage.total === 15, 'public product total is incorrect');
+    assert(firstPage.list.every((product) => PUBLIC_PRODUCT_STATUSES.includes(product.status)), 'home returned a hidden status');
 
-  const reservedDetail = await ProductService.getProductById('product-005');
-  assert(reservedDetail && reservedDetail.isReserved, 'reserved detail is unavailable');
+    const digital = await ProductService.getProducts({ categoryId: 'digital', pageSize: 20 });
+    assert(digital.list.length >= 3, 'digital category result is incomplete');
+    assert(digital.list.every((product) => product.categoryId === 'digital'), 'category filter leaked data');
 
-  const soldDetail = await ProductService.getProductById('product-015');
-  assert(soldDetail && soldDetail.isSold, 'sold detail is unavailable');
+    const search = await ProductService.searchProducts('  键盘  ');
+    assert(search.list.some((product) => product.id === 'product-001'), 'search did not find product-001');
 
-  const missing = await ProductService.getProductById('missing-product');
-  assert(missing === null, 'missing detail should return null');
+    const spacedSearch = await ProductService.searchProducts('机械   键盘');
+    assert(spacedSearch.list.some((product) => product.id === 'product-001'), 'multi-word search normalization is incorrect');
 
-  const blank = await ProductService.getProductById('  ');
-  assert(blank === null, 'blank detail id should return null');
+    const locationSearch = await ProductService.searchProducts('图书馆南门');
+    assert(locationSearch.list.some((product) => product.id === 'product-002'), 'location search did not find product-002');
 
-  const draft = await ProductService.getProductById('product-003');
-  assert(draft === null, 'draft detail should not be public');
+    const combined = await ProductService.getProducts({
+      categoryId: 'digital',
+      keyword: ' 键盘 ',
+      sortBy: PRODUCT_SORT.PRICE_ASC,
+      pageSize: 20
+    });
+    assert(combined.list.length === 1 && combined.list[0].id === 'product-001', 'category and search combination is incorrect');
 
-  const offline = await ProductService.getProductById('product-017');
-  assert(offline === null, 'offline detail should not be public');
+    const newest = await ProductService.getProducts({
+      sortBy: PRODUCT_SORT.NEWEST,
+      pageSize: 20
+    });
+    for (let index = 1; index < newest.list.length; index += 1) {
+      assert(
+        new Date(newest.list[index - 1].createdAt).getTime()
+        >= new Date(newest.list[index].createdAt).getTime(),
+        'newest sorting is incorrect'
+      );
+    }
 
-  const deleted = await ProductService.getProductById('product-018');
-  assert(deleted === null, 'deleted detail should not be public');
+    const priceAscending = await ProductService.getProducts({
+      sortBy: PRODUCT_SORT.PRICE_ASC,
+      pageSize: 20
+    });
+    for (let index = 1; index < priceAscending.list.length; index += 1) {
+      assert(
+        priceAscending.list[index - 1].price <= priceAscending.list[index].price,
+        'ascending price sorting is incorrect'
+      );
+    }
+    assert(priceAscending.list[0].price === 0, 'free product is not first in ascending price sort');
+    assert(priceAscending.list[0].priceDisplay === '免费送', 'free product display is incorrect');
+
+    const priceDescending = await ProductService.getProducts({
+      sortBy: PRODUCT_SORT.PRICE_DESC,
+      pageSize: 20
+    });
+    for (let index = 1; index < priceDescending.list.length; index += 1) {
+      assert(
+        priceDescending.list[index - 1].price >= priceDescending.list[index].price,
+        'descending price sorting is incorrect'
+      );
+    }
+
+    const reservedOnly = await ProductService.getProducts({
+      status: PRODUCT_STATUS.RESERVED,
+      pageSize: 20
+    });
+    assert(
+      reservedOnly.list.length === 1
+      && reservedOnly.list[0].status === PRODUCT_STATUS.RESERVED,
+      'status filtering is incorrect'
+    );
+
+    const hiddenStatusQuery = await ProductService.getProducts({
+      status: [
+        PRODUCT_STATUS.DRAFT,
+        PRODUCT_STATUS.OFFLINE,
+        PRODUCT_STATUS.DELETED
+      ],
+      pageSize: 20
+    });
+    assert(hiddenStatusQuery.list.length === 0, 'hidden status query leaked public products');
+
+    const clamped = await ProductService.getProducts({ page: 0, pageSize: 999 });
+    assert(clamped.page === 1, 'page lower bound is incorrect');
+    assert(clamped.pageSize === 20, 'pageSize upper bound is incorrect');
+
+    const pagedIds = [];
+    let page = 1;
+    let pageResult;
+    do {
+      pageResult = await ProductService.getProducts({ page, pageSize: 6 });
+      pagedIds.push(...pageResult.list.map((product) => product.id));
+      page += 1;
+    } while (pageResult.hasMore);
+    assert(pagedIds.length === firstPage.total, 'pagination did not return the full public list');
+    assert(new Set(pagedIds).size === pagedIds.length, 'pagination returned duplicate products');
+    assert(pageResult.hasMore === false, 'final page hasMore should be false');
+
+    const detail = await ProductService.getProductById('product-001');
+    assert(detail && detail.id === 'product-001', 'detail lookup failed');
+    assert(detail.priceDisplay === '¥129', 'detail price display is incorrect');
+
+    const reservedDetail = await ProductService.getProductById('product-005');
+    assert(reservedDetail && reservedDetail.isReserved, 'reserved detail is unavailable');
+
+    const soldDetail = await ProductService.getProductById('product-015');
+    assert(soldDetail && soldDetail.isSold, 'sold detail is unavailable');
+
+    const missing = await ProductService.getProductById('missing-product');
+    assert(missing === null, 'missing detail should return null');
+
+    const blank = await ProductService.getProductById('  ');
+    assert(blank === null, 'blank detail id should return null');
+
+    const offline = await ProductService.getProductById('product-017');
+    assert(offline === null, 'offline detail should not be public');
+  } finally {
+    if (originalWx === undefined) {
+      delete global.wx;
+    } else {
+      global.wx = originalWx;
+    }
+  }
 }
 
 async function verifyAuthStateFlow() {
