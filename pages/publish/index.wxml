@@ -1,0 +1,10 @@
+<view class="page-shell--plain">
+  <view class="surface-card placeholder-page">
+    <view class="placeholder-mark">＋</view>
+    <view class="placeholder-title">发布功能正在准备中</view>
+    <view class="placeholder-description">
+      发布功能将在后续阶段接入微信登录、图片上传和云数据库。
+    </view>
+    <button class="secondary-button notice-button" bindtap="showNotice">了解当前进度</button>
+  </view>
+</view>

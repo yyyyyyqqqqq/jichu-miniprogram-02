@@ -1,0 +1,7 @@
+.message-header {
+  padding: 10rpx 2rpx 30rpx;
+}
+
+.message-empty {
+  margin-top: 8rpx;
+}

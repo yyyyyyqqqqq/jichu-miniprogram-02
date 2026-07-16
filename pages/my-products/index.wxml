@@ -1,0 +1,7 @@
+<view class="page-shell--plain">
+  <view class="surface-card placeholder-page">
+    <view class="placeholder-mark">发</view>
+    <view class="placeholder-title">我的发布</view>
+    <view class="placeholder-description">商品发布与管理将在接入登录、图片上传和云数据库后开放。</view>
+  </view>
+</view>

@@ -1,0 +1,13 @@
+{
+  "navigationBarTitleText": "闲置面交",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark",
+  "onReachBottomDistance": 120,
+  "usingComponents": {
+    "search-bar": "/components/search-bar/index",
+    "category-tabs": "/components/category-tabs/index",
+    "product-card": "/components/product-card/index",
+    "empty-state": "/components/empty-state/index",
+    "loading-state": "/components/loading-state/index"
+  }
+}

@@ -1,0 +1,13 @@
+<scroll-view class="tabs-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+  <view class="tabs-row">
+    <view
+      wx:for="{{categories}}"
+      wx:key="id"
+      class="tab-chip {{item.id === selectedId ? 'tab-chip--active' : ''}}"
+      data-id="{{item.id}}"
+      catchtap="onSelect"
+    >
+      {{item.name}}
+    </view>
+  </view>
+</scroll-view>

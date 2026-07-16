@@ -1,0 +1,7 @@
+<view class="page-shell--plain">
+  <view class="surface-card placeholder-page">
+    <view class="placeholder-mark">点</view>
+    <view class="placeholder-title">面交地点选择占位</view>
+    <view class="placeholder-description">地图选点和面交预约不属于第一阶段，本页面仅保证后续路由边界有效。</view>
+  </view>
+</view>

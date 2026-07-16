@@ -1,0 +1,34 @@
+<view wx:if="{{product}}" class="product-card" hover-class="product-card--pressed" bindtap="onTap">
+  <view class="product-cover product-cover--{{product.coverTone}}">
+    <image
+      wx:if="{{product.coverImage}}"
+      class="product-cover__image"
+      src="{{product.coverImage}}"
+      mode="aspectFill"
+    />
+    <text wx:else class="product-cover__label">{{product.coverLabel}}</text>
+    <text class="condition-badge">{{product.condition}}</text>
+  </view>
+
+  <view class="product-content">
+    <text class="product-title">{{product.title}}</text>
+
+    <view class="tag-list">
+      <text wx:for="{{product.tags}}" wx:key="*this" class="tag-item">{{item}}</text>
+    </view>
+
+    <view class="product-meta">
+      <text class="location-text">⌖ {{product.locationName}}</text>
+      <text class="time-text">{{product.publishedAtText}}</text>
+    </view>
+
+    <view class="price-row">
+      <view>
+        <text class="price-symbol">¥</text>
+        <text class="price-value">{{product.priceText}}</text>
+        <text class="original-price">¥{{product.originalPriceText}}</text>
+      </view>
+      <text class="meet-text">{{product.distanceText}}</text>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,7 @@
+<view class="page-shell--plain">
+  <view class="surface-card placeholder-page">
+    <view class="placeholder-mark">校</view>
+    <view class="placeholder-title">用户主页占位</view>
+    <view class="placeholder-description">卖家资料与信用信息将在真实用户体系建立后展示。</view>
+  </view>
+</view>

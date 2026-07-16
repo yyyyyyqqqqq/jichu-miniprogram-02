@@ -1,0 +1,79 @@
+<view class="page-shell--plain detail-page">
+  <loading-state wx:if="{{loading}}" text="正在加载商品详情" />
+
+  <empty-state
+    wx:elif="{{errorMessage}}"
+    title="暂时看不到这件闲置"
+    description="{{errorMessage}}"
+    action-text="返回首页"
+    bind:action="goBack"
+  />
+
+  <block wx:elif="{{product}}">
+    <view class="detail-cover detail-cover--{{product.coverTone}}">
+      <image
+        wx:if="{{product.coverImage}}"
+        class="detail-image"
+        src="{{product.coverImage}}"
+        mode="aspectFill"
+      />
+      <text wx:else class="detail-cover-label">{{product.coverLabel}}</text>
+      <text class="detail-condition">{{product.condition}}</text>
+    </view>
+
+    <view class="surface-card detail-main">
+      <view class="detail-price-row">
+        <view>
+          <text class="price-symbol">¥</text>
+          <text class="price-value">{{product.priceText}}</text>
+          <text class="original-price">¥{{product.originalPriceText}}</text>
+        </view>
+        <text class="category-name">{{product.categoryName}}</text>
+      </view>
+
+      <view class="detail-title">{{product.title}}</view>
+
+      <view class="tag-list">
+        <text wx:for="{{product.tags}}" wx:key="*this" class="tag-item">{{item}}</text>
+      </view>
+
+      <view class="meta-grid">
+        <view class="meta-item">
+          <text class="meta-label">面交地点</text>
+          <text class="meta-value">{{product.locationName}}</text>
+        </view>
+        <view class="meta-item">
+          <text class="meta-label">发布时间</text>
+          <text class="meta-value">{{product.publishedAtText}}</text>
+        </view>
+        <view class="meta-item">
+          <text class="meta-label">交易方式</text>
+          <text class="meta-value">{{product.distanceText}}</text>
+        </view>
+        <view class="meta-item">
+          <text class="meta-label">浏览次数</text>
+          <text class="meta-value">{{product.viewCount}} 次</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="surface-card detail-section">
+      <view class="section-title">物品描述</view>
+      <view class="description-text">{{product.description}}</view>
+    </view>
+
+    <view class="surface-card seller-card">
+      <view class="seller-avatar">{{product.seller.initial}}</view>
+      <view class="seller-info">
+        <text class="seller-name">{{product.seller.nickname}}</text>
+        <text class="seller-note">{{product.campus}} · 线下面交</text>
+      </view>
+      <text class="seller-status">{{product.seller.verified ? '已认证' : '校园用户'}}</text>
+    </view>
+
+    <view class="detail-actions">
+      <button class="secondary-button action-button" bindtap="showLaterNotice">收藏</button>
+      <button class="primary-button action-button action-button--main" bindtap="showLaterNotice">联系卖家</button>
+    </view>
+  </block>
+</view>

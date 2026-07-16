@@ -1,0 +1,65 @@
+.home-page {
+  padding-top: 34rpx;
+}
+
+.hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: 10rpx;
+  color: #16a36a;
+  font-size: 22rpx;
+  font-weight: 700;
+  letter-spacing: 3rpx;
+}
+
+.campus-badge {
+  min-width: 88rpx;
+  height: 58rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid #cce9dc;
+  border-radius: 18rpx;
+  background: #eaf7f1;
+  color: #13865a;
+  font-size: 23rpx;
+  font-weight: 650;
+}
+
+.search-section {
+  margin-top: 34rpx;
+}
+
+.category-section {
+  margin-top: 26rpx;
+}
+
+.list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 36rpx 2rpx 20rpx;
+}
+
+.list-title {
+  color: #26342d;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.list-count {
+  color: #8a948f;
+  font-size: 23rpx;
+}
+
+.list-end {
+  padding: 22rpx 0 8rpx;
+  color: #a0a8a4;
+  font-size: 23rpx;
+  text-align: center;
+}

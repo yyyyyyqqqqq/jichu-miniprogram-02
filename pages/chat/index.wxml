@@ -1,0 +1,7 @@
+<view class="page-shell--plain">
+  <view class="surface-card placeholder-page">
+    <view class="placeholder-mark">聊</view>
+    <view class="placeholder-title">聊天功能尚未开放</view>
+    <view class="placeholder-description">本阶段不伪造聊天记录，消息与面交预约将在后续阶段实现。</view>
+  </view>
+</view>

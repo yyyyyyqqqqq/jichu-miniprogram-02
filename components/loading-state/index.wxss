@@ -1,0 +1,33 @@
+.loading-state {
+  min-height: 300rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #82908a;
+  font-size: 25rpx;
+}
+
+.loading-state--compact {
+  min-height: 92rpx;
+}
+
+.loading-dot {
+  width: 12rpx;
+  height: 12rpx;
+  margin-right: 8rpx;
+  border-radius: 50%;
+  background: #16a36a;
+  opacity: 0.35;
+}
+
+.loading-dot--middle {
+  opacity: 0.65;
+}
+
+.loading-dot--last {
+  opacity: 1;
+}
+
+.loading-text {
+  margin-left: 10rpx;
+}

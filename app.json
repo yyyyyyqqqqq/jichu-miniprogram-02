@@ -1,0 +1,46 @@
+{
+  "pages": [
+    "pages/home/index",
+    "pages/messages/index",
+    "pages/profile/index",
+    "pages/product-detail/index",
+    "pages/publish/index",
+    "pages/login/index",
+    "pages/favorites/index",
+    "pages/my-products/index",
+    "pages/chat/index",
+    "pages/user-profile/index",
+    "pages/location-picker/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "即出",
+    "navigationBarBackgroundColor": "#f5f7f6",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f5f7f6",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "custom": true,
+    "color": "#7b8580",
+    "selectedColor": "#16a36a",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/home/index",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/messages/index",
+        "text": "消息"
+      },
+      {
+        "pagePath": "pages/profile/index",
+        "text": "我的"
+      }
+    ]
+  },
+  "sitemapLocation": "sitemap.json",
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents"
+}

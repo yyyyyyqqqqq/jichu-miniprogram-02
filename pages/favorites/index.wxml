@@ -1,0 +1,7 @@
+<view class="page-shell--plain">
+  <view class="surface-card placeholder-page">
+    <view class="placeholder-mark">藏</view>
+    <view class="placeholder-title">暂无收藏</view>
+    <view class="placeholder-description">收藏写入将在后续阶段接入，本阶段不保存虚假收藏状态。</view>
+  </view>
+</view>

@@ -1,0 +1,99 @@
+.profile-card {
+  display: flex;
+  align-items: center;
+  padding: 30rpx;
+}
+
+.avatar-placeholder {
+  width: 104rpx;
+  height: 104rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 34rpx;
+  background: #16a36a;
+  color: #ffffff;
+  font-size: 42rpx;
+  font-weight: 700;
+}
+
+.profile-copy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  margin-left: 24rpx;
+}
+
+.profile-name {
+  color: #25312b;
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.profile-note {
+  margin-top: 10rpx;
+  color: #8b9590;
+  font-size: 23rpx;
+}
+
+.login-button {
+  height: 64rpx;
+  margin: 0;
+  padding: 0 26rpx;
+  border-radius: 999rpx;
+  background: #eaf7f1;
+  color: #13865a;
+  font-size: 24rpx;
+  line-height: 64rpx;
+}
+
+.menu-card {
+  margin-top: 24rpx;
+  padding: 0 28rpx;
+}
+
+.menu-item {
+  min-height: 104rpx;
+  display: flex;
+  align-items: center;
+  border-bottom: 1rpx solid #edf1ef;
+}
+
+.menu-item--last {
+  border-bottom: 0;
+}
+
+.menu-icon {
+  width: 54rpx;
+  height: 54rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 17rpx;
+  background: #edf8f3;
+  color: #13865a;
+  font-size: 21rpx;
+  font-weight: 650;
+}
+
+.menu-label {
+  flex: 1;
+  margin-left: 20rpx;
+  color: #3a4841;
+  font-size: 27rpx;
+}
+
+.menu-arrow {
+  color: #a5ada9;
+  font-size: 42rpx;
+  font-weight: 300;
+}
+
+.safety-note {
+  margin-top: 30rpx;
+  color: #98a19c;
+  font-size: 22rpx;
+  text-align: center;
+}

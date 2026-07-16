@@ -1,0 +1,23 @@
+<view class="tab-bar">
+  <view class="tab-item {{selected === 'home' ? 'tab-item--active' : ''}}" catchtap="onHomeTap">
+    <view class="home-icon"></view>
+    <text>首页</text>
+  </view>
+
+  <view class="publish-wrap" catchtap="onPublishTap">
+    <view class="publish-button">
+      <text class="publish-plus">+</text>
+    </view>
+    <text class="publish-label">发布</text>
+  </view>
+
+  <view class="tab-item {{selected === 'messages' ? 'tab-item--active' : ''}}" catchtap="onMessagesTap">
+    <view class="message-icon"></view>
+    <text>消息</text>
+  </view>
+
+  <view class="tab-item {{selected === 'profile' ? 'tab-item--active' : ''}}" catchtap="onProfileTap">
+    <view class="profile-icon"></view>
+    <text>我的</text>
+  </view>
+</view>

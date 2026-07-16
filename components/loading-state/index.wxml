@@ -1,0 +1,6 @@
+<view class="loading-state {{compact ? 'loading-state--compact' : ''}}">
+  <view class="loading-dot"></view>
+  <view class="loading-dot loading-dot--middle"></view>
+  <view class="loading-dot loading-dot--last"></view>
+  <text class="loading-text">{{text}}</text>
+</view>

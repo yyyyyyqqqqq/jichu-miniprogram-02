@@ -1,0 +1,12 @@
+<view class="page-shell">
+  <view class="message-header">
+    <view class="page-title">消息</view>
+    <view class="page-subtitle">后续可在这里查看私信与面交预约通知</view>
+  </view>
+  <view class="surface-card message-empty">
+    <empty-state
+      title="还没有消息"
+      description="本阶段未接入真实聊天数据，聊天与面交预约将在后续开放"
+    />
+  </view>
+</view>

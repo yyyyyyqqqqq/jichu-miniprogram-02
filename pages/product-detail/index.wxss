@@ -1,0 +1,243 @@
+.detail-page {
+  padding-bottom: calc(150rpx + env(safe-area-inset-bottom));
+}
+
+.detail-cover {
+  position: relative;
+  height: 490rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: -28rpx -28rpx 24rpx;
+  background: #e8f6ef;
+}
+
+.detail-cover--blue {
+  background: #e7f0fb;
+}
+
+.detail-cover--sand {
+  background: #f4eee2;
+}
+
+.detail-cover--rose {
+  background: #f8e9eb;
+}
+
+.detail-cover--lime {
+  background: #edf5df;
+}
+
+.detail-cover--violet {
+  background: #eeeafa;
+}
+
+.detail-cover--cyan {
+  background: #e4f4f3;
+}
+
+.detail-cover--orange {
+  background: #faeddf;
+}
+
+.detail-image {
+  width: 100%;
+  height: 100%;
+}
+
+.detail-cover-label {
+  color: rgba(28, 74, 53, 0.55);
+  font-size: 66rpx;
+  font-weight: 700;
+  letter-spacing: 12rpx;
+}
+
+.detail-condition {
+  position: absolute;
+  right: 28rpx;
+  bottom: 28rpx;
+  padding: 10rpx 20rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.9);
+  color: #34483e;
+  font-size: 23rpx;
+}
+
+.detail-main,
+.detail-section,
+.seller-card {
+  padding: 28rpx;
+}
+
+.detail-section,
+.seller-card {
+  margin-top: 22rpx;
+}
+
+.detail-price-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.price-symbol {
+  color: #ef5d42;
+  font-size: 28rpx;
+  font-weight: 700;
+}
+
+.price-value {
+  color: #ef5d42;
+  font-size: 52rpx;
+  font-weight: 760;
+}
+
+.original-price {
+  margin-left: 14rpx;
+  color: #a0a8a4;
+  font-size: 23rpx;
+  text-decoration: line-through;
+}
+
+.category-name {
+  padding: 8rpx 16rpx;
+  border-radius: 999rpx;
+  background: #eaf7f1;
+  color: #13865a;
+  font-size: 22rpx;
+}
+
+.detail-title {
+  margin-top: 16rpx;
+  color: #1f2a25;
+  font-size: 38rpx;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 20rpx;
+}
+
+.tag-item {
+  padding: 7rpx 14rpx;
+  border-radius: 9rpx;
+  background: #f1f5f3;
+  color: #66716b;
+  font-size: 22rpx;
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24rpx;
+  margin-top: 30rpx;
+  padding-top: 26rpx;
+  border-top: 1rpx solid #edf1ef;
+}
+
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.meta-label {
+  color: #929b96;
+  font-size: 21rpx;
+}
+
+.meta-value {
+  overflow: hidden;
+  margin-top: 7rpx;
+  color: #405047;
+  font-size: 25rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-title {
+  color: #2e3d35;
+  font-size: 29rpx;
+  font-weight: 700;
+}
+
+.description-text {
+  margin-top: 18rpx;
+  color: #65716b;
+  font-size: 26rpx;
+  line-height: 1.8;
+}
+
+.seller-card {
+  display: flex;
+  align-items: center;
+}
+
+.seller-avatar {
+  width: 84rpx;
+  height: 84rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 26rpx;
+  background: #dff2e9;
+  color: #13865a;
+  font-size: 34rpx;
+  font-weight: 700;
+}
+
+.seller-info {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  margin-left: 20rpx;
+}
+
+.seller-name {
+  overflow: hidden;
+  color: #2e3d35;
+  font-size: 27rpx;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seller-note {
+  margin-top: 8rpx;
+  color: #929b96;
+  font-size: 22rpx;
+}
+
+.seller-status {
+  color: #16a36a;
+  font-size: 22rpx;
+}
+
+.detail-actions {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  gap: 18rpx;
+  padding: 18rpx 28rpx calc(18rpx + env(safe-area-inset-bottom));
+  border-top: 1rpx solid #e8eeeb;
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.action-button {
+  width: auto;
+  flex: 1;
+  margin: 0;
+}
+
+.action-button--main {
+  flex: 1.7;
+}

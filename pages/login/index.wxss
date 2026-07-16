@@ -1,0 +1,4 @@
+.later-button {
+  width: 260rpx;
+  margin-top: 36rpx;
+}

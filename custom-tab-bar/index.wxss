@@ -1,0 +1,107 @@
+.tab-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  height: calc(112rpx + env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 8rpx 22rpx env(safe-area-inset-bottom);
+  border-top: 1rpx solid #e8eeeb;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 -10rpx 30rpx rgba(23, 55, 40, 0.05);
+}
+
+.tab-item,
+.publish-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #7b8580;
+  font-size: 21rpx;
+}
+
+.tab-item--active {
+  color: #16a36a;
+}
+
+.home-icon {
+  width: 31rpx;
+  height: 28rpx;
+  margin-bottom: 8rpx;
+  border: 4rpx solid currentColor;
+  border-top: 0;
+  border-radius: 4rpx;
+  transform: translateY(4rpx);
+}
+
+.home-icon::before {
+  content: "";
+  display: block;
+  width: 23rpx;
+  height: 23rpx;
+  border-top: 4rpx solid currentColor;
+  border-left: 4rpx solid currentColor;
+  transform: translate(0, -10rpx) rotate(45deg);
+}
+
+.message-icon {
+  width: 34rpx;
+  height: 28rpx;
+  margin-bottom: 8rpx;
+  border: 4rpx solid currentColor;
+  border-radius: 10rpx;
+}
+
+.message-icon::after {
+  content: "";
+  display: block;
+  width: 10rpx;
+  height: 10rpx;
+  border-left: 4rpx solid currentColor;
+  border-bottom: 4rpx solid currentColor;
+  transform: translate(4rpx, 18rpx) skew(-20deg);
+}
+
+.profile-icon {
+  width: 30rpx;
+  height: 30rpx;
+  margin-bottom: 8rpx;
+  border: 4rpx solid currentColor;
+  border-radius: 50%;
+  box-shadow: 0 22rpx 0 -6rpx #ffffff, 0 22rpx 0 -2rpx currentColor;
+  transform: translateY(-7rpx);
+}
+
+.publish-wrap {
+  justify-content: flex-start;
+  color: #16a36a;
+  transform: translateY(-26rpx);
+}
+
+.publish-button {
+  width: 92rpx;
+  height: 92rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 8rpx solid #f5f7f6;
+  border-radius: 50%;
+  background: #16a36a;
+  box-shadow: 0 12rpx 24rpx rgba(22, 163, 106, 0.28);
+}
+
+.publish-plus {
+  color: #ffffff;
+  font-size: 58rpx;
+  font-weight: 300;
+  line-height: 1;
+  transform: translateY(-4rpx);
+}
+
+.publish-label {
+  margin-top: 3rpx;
+  font-size: 21rpx;
+}

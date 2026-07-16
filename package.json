@@ -1,0 +1,9 @@
+{
+  "name": "jichu-miniprogram-02",
+  "version": "1.0.0",
+  "private": true,
+  "description": "即出——校园闲置物品线下面交平台",
+  "scripts": {
+    "verify": "node scripts/verify-project.js"
+  }
+}

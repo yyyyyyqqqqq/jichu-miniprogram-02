@@ -1,0 +1,13 @@
+project.private.config.json
+.DS_Store
+Thumbs.db
+*.log
+node_modules/
+miniprogram_npm/
+.vscode/
+.idea/
+coverage/
+dist/
+temp/
+tmp/
+01.md

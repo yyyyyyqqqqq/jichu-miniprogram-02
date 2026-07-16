@@ -1,0 +1,10 @@
+<view class="page-shell--plain">
+  <view class="surface-card placeholder-page">
+    <view class="placeholder-mark">登</view>
+    <view class="placeholder-title">登录入口占位</view>
+    <view class="placeholder-description">
+      微信登录与真实用户体系将在第三阶段接入。本阶段不会调用 wx.login，也不会伪造登录成功状态。
+    </view>
+    <button class="secondary-button later-button" bindtap="showNotice">暂不登录</button>
+  </view>
+</view>

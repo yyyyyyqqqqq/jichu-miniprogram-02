@@ -1,0 +1,59 @@
+<view class="page-shell home-page">
+  <view class="hero">
+    <view>
+      <text class="eyebrow">即出 · 校园闲置</text>
+      <view class="page-title">闲置面交</view>
+      <view class="page-subtitle">让闲置在校园里更快遇见需要它的人</view>
+    </view>
+    <view class="campus-badge">校内</view>
+  </view>
+
+  <view class="search-section">
+    <search-bar
+      value="{{keyword}}"
+      bind:input="onKeywordInput"
+      bind:search="onSearchConfirm"
+      bind:clear="onSearchClear"
+    />
+  </view>
+
+  <view class="category-section">
+    <category-tabs
+      categories="{{categories}}"
+      selected-id="{{selectedCategoryId}}"
+      bind:change="onCategoryChange"
+    />
+  </view>
+
+  <view class="list-heading">
+    <text class="list-title">{{keyword ? '搜索结果' : '新鲜闲置'}}</text>
+    <text class="list-count">{{total}} 件</text>
+  </view>
+
+  <loading-state wx:if="{{loading}}" text="正在寻找校园好物" />
+
+  <empty-state
+    wx:elif="{{errorMessage}}"
+    title="加载遇到问题"
+    description="{{errorMessage}}"
+    action-text="重新加载"
+    bind:action="onRetry"
+  />
+
+  <empty-state
+    wx:elif="{{products.length === 0}}"
+    title="暂时没有匹配的闲置"
+    description="试试更换分类或搜索关键词"
+  />
+
+  <view wx:else class="product-list">
+    <product-card
+      wx:for="{{products}}"
+      wx:key="id"
+      product="{{item}}"
+      bind:select="onProductSelect"
+    />
+    <loading-state wx:if="{{loadingMore}}" compact text="加载更多" />
+    <view wx:elif="{{!hasMore}}" class="list-end">已经到底啦</view>
+  </view>
+</view>

@@ -1,0 +1,153 @@
+.product-card {
+  overflow: hidden;
+  margin-bottom: 24rpx;
+  border: 1rpx solid #edf1ef;
+  border-radius: 24rpx;
+  background: #ffffff;
+  box-shadow: 0 10rpx 32rpx rgba(28, 61, 45, 0.06);
+  transition: transform 120ms ease;
+}
+
+.product-card--pressed {
+  transform: scale(0.988);
+}
+
+.product-cover {
+  position: relative;
+  height: 280rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e8f6ef;
+}
+
+.product-cover--blue {
+  background: #e7f0fb;
+}
+
+.product-cover--sand {
+  background: #f4eee2;
+}
+
+.product-cover--rose {
+  background: #f8e9eb;
+}
+
+.product-cover--lime {
+  background: #edf5df;
+}
+
+.product-cover--violet {
+  background: #eeeafa;
+}
+
+.product-cover--cyan {
+  background: #e4f4f3;
+}
+
+.product-cover--orange {
+  background: #faeddf;
+}
+
+.product-cover__image {
+  width: 100%;
+  height: 100%;
+}
+
+.product-cover__label {
+  color: rgba(28, 74, 53, 0.55);
+  font-size: 48rpx;
+  font-weight: 700;
+  letter-spacing: 8rpx;
+}
+
+.condition-badge {
+  position: absolute;
+  top: 18rpx;
+  left: 18rpx;
+  padding: 8rpx 14rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.9);
+  color: #3b5147;
+  font-size: 21rpx;
+}
+
+.product-content {
+  padding: 24rpx;
+}
+
+.product-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #1e2a24;
+  font-size: 31rpx;
+  font-weight: 650;
+  line-height: 1.45;
+  word-break: break-all;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-top: 16rpx;
+}
+
+.tag-item {
+  padding: 5rpx 12rpx;
+  border-radius: 8rpx;
+  background: #f1f5f3;
+  color: #68736d;
+  font-size: 21rpx;
+}
+
+.product-meta,
+.price-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.product-meta {
+  margin-top: 20rpx;
+  color: #89938e;
+  font-size: 22rpx;
+}
+
+.location-text {
+  max-width: 68%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.price-row {
+  margin-top: 20rpx;
+}
+
+.price-symbol {
+  color: #ef5d42;
+  font-size: 23rpx;
+  font-weight: 700;
+}
+
+.price-value {
+  color: #ef5d42;
+  font-size: 38rpx;
+  font-weight: 750;
+}
+
+.original-price {
+  margin-left: 10rpx;
+  color: #a0a8a4;
+  font-size: 21rpx;
+  text-decoration: line-through;
+}
+
+.meet-text {
+  color: #16a36a;
+  font-size: 22rpx;
+  font-weight: 600;
+}
