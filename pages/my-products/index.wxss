@@ -1,1 +1,6 @@
 /* 使用 app.wxss 中的公共占位页样式。 */
+
+.protected-login-button {
+  width: 260rpx;
+  margin-top: 34rpx;
+}

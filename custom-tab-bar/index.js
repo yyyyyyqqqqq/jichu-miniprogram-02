@@ -1,5 +1,9 @@
 const NavigationService = require('../services/navigation-service');
-const { ROUTES } = require('../constants/routes');
+const AuthGuard = require('../services/auth-guard');
+const {
+  ROUTES,
+  AUTH_TARGETS
+} = require('../constants/routes');
 
 Component({
   data: {
@@ -11,12 +15,22 @@ Component({
       NavigationService.safeSwitchTab(ROUTES.HOME);
     },
 
-    onPublishTap() {
-      NavigationService.safeNavigateTo(ROUTES.PUBLISH);
+    async onPublishTap() {
+      const allowed = await AuthGuard.requireLogin({
+        target: AUTH_TARGETS.PUBLISH
+      });
+      if (allowed) {
+        NavigationService.safeNavigateTo(ROUTES.PUBLISH);
+      }
     },
 
-    onMessagesTap() {
-      NavigationService.safeSwitchTab(ROUTES.MESSAGES);
+    async onMessagesTap() {
+      const allowed = await AuthGuard.requireLogin({
+        target: AUTH_TARGETS.MESSAGES
+      });
+      if (allowed) {
+        NavigationService.safeSwitchTab(ROUTES.MESSAGES);
+      }
     },
 
     onProfileTap() {

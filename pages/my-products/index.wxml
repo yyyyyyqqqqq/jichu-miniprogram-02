@@ -1,7 +1,19 @@
 <view class="page-shell--plain">
-  <view class="surface-card placeholder-page">
+  <view wx:if="{{isLoggedIn}}" class="surface-card placeholder-page">
     <view class="placeholder-mark">发</view>
     <view class="placeholder-title">我的发布</view>
-    <view class="placeholder-description">商品发布与管理将在接入登录、图片上传和云数据库后开放。</view>
+    <view class="placeholder-description">
+      当前已完成身份登录，商品发布和管理将在下一阶段开放。
+    </view>
+  </view>
+  <view wx:else class="surface-card placeholder-page">
+    <view class="placeholder-mark">登</view>
+    <view class="placeholder-title">登录后管理发布</view>
+    <view class="placeholder-description">
+      当前不会创建、编辑或删除任何商品。
+    </view>
+    <button class="primary-button protected-login-button" bindtap="goLogin">
+      微信登录
+    </button>
   </view>
 </view>

@@ -1,10 +1,23 @@
 <view class="page-shell--plain">
-  <view class="surface-card placeholder-page">
+  <view wx:if="{{isLoggedIn}}" class="surface-card placeholder-page">
     <view class="placeholder-mark">＋</view>
-    <view class="placeholder-title">发布功能正在准备中</view>
+    <view class="placeholder-title">发布身份已确认</view>
     <view class="placeholder-description">
-      发布功能将在后续阶段接入微信登录、图片上传和云数据库。
+      商品发布将在下一阶段开放，届时将接入图片上传和云数据库商品写入。
     </view>
-    <button class="secondary-button notice-button" bindtap="showNotice">了解当前进度</button>
+    <button class="secondary-button notice-button" bindtap="showNotice">
+      了解当前进度
+    </button>
+  </view>
+
+  <view wx:else class="surface-card placeholder-page">
+    <view class="placeholder-mark">登</view>
+    <view class="placeholder-title">登录后进入发布功能</view>
+    <view class="placeholder-description">
+      当前页面不会创建商品。完成微信身份登录后可进入发布占位页。
+    </view>
+    <button class="primary-button notice-button" bindtap="goLogin">
+      微信登录
+    </button>
   </view>
 </view>

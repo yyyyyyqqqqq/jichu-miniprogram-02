@@ -1,3 +1,7 @@
+.profile-page {
+  padding-top: 34rpx;
+}
+
 .profile-card {
   display: flex;
   align-items: center;
@@ -27,30 +31,147 @@
 }
 
 .profile-name {
+  overflow: hidden;
   color: #25312b;
-  font-size: 32rpx;
+  font-size: 31rpx;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile-note {
+  overflow: hidden;
   margin-top: 10rpx;
   color: #8b9590;
-  font-size: 23rpx;
+  font-size: 22rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .login-button {
   height: 64rpx;
   margin: 0;
-  padding: 0 26rpx;
+  padding: 0 24rpx;
   border-radius: 999rpx;
   background: #eaf7f1;
   color: #13865a;
-  font-size: 24rpx;
+  font-size: 23rpx;
   line-height: 64rpx;
 }
 
-.menu-card {
+.login-status {
+  flex: none;
+  padding: 8rpx 15rpx;
+  border-radius: 999rpx;
+  background: #eaf7f1;
+  color: #13865a;
+  font-size: 21rpx;
+}
+
+.auth-notice {
+  display: flex;
+  align-items: center;
+  margin-top: 20rpx;
+  padding: 20rpx 22rpx;
+  border-radius: 18rpx;
+  font-size: 22rpx;
+}
+
+.auth-notice--restoring {
+  background: #edf8f3;
+  color: #527262;
+}
+
+.notice-dot {
+  width: 12rpx;
+  height: 12rpx;
+  flex: none;
+  margin-right: 12rpx;
+  border-radius: 50%;
+  background: #16a36a;
+}
+
+.auth-notice--error {
+  align-items: flex-start;
+  flex-direction: column;
+  background: #fff1ee;
+  color: #a84b3b;
+}
+
+.auth-error-copy {
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-error-title {
+  font-weight: 700;
+}
+
+.auth-error-message {
+  margin-top: 7rpx;
+  line-height: 1.55;
+}
+
+.auth-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24rpx;
+  margin-top: 16rpx;
+  color: #13865a;
+  font-weight: 650;
+}
+
+.capability-card,
+.menu-card,
+.account-card {
   margin-top: 24rpx;
+}
+
+.capability-card {
+  padding: 28rpx;
+}
+
+.capability-title {
+  color: #34423b;
+  font-size: 27rpx;
+  font-weight: 700;
+}
+
+.capability-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18rpx;
+  margin-top: 24rpx;
+}
+
+.capability-item {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 22rpx 10rpx;
+  border-radius: 18rpx;
+  background: #f5f8f6;
+  color: #758078;
+  font-size: 20rpx;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.capability-icon {
+  width: 48rpx;
+  height: 48rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12rpx;
+  border-radius: 15rpx;
+  background: #e3f4eb;
+  color: #13865a;
+  font-weight: 700;
+}
+
+.menu-card {
   padding: 0 28rpx;
 }
 
@@ -85,10 +206,46 @@
   font-size: 27rpx;
 }
 
+.menu-state {
+  color: #99a19d;
+  font-size: 20rpx;
+}
+
 .menu-arrow {
+  margin-left: 10rpx;
   color: #a5ada9;
   font-size: 42rpx;
   font-weight: 300;
+}
+
+.account-card {
+  padding: 26rpx 28rpx;
+}
+
+.account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.account-label {
+  color: #3d4b43;
+  font-size: 25rpx;
+}
+
+.account-value {
+  color: #8a948f;
+  font-size: 22rpx;
+}
+
+.logout-button {
+  height: 72rpx;
+  margin-top: 24rpx;
+  border-radius: 18rpx;
+  background: #fff1ee;
+  color: #c05442;
+  font-size: 25rpx;
+  line-height: 72rpx;
 }
 
 .safety-note {

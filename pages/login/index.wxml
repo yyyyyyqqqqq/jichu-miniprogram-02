@@ -1,10 +1,71 @@
-<view class="page-shell--plain">
-  <view class="surface-card placeholder-page">
-    <view class="placeholder-mark">登</view>
-    <view class="placeholder-title">登录入口占位</view>
-    <view class="placeholder-description">
-      微信登录与真实用户体系将在第三阶段接入。本阶段不会调用 wx.login，也不会伪造登录成功状态。
+<view class="page-shell--plain login-page">
+  <view class="login-hero">
+    <view class="login-logo">即</view>
+    <view class="page-title">登录即出</view>
+    <view class="page-subtitle">登录后可以发布闲置、收藏商品并联系卖家</view>
+  </view>
+
+  <view class="surface-card login-card">
+    <view wx:if="{{authStatus === 'authenticated' && user}}" class="logged-in-panel">
+      <view class="logged-avatar">{{user.avatarText}}</view>
+      <view class="logged-copy">
+        <text class="logged-title">当前已登录</text>
+        <text class="logged-name">{{user.nickname}}</text>
+      </view>
     </view>
-    <button class="secondary-button later-button" bindtap="showNotice">暂不登录</button>
+
+    <view wx:else>
+      <view class="login-purpose-title">使用微信身份安全登录</view>
+      <view class="purpose-list">
+        <view class="purpose-item">
+          <view class="purpose-mark">1</view>
+          <text>云端识别当前微信身份，不在页面展示身份标识</text>
+        </view>
+        <view class="purpose-item">
+          <view class="purpose-mark">2</view>
+          <text>首次登录创建最小用户记录，再次进入恢复同一用户</text>
+        </view>
+        <view class="purpose-item">
+          <view class="purpose-mark">3</view>
+          <text>不会自动获取你的微信昵称、头像、手机号或学校信息</text>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{errorMessage}}" class="login-error">
+      <text>{{errorMessage}}</text>
+      <text
+        wx:if="{{authStatus === 'error'}}"
+        class="retry-link"
+        bindtap="onRetryRestore"
+      >
+        重新校验
+      </text>
+    </view>
+
+    <button
+      wx:if="{{authStatus !== 'authenticated'}}"
+      class="wechat-login-button"
+      loading="{{isLoggingIn}}"
+      disabled="{{isLoggingIn || isReturning}}"
+      bindtap="onLoginTap"
+    >
+      {{isLoggingIn ? '正在登录' : '微信身份登录'}}
+    </button>
+
+    <button
+      wx:else
+      class="wechat-login-button"
+      disabled="{{isReturning}}"
+      bindtap="continueAfterLogin"
+    >
+      {{isReturning ? '正在返回' : '继续'}}
+    </button>
+
+    <button class="back-button" bindtap="onBackTap">暂不登录，返回浏览</button>
+  </view>
+
+  <view class="privacy-note">
+    登录仅用于确认账号身份和恢复本地会话摘要。项目不会缓存微信身份标识、访问令牌或微信密钥。
   </view>
 </view>

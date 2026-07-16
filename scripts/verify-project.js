@@ -185,11 +185,12 @@ record('source files are UTF-8 without BOM', () => {
   }
 });
 
-record('forbidden phase-one APIs and dependencies are absent', () => {
+record('forbidden client APIs, secrets and dependencies are absent', () => {
   const sourceRoots = [
     'app.js',
     'app.json',
     'components/',
+    'config/',
     'constants/',
     'custom-tab-bar/',
     'mock/',
@@ -205,11 +206,12 @@ record('forbidden phase-one APIs and dependencies are absent', () => {
   });
   const forbiddenPatterns = [
     { pattern: /\bwx\.login\s*\(/, label: 'wx.login' },
-    { pattern: /\bwx\.cloud\b/, label: 'wx.cloud' },
     { pattern: /cloudbase/i, label: 'CloudBase' },
     { pattern: /tdesign/i, label: 'TDesign' },
     { pattern: /dayjs/i, label: 'dayjs' },
-    { pattern: /\bopenid\b/i, label: 'hard-coded openid' }
+    { pattern: /\bopenid\b/i, label: 'client openid reference' },
+    { pattern: /appsecret/i, label: 'AppSecret' },
+    { pattern: /access[_ -]?token/i, label: 'Access Token' }
   ];
 
   for (const file of sourceFiles) {
@@ -334,6 +336,161 @@ record('source does not use external product image URLs', () => {
   for (const file of sourceFiles) {
     assert(!externalImagePattern.test(readText(file)), `${relative(file)} uses an external image URL`);
   }
+});
+
+record('cloud function project structure is complete', () => {
+  const projectConfig = readJson(path.join(root, 'project.config.json'));
+  const functionRoot = projectConfig.cloudfunctionRoot;
+  assert(functionRoot === 'cloudfunctions/', 'cloudfunctionRoot is not configured');
+
+  const functionDirectory = path.join(root, functionRoot, 'authUser');
+  ['index.js', 'package.json', 'package-lock.json'].forEach((name) => {
+    assert(fs.existsSync(path.join(functionDirectory, name)), `authUser/${name} is missing`);
+  });
+
+  const functionPackage = readJson(path.join(functionDirectory, 'package.json'));
+  assert(
+    functionPackage.dependencies
+    && typeof functionPackage.dependencies['wx-server-sdk'] === 'string',
+    'authUser does not depend on wx-server-sdk'
+  );
+});
+
+record('authUser obtains identity securely and returns a safe envelope', () => {
+  const source = readText(path.join(root, 'cloudfunctions/authUser/index.js'));
+  assert(/cloud\.getWXContext\s*\(\s*\)/.test(source), 'authUser does not use getWXContext');
+  assert(/cloud\.DYNAMIC_CURRENT_ENV/.test(source), 'authUser does not use the current cloud environment');
+  assert(/createHash\(\s*['"]sha256['"]\s*\)/.test(source), 'authUser does not derive a deterministic user id');
+  assert(!/event\.(?:openid|openId|OPENID)/.test(source), 'authUser trusts a client identity field');
+  assert(/users\.doc\(userId\)\.set/.test(source), 'authUser does not use an idempotent user document id');
+  assert(/['"]login['"]/.test(source) && /['"]current['"]/.test(source), 'authUser actions are incomplete');
+  assert(/success:\s*true/.test(source) && /success:\s*false/.test(source), 'authUser response envelope is inconsistent');
+  assert(/code/.test(source) && /message/.test(source) && /data/.test(source), 'authUser response fields are incomplete');
+  assert(!/console\.(?:log|info|warn|error)/.test(source), 'authUser writes identity information to logs');
+
+  const safeUserStart = source.indexOf('function toSafeUser');
+  const safeUserEnd = source.indexOf('function createUserId');
+  const safeUserSource = source.slice(safeUserStart, safeUserEnd);
+  assert(safeUserStart >= 0 && safeUserEnd > safeUserStart, 'toSafeUser implementation is missing');
+  assert(!/\bopenid\b/i.test(safeUserSource), 'authUser safe response includes openid');
+});
+
+record('AuthService and AuthStore expose the required boundaries', () => {
+  const AuthService = require(path.join(root, 'services/auth-service'));
+  const AuthStore = require(path.join(root, 'store/auth-store'));
+
+  ['login', 'getCurrentUser', 'isLoggedIn', 'clearLocalSession'].forEach((name) => {
+    assert(typeof AuthService[name] === 'function', `AuthService.${name} is missing`);
+  });
+  [
+    'bootstrap',
+    'login',
+    'logout',
+    'refreshCurrentUser',
+    'getState',
+    'getCurrentUser',
+    'isLoggedIn',
+    'subscribe'
+  ].forEach((name) => {
+    assert(typeof AuthStore[name] === 'function', `AuthStore.${name} is missing`);
+  });
+
+  const statusValues = Object.values(AuthStore.AUTH_STATUS);
+  ['idle', 'restoring', 'anonymous', 'authenticated', 'error'].forEach((status) => {
+    assert(statusValues.includes(status), `AuthStore status ${status} is missing`);
+  });
+});
+
+record('App bootstrap is non-blocking and cloud initialization is centralized', () => {
+  const appSource = readText(path.join(root, 'app.js'));
+  const cloudConfigSource = readText(path.join(root, 'config/cloud.js'));
+
+  assert(/wx\.cloud\.init/.test(appSource), 'App does not initialize cloud development');
+  assert(/AuthStore\.bootstrap\(\)\.catch/.test(appSource), 'App does not start bootstrap safely');
+  assert(!/async\s+onLaunch/.test(appSource), 'App.onLaunch is async');
+  assert(!/await\s+AuthStore\.bootstrap/.test(appSource), 'App.onLaunch blocks on bootstrap');
+  assert(/environmentId/.test(cloudConfigSource), 'cloud environment configuration is missing');
+  assert(/auth:user-summary/.test(cloudConfigSource), 'auth cache key is not centralized');
+});
+
+record('local auth cache contains only safe summary fields', () => {
+  const source = readText(path.join(root, 'store/auth-store.js'));
+  const start = source.indexOf('function writeCachedUser');
+  const end = source.indexOf('function clearCachedUser');
+  const cacheWriter = source.slice(start, end);
+
+  assert(start >= 0 && end > start, 'safe cache writer is missing');
+  ['id', 'nickname', 'avatarUrl', 'campus', 'profileCompleted'].forEach((field) => {
+    assert(new RegExp(`\\b${field}\\b`).test(cacheWriter), `cached user field ${field} is missing`);
+  });
+  assert(!/\bopenid\b/i.test(cacheWriter), 'local cache stores openid');
+  assert(!/\brole\b/.test(cacheWriter), 'local cache stores role');
+  assert(!/access[_ -]?token/i.test(cacheWriter), 'local cache stores an access token');
+});
+
+record('login navigation uses a target whitelist without arbitrary redirects', () => {
+  const guardSource = readText(path.join(root, 'services/auth-guard.js'));
+  const routeSource = readText(path.join(root, 'constants/routes.js'));
+
+  assert(/VALID_TARGETS/.test(guardSource), 'auth target whitelist is missing');
+  assert(/AUTH_TARGET_CONFIG/.test(routeSource), 'auth target route mapping is missing');
+  assert(!/[?&]redirect=/.test(guardSource), 'auth guard accepts an arbitrary redirect URL');
+  assert(!/decodeURIComponent\s*\(\s*options\.(?:redirect|url)/.test(guardSource), 'auth guard decodes an arbitrary route');
+  assert(/safeSwitchTab/.test(guardSource), 'auth guard does not support tab targets');
+  assert(/safeRedirectTo/.test(guardSource), 'auth guard does not support normal page targets');
+});
+
+record('all protected entrances use AuthGuard', () => {
+  const requiredGuardFiles = [
+    'custom-tab-bar/index.js',
+    'pages/publish/index.js',
+    'pages/messages/index.js',
+    'pages/favorites/index.js',
+    'pages/my-products/index.js',
+    'pages/profile/index.js',
+    'pages/product-detail/index.js'
+  ];
+
+  requiredGuardFiles.forEach((name) => {
+    const source = readText(path.join(root, name));
+    assert(/AuthGuard/.test(source), `${name} does not import AuthGuard`);
+    assert(/requireLogin/.test(source), `${name} does not call requireLogin`);
+  });
+});
+
+record('login and profile pages implement auth state UI', () => {
+  const loginSource = readText(path.join(root, 'pages/login/index.js'));
+  const loginTemplate = readText(path.join(root, 'pages/login/index.wxml'));
+  const profileSource = readText(path.join(root, 'pages/profile/index.js'));
+  const profileTemplate = readText(path.join(root, 'pages/profile/index.wxml'));
+
+  assert(/AuthStore\.login/.test(loginSource), 'login page does not call AuthStore.login');
+  assert(/isLoggingIn/.test(loginSource) && /disabled=/.test(loginTemplate), 'login duplicate-click protection is missing');
+  assert(/navigateAfterLogin/.test(loginSource), 'login page does not return to a safe target');
+  assert(/AuthStore\.subscribe/.test(profileSource), 'profile page does not subscribe to auth state');
+  assert(/AuthStore\.logout/.test(profileSource), 'profile page does not implement logout');
+  ['restoring', 'authenticated', 'error'].forEach((status) => {
+    assert(
+      loginTemplate.includes(status) || profileTemplate.includes(status),
+      `auth UI does not cover ${status}`
+    );
+  });
+});
+
+record('cloud function dependencies are ignored and not tracked', () => {
+  const ignored = spawnSync(
+    'git',
+    ['check-ignore', 'cloudfunctions/authUser/node_modules'],
+    { cwd: root, encoding: 'utf8' }
+  );
+  assert(ignored.status === 0, 'cloud function node_modules is not ignored');
+
+  const tracked = spawnSync(
+    'git',
+    ['ls-files', 'cloudfunctions/authUser/node_modules'],
+    { cwd: root, encoding: 'utf8' }
+  );
+  assert(!tracked.stdout.trim(), 'cloud function node_modules is tracked');
 });
 
 async function verifyServiceFlow() {
@@ -469,6 +626,112 @@ async function verifyServiceFlow() {
   assert(deleted === null, 'deleted detail should not be public');
 }
 
+async function verifyAuthStateFlow() {
+  const AuthService = require(path.join(root, 'services/auth-service'));
+  const AuthStore = require(path.join(root, 'store/auth-store'));
+  const originalWx = global.wx;
+  const originalGetCurrentUser = AuthService.getCurrentUser;
+  const originalLogin = AuthService.login;
+  const storage = new Map();
+
+  global.wx = {
+    getStorageSync(key) {
+      return storage.get(key);
+    },
+    setStorageSync(key, value) {
+      storage.set(key, value);
+    },
+    removeStorageSync(key) {
+      storage.delete(key);
+    }
+  };
+
+  const restoredUser = {
+    id: 'u_restored',
+    nickname: '微信用户',
+    avatarUrl: '',
+    avatarText: '微',
+    campus: '',
+    bio: '',
+    role: 'user',
+    status: 'active',
+    profileCompleted: false,
+    createdAt: '',
+    updatedAt: '',
+    lastLoginAt: ''
+  };
+  const loginUser = {
+    ...restoredUser,
+    id: 'u_login',
+    nickname: '登录用户',
+    avatarText: '登'
+  };
+
+  try {
+    AuthStore.logout();
+    let currentCalls = 0;
+    AuthService.getCurrentUser = async () => {
+      currentCalls += 1;
+      return restoredUser;
+    };
+
+    const firstBootstrap = AuthStore.bootstrap({ force: true });
+    const secondBootstrap = AuthStore.bootstrap({ force: true });
+    assert(firstBootstrap === secondBootstrap, 'bootstrap does not reuse the active promise');
+    await firstBootstrap;
+    await Promise.resolve();
+    assert(currentCalls === 1, 'bootstrap called current more than once');
+    assert(AuthStore.isLoggedIn(), 'bootstrap did not authenticate the restored user');
+
+    const cached = storage.get('auth:user-summary');
+    assert(cached && cached.id === restoredUser.id, 'safe user summary was not cached');
+    assert(!Object.prototype.hasOwnProperty.call(cached, 'openid'), 'cached summary contains openid');
+    assert(!Object.prototype.hasOwnProperty.call(cached, 'role'), 'cached summary contains role');
+
+    AuthStore.logout();
+    let loginCalls = 0;
+    AuthService.login = async () => {
+      loginCalls += 1;
+      return loginUser;
+    };
+    const firstLogin = AuthStore.login();
+    const secondLogin = AuthStore.login();
+    assert(firstLogin === secondLogin, 'login does not reuse the active promise');
+    await firstLogin;
+    await Promise.resolve();
+    assert(loginCalls === 1, 'duplicate login triggered multiple service calls');
+    assert(AuthStore.getCurrentUser().id === loginUser.id, 'login user was not stored');
+
+    AuthStore.logout();
+    let resolveStaleCurrent;
+    AuthService.getCurrentUser = () => new Promise((resolve) => {
+      resolveStaleCurrent = resolve;
+    });
+    const staleBootstrap = AuthStore.bootstrap({ force: true });
+    AuthService.login = async () => loginUser;
+    await AuthStore.login();
+    resolveStaleCurrent(restoredUser);
+    await staleBootstrap;
+    assert(
+      AuthStore.getCurrentUser().id === loginUser.id,
+      'stale current request overwrote a newer login'
+    );
+
+    AuthStore.logout();
+    assert(!AuthStore.isLoggedIn(), 'logout did not return to anonymous state');
+    assert(!storage.has('auth:user-summary'), 'logout did not clear the local summary');
+  } finally {
+    AuthService.getCurrentUser = originalGetCurrentUser;
+    AuthService.login = originalLogin;
+    AuthStore.logout();
+    if (originalWx === undefined) {
+      delete global.wx;
+    } else {
+      global.wx = originalWx;
+    }
+  }
+}
+
 record('project.private.config.json is ignored and not tracked', () => {
   const ignoreResult = spawnSync('git', ['check-ignore', 'project.private.config.json'], {
     cwd: root,
@@ -483,9 +746,15 @@ record('project.private.config.json is ignored and not tracked', () => {
   assert(trackedResult.status !== 0, 'project.private.config.json is tracked');
 });
 
-verifyServiceFlow()
+async function runAsyncChecks() {
+  await verifyServiceFlow();
+  checks.push('PASS ProductService filtering, sorting, pagination and detail boundaries');
+  await verifyAuthStateFlow();
+  checks.push('PASS AuthStore bootstrap, login, cache, concurrency and logout flow');
+}
+
+runAsyncChecks()
   .then(() => {
-    checks.push('PASS ProductService filtering, sorting, pagination and detail boundaries');
     checks.forEach((message) => console.log(message));
     if (errors.length > 0) {
       console.error('\nVerification failed:');
@@ -496,7 +765,7 @@ verifyServiceFlow()
     console.log(`\nVerification succeeded: ${checks.length} checks passed.`);
   })
   .catch((error) => {
-    errors.push(`ProductService flow: ${error.message}`);
+    errors.push(`async verification flow: ${error.message}`);
     checks.forEach((message) => console.log(message));
     console.error('\nVerification failed:');
     errors.forEach((message) => console.error(`- ${message}`));

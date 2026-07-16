@@ -44,8 +44,36 @@ function safeSwitchTab(url) {
   return runNavigation('switchTab', url);
 }
 
+function safeRedirectTo(url) {
+  return runNavigation('redirectTo', url);
+}
+
+function safeNavigateBack(delta = 1) {
+  if (navigationLocked) {
+    return Promise.resolve(false);
+  }
+
+  navigationLocked = true;
+  return new Promise((resolve) => {
+    wx.navigateBack({
+      delta,
+      success() {
+        resolve(true);
+      },
+      fail() {
+        resolve(false);
+      },
+      complete() {
+        unlock();
+      }
+    });
+  });
+}
+
 module.exports = {
   getCurrentRoute,
   safeNavigateTo,
-  safeSwitchTab
+  safeSwitchTab,
+  safeRedirectTo,
+  safeNavigateBack
 };

@@ -1,4 +1,166 @@
-.later-button {
-  width: 260rpx;
-  margin-top: 36rpx;
+.login-page {
+  padding-top: 54rpx;
+}
+
+.login-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24rpx 20rpx 42rpx;
+  text-align: center;
+}
+
+.login-logo {
+  width: 112rpx;
+  height: 112rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 28rpx;
+  border-radius: 36rpx;
+  background: #16a36a;
+  color: #ffffff;
+  font-size: 48rpx;
+  font-weight: 750;
+  box-shadow: 0 16rpx 34rpx rgba(22, 163, 106, 0.2);
+}
+
+.login-card {
+  padding: 34rpx 30rpx;
+}
+
+.logged-in-panel {
+  display: flex;
+  align-items: center;
+  margin-bottom: 32rpx;
+  padding: 24rpx;
+  border-radius: 20rpx;
+  background: #edf8f3;
+}
+
+.logged-avatar {
+  width: 82rpx;
+  height: 82rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 26rpx;
+  background: #16a36a;
+  color: #ffffff;
+  font-size: 34rpx;
+  font-weight: 700;
+}
+
+.logged-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  margin-left: 20rpx;
+}
+
+.logged-title {
+  color: #6b7670;
+  font-size: 22rpx;
+}
+
+.logged-name {
+  overflow: hidden;
+  margin-top: 8rpx;
+  color: #26352d;
+  font-size: 30rpx;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-purpose-title {
+  color: #2a3931;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.purpose-list {
+  margin-top: 26rpx;
+}
+
+.purpose-item {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 22rpx;
+  color: #66726c;
+  font-size: 24rpx;
+  line-height: 1.65;
+}
+
+.purpose-item:first-child {
+  margin-top: 0;
+}
+
+.purpose-mark {
+  width: 42rpx;
+  height: 42rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  margin: 1rpx 16rpx 0 0;
+  border-radius: 14rpx;
+  background: #e5f5ed;
+  color: #13865a;
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+.login-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 28rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 16rpx;
+  background: #fff1ee;
+  color: #bd513e;
+  font-size: 23rpx;
+  line-height: 1.55;
+}
+
+.retry-link {
+  flex: none;
+  margin-left: 20rpx;
+  color: #16a36a;
+  font-weight: 650;
+}
+
+.wechat-login-button {
+  height: 86rpx;
+  margin-top: 34rpx;
+  border-radius: 22rpx;
+  background: #16a36a;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 700;
+  line-height: 86rpx;
+}
+
+.wechat-login-button[disabled] {
+  background: #a8d7c2;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.back-button {
+  height: 70rpx;
+  margin-top: 16rpx;
+  background: transparent;
+  color: #78837d;
+  font-size: 24rpx;
+  line-height: 70rpx;
+}
+
+.privacy-note {
+  margin: 28rpx 18rpx 0;
+  color: #929b96;
+  font-size: 21rpx;
+  line-height: 1.7;
+  text-align: center;
 }

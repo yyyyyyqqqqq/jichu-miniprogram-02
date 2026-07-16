@@ -1,6 +1,10 @@
 const ProductService = require('../../services/product-service');
 const NavigationService = require('../../services/navigation-service');
-const { ROUTES } = require('../../constants/routes');
+const AuthGuard = require('../../services/auth-guard');
+const {
+  ROUTES,
+  AUTH_TARGETS
+} = require('../../constants/routes');
 
 Page({
   data: {
@@ -124,17 +128,26 @@ Page({
     NavigationService.safeSwitchTab(ROUTES.HOME);
   },
 
-  onFavoriteTap() {
+  async onFavoriteTap() {
     if (this.data.product && this.data.product.isSold) {
       return;
     }
+
+    const allowed = await AuthGuard.requireLogin({
+      target: AUTH_TARGETS.PRODUCT_DETAIL,
+      productId: this.data.productId
+    });
+    if (!allowed) {
+      return;
+    }
+
     wx.showToast({
-      title: '收藏功能将在登录阶段后开放',
+      title: '收藏功能将在后续阶段开放',
       icon: 'none'
     });
   },
 
-  onContactTap() {
+  async onContactTap() {
     const { product } = this.data;
     if (!product) {
       return;
@@ -145,6 +158,14 @@ Page({
         title: '商品已完成面交',
         icon: 'none'
       });
+      return;
+    }
+
+    const allowed = await AuthGuard.requireLogin({
+      target: AUTH_TARGETS.PRODUCT_DETAIL,
+      productId: this.data.productId
+    });
+    if (!allowed) {
       return;
     }
 

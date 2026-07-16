@@ -50,6 +50,7 @@
   "appid": "wx5e54edaf5c80418c",
   "projectname": "jichu-miniprogram-02",
   "libVersion": "3.7.3",
+  "cloudfunctionRoot": "cloudfunctions/",
   "condition": {
     "miniprogram": {
       "list": [

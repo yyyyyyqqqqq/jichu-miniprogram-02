@@ -1,22 +1,84 @@
-<view class="page-shell">
+<view class="page-shell profile-page">
   <view class="surface-card profile-card">
-    <view class="avatar-placeholder">即</view>
-    <view class="profile-copy">
-      <text class="profile-name">{{isLoggedIn ? '校园用户' : '暂未登录'}}</text>
-      <text class="profile-note">{{isLoggedIn ? '欢迎回来' : '登录功能将在后续阶段接入'}}</text>
+    <view class="avatar-placeholder">
+      {{user ? user.avatarText : '即'}}
     </view>
-    <button wx:if="{{!isLoggedIn}}" class="login-button" bindtap="goLogin">登录</button>
+    <view class="profile-copy">
+      <text class="profile-name">
+        {{user ? user.nickname : '登录后使用完整功能'}}
+      </text>
+      <text class="profile-note" wx:if="{{isLoggedIn}}">
+        {{user.campus ? user.campus : '校园信息待完善'}}
+      </text>
+      <text class="profile-note" wx:elif="{{isRestoring}}">
+        正在后台校验登录状态
+      </text>
+      <text class="profile-note" wx:else>
+        浏览商品无需登录，受限功能会引导登录
+      </text>
+    </view>
+    <button
+      wx:if="{{!isLoggedIn}}"
+      class="login-button"
+      bindtap="goLogin"
+    >
+      微信登录
+    </button>
+    <view wx:else class="login-status">已登录</view>
+  </view>
+
+  <view wx:if="{{isRestoring}}" class="auth-notice auth-notice--restoring">
+    <view class="notice-dot"></view>
+    <text>正在校准云端身份，公开浏览不受影响</text>
+  </view>
+
+  <view wx:if="{{authStatus === 'error'}}" class="auth-notice auth-notice--error">
+    <view class="auth-error-copy">
+      <text class="auth-error-title">登录状态校验失败</text>
+      <text class="auth-error-message">{{errorMessage}}</text>
+    </view>
+    <view class="auth-error-actions">
+      <text bindtap="retryAuth">重新校验</text>
+      <text bindtap="goLogin">重新登录</text>
+      <text wx:if="{{user}}" bindtap="clearLocalState">清除本地状态</text>
+    </view>
+  </view>
+
+  <view class="surface-card capability-card" wx:if="{{!isLoggedIn}}">
+    <view class="capability-title">登录后可使用</view>
+    <view class="capability-list">
+      <view class="capability-item">
+        <view class="capability-icon">发</view>
+        <text>进入商品发布入口</text>
+      </view>
+      <view class="capability-item">
+        <view class="capability-icon">藏</view>
+        <text>使用收藏入口</text>
+      </view>
+      <view class="capability-item">
+        <view class="capability-icon">聊</view>
+        <text>联系卖家与查看消息入口</text>
+      </view>
+    </view>
   </view>
 
   <view class="surface-card menu-card">
     <view class="menu-item" bindtap="goMyProducts">
       <view class="menu-icon">发</view>
       <text class="menu-label">我的发布</text>
+      <text class="menu-state">{{isLoggedIn ? '下一阶段开放' : '需登录'}}</text>
       <text class="menu-arrow">›</text>
     </view>
     <view class="menu-item" bindtap="goFavorites">
       <view class="menu-icon">藏</view>
       <text class="menu-label">我的收藏</text>
+      <text class="menu-state">{{isLoggedIn ? '后续开放' : '需登录'}}</text>
+      <text class="menu-arrow">›</text>
+    </view>
+    <view class="menu-item" bindtap="goMessages">
+      <view class="menu-icon">信</view>
+      <text class="menu-label">消息</text>
+      <text class="menu-state">{{isLoggedIn ? '暂无消息' : '需登录'}}</text>
       <text class="menu-arrow">›</text>
     </view>
     <view class="menu-item menu-item--last" bindtap="showAbout">
@@ -24,6 +86,16 @@
       <text class="menu-label">关于项目</text>
       <text class="menu-arrow">›</text>
     </view>
+  </view>
+
+  <view wx:if="{{isLoggedIn}}" class="surface-card account-card">
+    <view class="account-row">
+      <text class="account-label">资料状态</text>
+      <text class="account-value">
+        {{user.profileCompleted ? '资料已完善' : '使用默认资料'}}
+      </text>
+    </view>
+    <button class="logout-button" bindtap="logout">退出登录</button>
   </view>
 
   <view class="safety-note">校内线下面交 · 不涉及在线支付</view>

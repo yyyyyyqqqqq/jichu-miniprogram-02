@@ -1,12 +1,22 @@
 <view class="page-shell">
   <view class="message-header">
     <view class="page-title">消息</view>
-    <view class="page-subtitle">后续可在这里查看私信与面交预约通知</view>
+    <view class="page-subtitle">
+      {{isLoggedIn ? '后续可在这里查看私信与面交预约通知' : '登录后查看消息入口'}}
+    </view>
   </view>
   <view class="surface-card message-empty">
     <empty-state
+      wx:if="{{isLoggedIn}}"
       title="还没有消息"
-      description="本阶段未接入真实聊天数据，聊天与面交预约将在后续开放"
+      description="本阶段不创建真实聊天数据，聊天与面交预约将在后续开放"
+    />
+    <empty-state
+      wx:else
+      title="登录后查看消息"
+      description="消息入口需要先确认微信身份，公开商品浏览不受影响"
+      action-text="微信登录"
+      bind:action="goLogin"
     />
   </view>
 </view>
