@@ -18,16 +18,32 @@
   border-radius: 50%;
   background: #16a36a;
   opacity: 0.35;
+  animation: loading-pulse 1.1s ease-in-out infinite;
 }
 
 .loading-dot--middle {
   opacity: 0.65;
+  animation-delay: 0.16s;
 }
 
 .loading-dot--last {
   opacity: 1;
+  animation-delay: 0.32s;
 }
 
 .loading-text {
   margin-left: 10rpx;
+}
+
+@keyframes loading-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(-5rpx);
+  }
 }

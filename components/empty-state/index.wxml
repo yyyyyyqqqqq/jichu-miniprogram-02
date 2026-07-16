@@ -5,5 +5,11 @@
   </view>
   <text class="empty-title">{{title}}</text>
   <text wx:if="{{description}}" class="empty-description">{{description}}</text>
-  <button wx:if="{{actionText}}" class="empty-action" bindtap="onAction">{{actionText}}</button>
+  <button
+    wx:if="{{showAction && actionText}}"
+    class="empty-action"
+    bindtap="onAction"
+  >
+    {{actionText}}
+  </button>
 </view>

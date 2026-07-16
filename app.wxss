@@ -1,3 +1,10 @@
+/*
+ * 统一视觉约定：
+ * 主色 #16a36a / 主色浅背景 #eaf7f1 / 页面背景 #f5f7f6
+ * 主文字 #1f2a25 / 次文字 #78827d / 弱文字 #87918c
+ * 分割线 #edf1ef / 警告色 #b97513 / 卡片圆角 24rpx
+ * 页面左右间距 28rpx / 底部安全间距 env(safe-area-inset-bottom)
+ */
 page {
   min-height: 100%;
   background: #f5f7f6;

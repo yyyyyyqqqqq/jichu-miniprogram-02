@@ -1,68 +1,184 @@
 const ProductService = require('../../services/product-service');
+const NavigationService = require('../../services/navigation-service');
+const { ROUTES } = require('../../constants/routes');
 
 Page({
   data: {
     product: null,
-    loading: true,
-    errorMessage: ''
+    productId: '',
+    viewState: 'loading',
+    showErrorState: false,
+    canRetry: false,
+    errorTitle: '',
+    errorDescription: '',
+    errorActionText: ''
   },
 
   onLoad(options) {
     this.isPageActive = true;
-    this.loadProduct(options && options.id);
+    this.requestVersion = 0;
+
+    const id = this.normalizeProductId(options && options.id);
+    if (!id) {
+      this.showInvalidParameter();
+      return;
+    }
+
+    this.productId = id;
+    this.setData({ productId: id });
+    this.loadProduct();
   },
 
   onUnload() {
     this.isPageActive = false;
+    this.requestVersion += 1;
   },
 
-  async loadProduct(id) {
+  normalizeProductId(value) {
+    if (value === null || value === undefined) {
+      return '';
+    }
+
+    const id = String(value).trim();
+    return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : '';
+  },
+
+  showInvalidParameter() {
     this.setData({
-      loading: true,
-      errorMessage: ''
+      product: null,
+      viewState: 'invalid',
+      showErrorState: true,
+      canRetry: false,
+      errorTitle: '商品参数不完整',
+      errorDescription: '当前链接缺少有效商品 ID，请返回首页重新选择商品',
+      errorActionText: '返回首页'
+    });
+  },
+
+  async loadProduct() {
+    if (!this.isPageActive || !this.productId) {
+      return;
+    }
+
+    const requestVersion = this.requestVersion + 1;
+    this.requestVersion = requestVersion;
+
+    this.setData({
+      product: null,
+      viewState: 'loading',
+      showErrorState: false,
+      canRetry: false
     });
 
     try {
-      const product = await ProductService.getProductById(id);
-      if (!this.isPageActive) {
+      const product = await ProductService.getProductById(this.productId);
+      if (!this.isPageActive || requestVersion !== this.requestVersion) {
         return;
       }
 
       if (!product) {
         this.setData({
           product: null,
-          errorMessage: '商品不存在或已下架'
+          viewState: 'notFound',
+          showErrorState: true,
+          canRetry: true,
+          errorTitle: '商品不存在或暂不可查看',
+          errorDescription: '商品可能已删除、下架，或当前链接已经失效',
+          errorActionText: '重新加载'
         });
         return;
       }
 
-      this.setData({ product });
+      this.setData({
+        product,
+        viewState: 'success',
+        showErrorState: false,
+        canRetry: false
+      });
     } catch (error) {
-      if (this.isPageActive) {
-        this.setData({
-          product: null,
-          errorMessage: '商品详情加载失败'
-        });
+      if (!this.isPageActive || requestVersion !== this.requestVersion) {
+        return;
       }
-    } finally {
-      if (this.isPageActive) {
-        this.setData({ loading: false });
-      }
+
+      this.setData({
+        product: null,
+        viewState: 'error',
+        showErrorState: true,
+        canRetry: true,
+        errorTitle: '商品详情加载失败',
+        errorDescription: '请稍后重试，或返回首页浏览其他商品',
+        errorActionText: '重新加载'
+      });
     }
   },
 
-  showLaterNotice() {
+  onErrorAction() {
+    if (this.data.canRetry) {
+      this.loadProduct();
+      return;
+    }
+    this.goHome();
+  },
+
+  goHome() {
+    NavigationService.safeSwitchTab(ROUTES.HOME);
+  },
+
+  onFavoriteTap() {
+    if (this.data.product && this.data.product.isSold) {
+      return;
+    }
     wx.showToast({
-      title: '后续阶段开放',
+      title: '收藏功能将在登录阶段后开放',
       icon: 'none'
     });
   },
 
-  goBack() {
-    wx.navigateBack({
-      fail() {
-        wx.switchTab({ url: '/pages/home/index' });
-      }
+  onContactTap() {
+    const { product } = this.data;
+    if (!product) {
+      return;
+    }
+
+    if (product.isSold) {
+      wx.showToast({
+        title: '商品已完成面交',
+        icon: 'none'
+      });
+      return;
+    }
+
+    wx.showToast({
+      title: product.isReserved
+        ? '商品已预订，聊天功能将在后续开放'
+        : '聊天功能将在后续阶段开放',
+      icon: 'none'
     });
+  },
+
+  onSellerTap() {
+    const { product } = this.data;
+    if (!product || !product.seller || !product.seller.id) {
+      return;
+    }
+
+    NavigationService.safeNavigateTo(
+      `${ROUTES.USER_PROFILE}?id=${encodeURIComponent(product.seller.id)}`
+    );
+  },
+
+  onShareAppMessage() {
+    const { product } = this.data;
+    if (!product || !product.id) {
+      return {
+        title: '闲置面交——校园闲置物品平台',
+        path: ROUTES.HOME
+      };
+    }
+
+    return {
+      title: product.title,
+      path: `${ROUTES.PRODUCT_DETAIL}?id=${encodeURIComponent(product.id)}`
+    };
   }
 });

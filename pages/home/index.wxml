@@ -1,16 +1,28 @@
 <view class="page-shell home-page">
   <view class="hero">
-    <view>
+    <view class="hero-copy">
       <text class="eyebrow">即出 · 校园闲置</text>
       <view class="page-title">闲置面交</view>
-      <view class="page-subtitle">让闲置在校园里更快遇见需要它的人</view>
+      <view class="page-subtitle">校园闲置，方便面交</view>
     </view>
-    <view class="campus-badge">校内</view>
+    <view class="campus-badge">
+      <view class="campus-dot"></view>
+      <text>校内</text>
+    </view>
+  </view>
+
+  <view class="scene-tip">
+    <view class="scene-icon">近</view>
+    <view class="scene-copy">
+      <text class="scene-title">先看商品，再约公共区域面交</text>
+      <text class="scene-description">本平台不提供在线支付与物流服务</text>
+    </view>
   </view>
 
   <view class="search-section">
     <search-bar
       value="{{keyword}}"
+      placeholder="搜索标题、标签、成色或面交地点"
       bind:input="onKeywordInput"
       bind:search="onSearchConfirm"
       bind:clear="onSearchClear"
@@ -25,15 +37,41 @@
     />
   </view>
 
-  <view class="list-heading">
-    <text class="list-title">{{keyword ? '搜索结果' : '新鲜闲置'}}</text>
-    <text class="list-count">{{total}} 件</text>
+  <view class="sort-section">
+    <view class="sort-heading">
+      <text class="sort-title">排序</text>
+      <text class="refresh-label" wx:if="{{isRefreshing}}">正在刷新</text>
+    </view>
+    <scroll-view class="sort-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+      <view class="sort-row">
+        <view
+          wx:for="{{sortOptions}}"
+          wx:key="value"
+          class="sort-item {{item.value === selectedSortBy ? 'sort-item--active' : ''}}"
+          data-sort-by="{{item.value}}"
+          catchtap="onSortChange"
+        >
+          {{item.label}}
+        </view>
+      </view>
+    </scroll-view>
   </view>
 
-  <loading-state wx:if="{{loading}}" text="正在寻找校园好物" />
+  <view class="list-heading">
+    <view class="list-heading-copy">
+      <text class="list-title">校园好物</text>
+      <text class="query-summary">{{querySummary}}</text>
+    </view>
+    <view wx:if="{{isQuerying}}" class="query-loading">更新中</view>
+  </view>
+
+  <loading-state
+    wx:if="{{viewState === 'loading'}}"
+    text="正在寻找校园好物"
+  />
 
   <empty-state
-    wx:elif="{{errorMessage}}"
+    wx:elif="{{viewState === 'error'}}"
     title="加载遇到问题"
     description="{{errorMessage}}"
     action-text="重新加载"
@@ -41,19 +79,36 @@
   />
 
   <empty-state
-    wx:elif="{{products.length === 0}}"
-    title="暂时没有匹配的闲置"
-    description="试试更换分类或搜索关键词"
+    wx:elif="{{viewState === 'empty'}}"
+    title="{{emptyTitle}}"
+    description="{{emptyDescription}}"
+    action-text="{{emptyActionText}}"
+    bind:action="onEmptyAction"
   />
 
-  <view wx:else class="product-list">
+  <view wx:elif="{{viewState === 'success'}}" class="product-list">
     <product-card
       wx:for="{{products}}"
       wx:key="id"
       product="{{item}}"
       bind:select="onProductSelect"
     />
-    <loading-state wx:if="{{loadingMore}}" compact text="加载更多" />
-    <view wx:elif="{{!hasMore}}" class="list-end">已经到底啦</view>
+
+    <loading-state
+      wx:if="{{isLoadingMore}}"
+      compact
+      text="正在加载更多"
+    />
+
+    <view wx:elif="{{loadMoreError}}" class="load-more-error">
+      <text>加载更多失败，已有商品不会丢失</text>
+      <button class="load-more-retry" bindtap="onLoadMoreRetry">点击重试</button>
+    </view>
+
+    <view wx:elif="{{!hasMore}}" class="list-end">
+      <view class="list-end-line"></view>
+      <text>已经到底啦</text>
+      <view class="list-end-line"></view>
+    </view>
   </view>
 </view>

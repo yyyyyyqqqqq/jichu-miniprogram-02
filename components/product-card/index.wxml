@@ -1,4 +1,9 @@
-<view wx:if="{{product}}" class="product-card" hover-class="product-card--pressed" bindtap="onTap">
+<view
+  wx:if="{{product}}"
+  class="product-card product-card--{{product.statusClass}}"
+  hover-class="product-card--pressed"
+  bindtap="onTap"
+>
   <view class="product-cover product-cover--{{product.coverTone}}">
     <image
       wx:if="{{product.coverImage}}"
@@ -7,6 +12,9 @@
       mode="aspectFill"
     />
     <text wx:else class="product-cover__label">{{product.coverLabel}}</text>
+    <text class="status-badge status-badge--{{product.statusClass}}">
+      {{product.statusText}}
+    </text>
     <text class="condition-badge">{{product.condition}}</text>
   </view>
 
@@ -14,7 +22,13 @@
     <text class="product-title">{{product.title}}</text>
 
     <view class="tag-list">
-      <text wx:for="{{product.tags}}" wx:key="*this" class="tag-item">{{item}}</text>
+      <text
+        wx:for="{{product.displayTags}}"
+        wx:key="*this"
+        class="tag-item"
+      >
+        {{item}}
+      </text>
     </view>
 
     <view class="product-meta">
@@ -22,13 +36,22 @@
       <text class="time-text">{{product.publishedAtText}}</text>
     </view>
 
-    <view class="price-row">
-      <view>
-        <text class="price-symbol">¥</text>
-        <text class="price-value">{{product.priceText}}</text>
-        <text class="original-price">¥{{product.originalPriceText}}</text>
-      </view>
+    <view class="seller-row">
+      <view class="seller-avatar">{{product.seller.initial}}</view>
+      <text class="seller-name">{{product.seller.nickname}}</text>
       <text class="meet-text">{{product.distanceText}}</text>
+    </view>
+
+    <view class="price-row">
+      <view class="price-group">
+        <text class="price-value {{product.priceText === '免费送' ? 'price-value--free' : ''}}">
+          {{product.priceDisplay}}
+        </text>
+        <text wx:if="{{product.hasOriginalPrice}}" class="original-price">
+          {{product.originalPriceDisplay}}
+        </text>
+      </view>
+      <text class="view-count">{{product.viewCountText}} 次浏览</text>
     </view>
   </view>
 </view>

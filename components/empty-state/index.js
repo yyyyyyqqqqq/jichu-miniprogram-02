@@ -11,6 +11,10 @@ Component({
     actionText: {
       type: String,
       value: ''
+    },
+    showAction: {
+      type: Boolean,
+      value: true
     }
   },
 

@@ -206,8 +206,9 @@ record('forbidden phase-one APIs and dependencies are absent', () => {
   const forbiddenPatterns = [
     { pattern: /\bwx\.login\s*\(/, label: 'wx.login' },
     { pattern: /\bwx\.cloud\b/, label: 'wx.cloud' },
-    { pattern: /@cloudbase\//, label: '@cloudbase' },
-    { pattern: /tdesign-miniprogram/, label: 'tdesign-miniprogram' },
+    { pattern: /cloudbase/i, label: 'CloudBase' },
+    { pattern: /tdesign/i, label: 'TDesign' },
+    { pattern: /dayjs/i, label: 'dayjs' },
     { pattern: /\bopenid\b/i, label: 'hard-coded openid' }
   ];
 
@@ -222,8 +223,22 @@ record('forbidden phase-one APIs and dependencies are absent', () => {
   assert(typeScriptFiles.length === 0, `TypeScript files found: ${typeScriptFiles.map(relative).join(', ')}`);
 });
 
-record('Product model and service behavior are consistent', () => {
+record('pages do not access Mock products directly', () => {
+  const pageFiles = files.filter((file) => relative(file).startsWith('pages/'));
+  const directMockPattern = /require\(\s*['"][^'"]*mock\/(?:products|index)['"]\s*\)/;
+  for (const file of pageFiles) {
+    if (path.extname(file) !== '.js') {
+      continue;
+    }
+    assert(!directMockPattern.test(readText(file)), `${relative(file)} accesses Mock data directly`);
+  }
+});
+
+record('Product model fields and value types are valid', () => {
   const { PRODUCTS } = require(path.join(root, 'mock/index'));
+  const {
+    PRODUCT_STATUS
+  } = require(path.join(root, 'constants/product'));
   const requiredFields = [
     'id',
     'title',
@@ -240,14 +255,14 @@ record('Product model and service behavior are consistent', () => {
     'locationName',
     'distanceText',
     'publishedAt',
-    'publishedAtText',
     'status',
     'seller',
     'favoriteCount',
     'viewCount'
   ];
+  const allowedStatuses = new Set(Object.values(PRODUCT_STATUS));
 
-  assert(PRODUCTS.length >= 8, 'fewer than 8 Mock products');
+  assert(PRODUCTS.length >= 14 && PRODUCTS.length <= 18, 'Mock product count must be between 14 and 18');
   assert(new Set(PRODUCTS.map((product) => product.id)).size === PRODUCTS.length, 'duplicate Product id');
   for (const product of PRODUCTS) {
     for (const field of requiredFields) {
@@ -256,29 +271,202 @@ record('Product model and service behavior are consistent', () => {
     assert(!Object.prototype.hasOwnProperty.call(product, '_id'), `${product.id} contains _id`);
     assert(!Object.prototype.hasOwnProperty.call(product, 'productId'), `${product.id} contains productId`);
     assert(!Object.prototype.hasOwnProperty.call(product, 'goodsId'), `${product.id} contains goodsId`);
-    assert(product.status === 'published', `${product.id} is not published`);
+    assert(allowedStatuses.has(product.status), `${product.id} has invalid status ${product.status}`);
+    assert(typeof product.price === 'number' && Number.isFinite(product.price) && product.price >= 0, `${product.id} has invalid price`);
+    assert(
+      product.originalPrice === null
+      || (typeof product.originalPrice === 'number' && Number.isFinite(product.originalPrice)),
+      `${product.id} has invalid originalPrice`
+    );
+    assert(!Number.isNaN(new Date(product.publishedAt).getTime()), `${product.id} has invalid publishedAt`);
+    assert(Array.isArray(product.images), `${product.id} images is not an array`);
+    assert(Array.isArray(product.tags), `${product.id} tags is not an array`);
+    assert(product.seller && typeof product.seller.id === 'string' && product.seller.id, `${product.id} seller.id is missing`);
+    assert(typeof product.seller.nickname === 'string' && product.seller.nickname, `${product.id} seller.nickname is missing`);
+  }
+});
+
+record('Mock fixtures cover public and hidden statuses', () => {
+  const { PRODUCTS } = require(path.join(root, 'mock/index'));
+  const { PRODUCT_STATUS } = require(path.join(root, 'constants/product'));
+  const statuses = new Set(PRODUCTS.map((product) => product.status));
+
+  [
+    PRODUCT_STATUS.PUBLISHED,
+    PRODUCT_STATUS.RESERVED,
+    PRODUCT_STATUS.SOLD,
+    PRODUCT_STATUS.DRAFT,
+    PRODUCT_STATUS.OFFLINE,
+    PRODUCT_STATUS.DELETED
+  ].forEach((status) => {
+    assert(statuses.has(status), `Mock products do not include ${status}`);
+  });
+
+  assert(PRODUCTS.some((product) => product.price === 0), 'Mock products do not include a free item');
+});
+
+record('format utilities handle price, time and count boundaries', () => {
+  const {
+    formatPrice,
+    formatPublishedTime,
+    formatCount
+  } = require(path.join(root, 'utils/format'));
+  const referenceTime = new Date('2026-07-16T12:00:00.000Z');
+
+  assert(formatPrice(0) === '免费送', 'free price formatting is incorrect');
+  assert(formatPrice(12) === '12', 'integer price formatting is incorrect');
+  assert(formatPrice(12.5) === '12.5', 'decimal price formatting is incorrect');
+  assert(formatPrice(12.345) === '12.35', 'price rounding is incorrect');
+  assert(formatPrice('invalid') === '--', 'invalid price fallback is incorrect');
+  assert(formatPublishedTime('2026-07-16T11:59:40.000Z', referenceTime) === '刚刚', 'just-now formatting is incorrect');
+  assert(formatPublishedTime('2026-07-16T11:55:00.000Z', referenceTime) === '5分钟前', 'minute formatting is incorrect');
+  assert(formatPublishedTime('2026-07-16T10:00:00.000Z', referenceTime) === '2小时前', 'hour formatting is incorrect');
+  assert(formatPublishedTime('2026-07-15T08:00:00.000Z', referenceTime) === '昨天', 'yesterday formatting is incorrect');
+  assert(formatPublishedTime('invalid', referenceTime) === '时间未知', 'invalid time fallback is incorrect');
+  assert(formatCount(1200) === '1.2k', 'count formatting is incorrect');
+});
+
+record('source does not use external product image URLs', () => {
+  const sourceFiles = files.filter((file) => (
+    ['.js', '.json', '.wxml', '.wxss'].includes(path.extname(file))
+  ));
+  const externalImagePattern = /https?:\/\/[^\s"'()]+\.(?:png|jpg|jpeg|gif|webp|svg)/i;
+  for (const file of sourceFiles) {
+    assert(!externalImagePattern.test(readText(file)), `${relative(file)} uses an external image URL`);
   }
 });
 
 async function verifyServiceFlow() {
   const ProductService = require(path.join(root, 'services/product-service'));
+  const {
+    PRODUCT_STATUS,
+    PUBLIC_PRODUCT_STATUSES,
+    PRODUCT_SORT
+  } = require(path.join(root, 'constants/product'));
 
-  const firstPage = await ProductService.getProducts({ page: 1, pageSize: 4 });
-  assert(firstPage.list.length === 4, 'home first page did not return 4 products');
+  const firstPage = await ProductService.getProducts({ page: 1, pageSize: 6 });
+  assert(firstPage.list.length === 6, 'home first page did not return 6 products');
   assert(firstPage.hasMore === true, 'home first page should have more products');
+  assert(firstPage.total === 15, 'public product total is incorrect');
+  assert(firstPage.list.every((product) => PUBLIC_PRODUCT_STATUSES.includes(product.status)), 'home returned a hidden status');
 
   const digital = await ProductService.getProducts({ categoryId: 'digital', pageSize: 20 });
-  assert(digital.list.length >= 2, 'digital category result is incomplete');
+  assert(digital.list.length >= 3, 'digital category result is incomplete');
   assert(digital.list.every((product) => product.categoryId === 'digital'), 'category filter leaked data');
 
-  const search = await ProductService.searchProducts('键盘');
+  const search = await ProductService.searchProducts('  键盘  ');
   assert(search.list.some((product) => product.id === 'product-001'), 'search did not find product-001');
+
+  const spacedSearch = await ProductService.searchProducts('机械   键盘');
+  assert(spacedSearch.list.some((product) => product.id === 'product-001'), 'multi-word search normalization is incorrect');
+
+  const locationSearch = await ProductService.searchProducts('图书馆南门');
+  assert(locationSearch.list.some((product) => product.id === 'product-002'), 'location search did not find product-002');
+
+  const combined = await ProductService.getProducts({
+    categoryId: 'digital',
+    keyword: ' 键盘 ',
+    sortBy: PRODUCT_SORT.PRICE_ASC,
+    pageSize: 20
+  });
+  assert(combined.list.length === 1 && combined.list[0].id === 'product-001', 'category and search combination is incorrect');
+
+  const newest = await ProductService.getProducts({
+    sortBy: PRODUCT_SORT.NEWEST,
+    pageSize: 20
+  });
+  for (let index = 1; index < newest.list.length; index += 1) {
+    assert(
+      new Date(newest.list[index - 1].publishedAt).getTime()
+      >= new Date(newest.list[index].publishedAt).getTime(),
+      'newest sorting is incorrect'
+    );
+  }
+
+  const priceAscending = await ProductService.getProducts({
+    sortBy: PRODUCT_SORT.PRICE_ASC,
+    pageSize: 20
+  });
+  for (let index = 1; index < priceAscending.list.length; index += 1) {
+    assert(
+      priceAscending.list[index - 1].price <= priceAscending.list[index].price,
+      'ascending price sorting is incorrect'
+    );
+  }
+  assert(priceAscending.list[0].price === 0, 'free product is not first in ascending price sort');
+  assert(priceAscending.list[0].priceDisplay === '免费送', 'free product display is incorrect');
+
+  const priceDescending = await ProductService.getProducts({
+    sortBy: PRODUCT_SORT.PRICE_DESC,
+    pageSize: 20
+  });
+  for (let index = 1; index < priceDescending.list.length; index += 1) {
+    assert(
+      priceDescending.list[index - 1].price >= priceDescending.list[index].price,
+      'descending price sorting is incorrect'
+    );
+  }
+
+  const reservedOnly = await ProductService.getProducts({
+    status: PRODUCT_STATUS.RESERVED,
+    pageSize: 20
+  });
+  assert(
+    reservedOnly.list.length === 1
+    && reservedOnly.list[0].status === PRODUCT_STATUS.RESERVED,
+    'status filtering is incorrect'
+  );
+
+  const hiddenStatusQuery = await ProductService.getProducts({
+    status: [
+      PRODUCT_STATUS.DRAFT,
+      PRODUCT_STATUS.OFFLINE,
+      PRODUCT_STATUS.DELETED
+    ],
+    pageSize: 20
+  });
+  assert(hiddenStatusQuery.list.length === 0, 'hidden status query leaked public products');
+
+  const clamped = await ProductService.getProducts({ page: 0, pageSize: 999 });
+  assert(clamped.page === 1, 'page lower bound is incorrect');
+  assert(clamped.pageSize === 20, 'pageSize upper bound is incorrect');
+
+  const pagedIds = [];
+  let page = 1;
+  let pageResult;
+  do {
+    pageResult = await ProductService.getProducts({ page, pageSize: 6 });
+    pagedIds.push(...pageResult.list.map((product) => product.id));
+    page += 1;
+  } while (pageResult.hasMore);
+  assert(pagedIds.length === firstPage.total, 'pagination did not return the full public list');
+  assert(new Set(pagedIds).size === pagedIds.length, 'pagination returned duplicate products');
+  assert(pageResult.hasMore === false, 'final page hasMore should be false');
 
   const detail = await ProductService.getProductById('product-001');
   assert(detail && detail.id === 'product-001', 'detail lookup failed');
+  assert(detail.priceDisplay === '¥129', 'detail price display is incorrect');
+
+  const reservedDetail = await ProductService.getProductById('product-005');
+  assert(reservedDetail && reservedDetail.isReserved, 'reserved detail is unavailable');
+
+  const soldDetail = await ProductService.getProductById('product-015');
+  assert(soldDetail && soldDetail.isSold, 'sold detail is unavailable');
 
   const missing = await ProductService.getProductById('missing-product');
   assert(missing === null, 'missing detail should return null');
+
+  const blank = await ProductService.getProductById('  ');
+  assert(blank === null, 'blank detail id should return null');
+
+  const draft = await ProductService.getProductById('product-003');
+  assert(draft === null, 'draft detail should not be public');
+
+  const offline = await ProductService.getProductById('product-017');
+  assert(offline === null, 'offline detail should not be public');
+
+  const deleted = await ProductService.getProductById('product-018');
+  assert(deleted === null, 'deleted detail should not be public');
 }
 
 record('project.private.config.json is ignored and not tracked', () => {
@@ -297,7 +485,7 @@ record('project.private.config.json is ignored and not tracked', () => {
 
 verifyServiceFlow()
   .then(() => {
-    checks.push('PASS ProductService home, category, search and detail flow');
+    checks.push('PASS ProductService filtering, sorting, pagination and detail boundaries');
     checks.forEach((message) => console.log(message));
     if (errors.length > 0) {
       console.error('\nVerification failed:');

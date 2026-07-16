@@ -1,15 +1,28 @@
 <view class="page-shell--plain detail-page">
-  <loading-state wx:if="{{loading}}" text="正在加载商品详情" />
-
-  <empty-state
-    wx:elif="{{errorMessage}}"
-    title="暂时看不到这件闲置"
-    description="{{errorMessage}}"
-    action-text="返回首页"
-    bind:action="goBack"
+  <loading-state
+    wx:if="{{viewState === 'loading'}}"
+    text="正在加载商品详情"
   />
 
-  <block wx:elif="{{product}}">
+  <view wx:elif="{{showErrorState}}" class="detail-error">
+    <view class="surface-card detail-error-card">
+      <empty-state
+        title="{{errorTitle}}"
+        description="{{errorDescription}}"
+        action-text="{{errorActionText}}"
+        bind:action="onErrorAction"
+      />
+      <button
+        wx:if="{{canRetry}}"
+        class="detail-home-button"
+        bindtap="goHome"
+      >
+        返回首页
+      </button>
+    </view>
+  </view>
+
+  <block wx:elif="{{viewState === 'success' && product}}">
     <view class="detail-cover detail-cover--{{product.coverTone}}">
       <image
         wx:if="{{product.coverImage}}"
@@ -18,15 +31,29 @@
         mode="aspectFill"
       />
       <text wx:else class="detail-cover-label">{{product.coverLabel}}</text>
+      <text class="detail-status detail-status--{{product.statusClass}}">
+        {{product.statusText}}
+      </text>
       <text class="detail-condition">{{product.condition}}</text>
+    </view>
+
+    <view wx:if="{{product.isReserved}}" class="status-notice status-notice--reserved">
+      该商品当前已预订，本阶段不提供预约变更功能
+    </view>
+
+    <view wx:if="{{product.isSold}}" class="status-notice status-notice--sold">
+      该商品已完成线下面交，仅保留详情展示
     </view>
 
     <view class="surface-card detail-main">
       <view class="detail-price-row">
-        <view>
-          <text class="price-symbol">¥</text>
-          <text class="price-value">{{product.priceText}}</text>
-          <text class="original-price">¥{{product.originalPriceText}}</text>
+        <view class="detail-price-group">
+          <text class="price-value {{product.priceText === '免费送' ? 'price-value--free' : ''}}">
+            {{product.priceDisplay}}
+          </text>
+          <text wx:if="{{product.hasOriginalPrice}}" class="original-price">
+            {{product.originalPriceDisplay}}
+          </text>
         </view>
         <text class="category-name">{{product.categoryName}}</text>
       </view>
@@ -34,26 +61,15 @@
       <view class="detail-title">{{product.title}}</view>
 
       <view class="tag-list">
-        <text wx:for="{{product.tags}}" wx:key="*this" class="tag-item">{{item}}</text>
+        <text wx:for="{{product.tags}}" wx:key="*this" class="tag-item">
+          {{item}}
+        </text>
       </view>
 
-      <view class="meta-grid">
-        <view class="meta-item">
-          <text class="meta-label">面交地点</text>
-          <text class="meta-value">{{product.locationName}}</text>
-        </view>
-        <view class="meta-item">
-          <text class="meta-label">发布时间</text>
-          <text class="meta-value">{{product.publishedAtText}}</text>
-        </view>
-        <view class="meta-item">
-          <text class="meta-label">交易方式</text>
-          <text class="meta-value">{{product.distanceText}}</text>
-        </view>
-        <view class="meta-item">
-          <text class="meta-label">浏览次数</text>
-          <text class="meta-value">{{product.viewCount}} 次</text>
-        </view>
+      <view class="stats-row">
+        <text>{{product.viewCountText}} 次浏览</text>
+        <view class="stats-dot"></view>
+        <text>{{product.favoriteCountText}} 人关注</text>
       </view>
     </view>
 
@@ -62,18 +78,72 @@
       <view class="description-text">{{product.description}}</view>
     </view>
 
-    <view class="surface-card seller-card">
+    <view class="surface-card detail-section">
+      <view class="section-title">商品信息</view>
+      <view class="info-list">
+        <view class="info-row">
+          <text class="info-label">分类</text>
+          <text class="info-value">{{product.categoryName}}</text>
+        </view>
+        <view class="info-row">
+          <text class="info-label">成色</text>
+          <text class="info-value">{{product.condition}}</text>
+        </view>
+        <view class="info-row">
+          <text class="info-label">发布时间</text>
+          <text class="info-value">{{product.publishedAtText}}</text>
+        </view>
+        <view class="info-row">
+          <text class="info-label">面交地点</text>
+          <text class="info-value info-value--wrap">{{product.locationName}}</text>
+        </view>
+        <view class="info-row info-row--last">
+          <text class="info-label">交易方式</text>
+          <text class="info-value">{{product.distanceText}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="surface-card seller-card" bindtap="onSellerTap">
       <view class="seller-avatar">{{product.seller.initial}}</view>
       <view class="seller-info">
-        <text class="seller-name">{{product.seller.nickname}}</text>
-        <text class="seller-note">{{product.campus}} · 线下面交</text>
+        <view class="seller-name-row">
+          <text class="seller-name">{{product.seller.nickname}}</text>
+          <text wx:if="{{product.seller.verified}}" class="verified-badge">已认证</text>
+        </view>
+        <text class="seller-note">{{product.campus}} · 普通校园用户</text>
       </view>
-      <text class="seller-status">{{product.seller.verified ? '已认证' : '校园用户'}}</text>
+      <view class="seller-link">
+        <text>查看主页</text>
+        <text class="seller-arrow">›</text>
+      </view>
+    </view>
+
+    <view class="safety-card">
+      <view class="safety-icon">安</view>
+      <view class="safety-copy">
+        <text class="safety-title">校园面交提示</text>
+        <text class="safety-description">
+          请在校园公共区域面交，确认物品状态后再完成交易。
+        </text>
+      </view>
     </view>
 
     <view class="detail-actions">
-      <button class="secondary-button action-button" bindtap="showLaterNotice">收藏</button>
-      <button class="primary-button action-button action-button--main" bindtap="showLaterNotice">联系卖家</button>
+      <button
+        class="secondary-button action-button"
+        disabled="{{product.isSold}}"
+        bindtap="onFavoriteTap"
+      >
+        收藏
+      </button>
+      <button
+        class="primary-button action-button action-button--main {{product.isSold ? 'action-button--disabled' : ''}}"
+        disabled="{{product.isSold}}"
+        bindtap="onContactTap"
+      >
+        {{product.isSold ? '商品已出' : '联系卖家'}}
+      </button>
     </view>
   </block>
 </view>
