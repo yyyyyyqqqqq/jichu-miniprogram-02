@@ -15,6 +15,14 @@ const AMBIGUOUS_ERROR_CODES = new Set([
   'TIMEOUT',
   'UNKNOWN_ERROR'
 ]);
+const ALLOWED_IMAGE_EXTENSIONS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp'
+]);
+const IMAGE_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:jpg|jpeg|png|gif|webp)$/i;
 
 const ERROR_MESSAGES = {
   TITLE_REQUIRED: '请填写商品标题',
@@ -30,6 +38,8 @@ const ERROR_MESSAGES = {
   LOCATION_LENGTH_INVALID: '交易地点应为 2～80 个字符',
   IMAGE_REQUIRED: '请至少选择一张商品图片',
   IMAGE_COUNT_INVALID: '商品图片最多选择 6 张',
+  IMAGE_TYPE_INVALID: '请选择有效的图片文件',
+  IMAGE_SIZE_INVALID: '图片文件大小无效，请重新选择',
   IMAGE_TOO_LARGE: '单张图片不能超过 10MB',
   INVALID_PARAMS: '商品信息不完整，请检查后重试',
   AUTH_CONTEXT_MISSING: '登录状态已失效，请重新登录',
@@ -146,8 +156,23 @@ function validateProductDraft(draft, localImages) {
     throw createError('IMAGE_COUNT_INVALID');
   }
   localImages.forEach((image) => {
+    const tempFilePath = image && typeof image.tempFilePath === 'string'
+      ? image.tempFilePath
+      : '';
     const size = Number(image && image.size);
-    if (Number.isFinite(size) && size > PRODUCT_PUBLISH_LIMITS.MAX_IMAGE_SIZE) {
+    const mediaType = image && typeof image.fileType === 'string'
+      ? image.fileType.toLowerCase()
+      : '';
+    if (!tempFilePath || (mediaType && mediaType !== 'image')) {
+      throw createError('IMAGE_TYPE_INVALID');
+    }
+    if (!normalizeFileExtension(tempFilePath)) {
+      throw createError('IMAGE_TYPE_INVALID');
+    }
+    if (!Number.isFinite(size) || size <= 0) {
+      throw createError('IMAGE_SIZE_INVALID');
+    }
+    if (size > PRODUCT_PUBLISH_LIMITS.MAX_IMAGE_SIZE) {
       throw createError('IMAGE_TOO_LARGE');
     }
   });
@@ -186,9 +211,7 @@ function normalizeFileExtension(tempFilePath) {
     : '';
   const match = path.match(/\.([a-zA-Z0-9]{2,5})$/);
   const extension = match ? match[1].toLowerCase() : '';
-  return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(extension)
-    ? extension
-    : 'jpg';
+  return ALLOWED_IMAGE_EXTENSIONS.has(extension) ? extension : '';
 }
 
 function formatDateFolder(date = new Date()) {
@@ -200,12 +223,83 @@ function formatDateFolder(date = new Date()) {
 
 function buildCloudPath(userId, tempFilePath, index) {
   const extension = normalizeFileExtension(tempFilePath);
+  if (!extension) {
+    throw createError('IMAGE_TYPE_INVALID');
+  }
   return [
     'products',
     userId,
     formatDateFolder(),
     `${Date.now()}-${index}-${randomToken(10)}.${extension}`
   ].join('/');
+}
+
+function getCloudFilePath(fileID) {
+  if (
+    typeof fileID !== 'string'
+    || fileID.length > 1024
+    || !fileID.startsWith('cloud://')
+  ) {
+    return '';
+  }
+  const match = fileID.match(/^cloud:\/\/[^/]+\/(.+)$/);
+  return match ? match[1] : '';
+}
+
+function isOwnedProductImage(fileID, userId) {
+  const normalizedUserId = normalizeUserId(userId);
+  const segments = getCloudFilePath(fileID).split('/');
+  return Boolean(normalizedUserId)
+    && segments.length === 4
+    && segments[0] === 'products'
+    && segments[1] === normalizedUserId
+    && /^\d{8}$/.test(segments[2])
+    && IMAGE_FILE_NAME_PATTERN.test(segments[3]);
+}
+
+function validateImageDecoding(tempFilePath) {
+  if (
+    typeof wx === 'undefined'
+    || typeof wx.getImageInfo !== 'function'
+  ) {
+    return Promise.reject(createError('CLOUD_NOT_READY'));
+  }
+
+  let timeoutId;
+  const request = new Promise((resolve, reject) => {
+    wx.getImageInfo({
+      src: tempFilePath,
+      success: resolve,
+      fail() {
+        reject(createError('IMAGE_TYPE_INVALID'));
+      }
+    });
+  });
+  const timeout = new Promise((resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(createError('IMAGE_TYPE_INVALID'));
+    }, CLOUD_CONFIG.productImageValidationTimeoutMs);
+  });
+
+  return Promise.race([request, timeout])
+    .then((result) => {
+      const width = Number(result && result.width);
+      const height = Number(result && result.height);
+      if (
+        !Number.isFinite(width)
+        || width <= 0
+        || !Number.isFinite(height)
+        || height <= 0
+      ) {
+        throw createError('IMAGE_TYPE_INVALID');
+      }
+      return true;
+    })
+    .finally(() => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    });
 }
 
 function mapTransportError(error, fallbackCode) {
@@ -268,7 +362,7 @@ function uploadSingleImage(tempFilePath, cloudPath) {
         const fileID = response && typeof response.fileID === 'string'
           ? response.fileID
           : '';
-        if (!fileID) {
+        if (!fileID || getCloudFilePath(fileID) !== cloudPath) {
           finish(reject, createError('UPLOAD_FAILED'));
           return;
         }
@@ -291,19 +385,18 @@ function uploadSingleImage(tempFilePath, cloudPath) {
   });
 }
 
-function normalizeCloudFileIds(value) {
+function normalizeCloudFileIds(value, userId) {
   if (!Array.isArray(value)) {
     return [];
   }
   return value.filter((fileID, index, list) => (
-    typeof fileID === 'string'
-    && fileID.startsWith('cloud://')
+    isOwnedProductImage(fileID, userId)
     && list.indexOf(fileID) === index
   ));
 }
 
-async function deleteCloudFiles(fileIDs) {
-  const safeFileIDs = normalizeCloudFileIds(fileIDs);
+async function deleteCloudFiles(fileIDs, userId) {
+  const safeFileIDs = normalizeCloudFileIds(fileIDs, userId);
   if (
     safeFileIDs.length === 0
     || typeof wx === 'undefined'
@@ -421,7 +514,7 @@ async function publishProduct(options = {}) {
   const onProgress = typeof options.onProgress === 'function'
     ? options.onProgress
     : () => {};
-  const pendingFileIds = normalizeCloudFileIds(options.pendingFileIds);
+  const pendingFileIds = normalizeCloudFileIds(options.pendingFileIds, userId);
   const uploadedThisAttempt = [];
   let fileIDs = pendingFileIds;
 
@@ -439,6 +532,7 @@ async function publishProduct(options = {}) {
         if (!tempFilePath) {
           throw createError('INVALID_PARAMS');
         }
+        await validateImageDecoding(tempFilePath);
 
         onProgress({
           stage: 'uploading',
@@ -471,7 +565,7 @@ async function publishProduct(options = {}) {
     });
 
     if (result.reused && uploadedThisAttempt.length > 0) {
-      await deleteCloudFiles(uploadedThisAttempt);
+      await deleteCloudFiles(uploadedThisAttempt, userId);
     }
     return result;
   } catch (error) {
@@ -484,7 +578,7 @@ async function publishProduct(options = {}) {
     ) {
       normalizedError.uploadedFileIds = fileIDs.slice();
     } else if (uploadedThisAttempt.length > 0) {
-      await deleteCloudFiles(uploadedThisAttempt);
+      await deleteCloudFiles(uploadedThisAttempt, userId);
     }
     throw normalizedError;
   }

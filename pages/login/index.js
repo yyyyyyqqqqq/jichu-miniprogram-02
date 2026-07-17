@@ -83,15 +83,24 @@ Page({
     }
   },
 
-  continueAfterLogin() {
+  async continueAfterLogin() {
     if (this.data.isReturning && !AuthStore.isLoggedIn()) {
       return;
     }
 
     this.setData({ isReturning: true });
-    AuthGuard.navigateAfterLogin({
+    const navigated = await AuthGuard.navigateAfterLogin({
       target: this.data.target,
       productId: this.data.productId
+    });
+    if (!this.isPageActive || navigated) {
+      return;
+    }
+
+    this.setData({ isReturning: false });
+    wx.showToast({
+      title: '页面跳转失败，请重试',
+      icon: 'none'
     });
   },
 

@@ -1,11 +1,12 @@
 const CLOUD_CONFIG = {
   environmentId: 'cloud1-d9gpdpv6p2db56d8e',
   authFunctionName: 'authUser',
-  authTimeoutMs: 10000,
+  authTimeoutMs: 15000,
   productFunctionName: 'productQuery',
-  productTimeoutMs: 10000,
+  productTimeoutMs: 15000,
   createProductFunctionName: 'createProduct',
   createProductTimeoutMs: 15000,
+  productImageValidationTimeoutMs: 5000,
   productUploadTimeoutMs: 30000,
   userCacheKey: 'auth:user-summary'
 };

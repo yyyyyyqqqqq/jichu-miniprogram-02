@@ -415,23 +415,32 @@ record('AuthService and AuthStore expose the required boundaries', () => {
 
 record('productQuery enforces public reads, real pagination and safe errors', () => {
   const source = readText(path.join(root, 'cloudfunctions/productQuery/index.js'));
-  const seedSource = readText(path.join(root, 'cloudfunctions/productQuery/seed-products.js'));
 
   assert(/['"]list['"]/.test(source) && /['"]detail['"]/.test(source), 'productQuery actions are incomplete');
   assert(/status:\s*command\.in\(PUBLIC_STATUSES\)/.test(source), 'productQuery detail does not filter public statuses');
   assert(/\.skip\(offset\)\.limit\(pageSize\)/.test(source), 'productQuery does not use database pagination');
+  assert(/const MAX_PAGE = \d+/.test(source), 'productQuery does not cap the maximum page');
+  assert(/normalizePositiveInteger\(data\.page,\s*1,\s*MAX_PAGE\)/.test(source), 'productQuery page cap is not enforced');
   assert(/\.count\(\)/.test(source), 'productQuery does not calculate a real total');
   assert(/PRODUCT_NOT_FOUND/.test(source), 'productQuery does not expose PRODUCT_NOT_FOUND');
   assert(/INVALID_PARAMS/.test(source), 'productQuery does not expose INVALID_PARAMS');
   assert(/DATABASE_ERROR/.test(source), 'productQuery does not expose DATABASE_ERROR');
   assert(!/wx\.cloud\.database/.test(source), 'productQuery uses a client database API');
-  assert(/PRODUCT_SEED_ENABLED/.test(source), 'product seed action is not explicitly protected');
-  assert(/SEED_PRODUCTS_V1/.test(source), 'product seed action lacks an explicit confirmation');
-  assert((seedSource.match(/product-\d{3}/g) || []).length >= 10, 'product seed has fewer than ten fixtures');
-  ['available', 'reserved', 'sold', 'offline'].forEach((status) => {
-    assert(seedSource.includes(`'${status}'`), `product seed does not include ${status}`);
-  });
-  assert(/new Date\(createdAt\)/.test(seedSource), 'product seed timestamps are not real Date values');
+  assert(!/['"]seed['"]/.test(source), 'productQuery exposes a production seed action');
+  assert(!/PRODUCT_SEED_ENABLED|SEED_PRODUCTS_V1|seed-products/.test(source), 'productQuery retains production seed code');
+  assert(
+    !fs.existsSync(path.join(root, 'cloudfunctions/productQuery/seed-products.js')),
+    'productQuery seed fixture is still packaged with the production function'
+  );
+
+  const publicProductStart = source.indexOf('function toPublicProduct');
+  const publicProductEnd = source.indexOf('async function listProducts');
+  const publicProductSource = source.slice(publicProductStart, publicProductEnd);
+  assert(
+    publicProductStart >= 0 && publicProductEnd > publicProductStart,
+    'productQuery public field mapper is missing'
+  );
+  assert(!/sellerOpenid|\bopenid\b/i.test(publicProductSource), 'productQuery returns a seller identity secret');
 });
 
 record('ProductService centralizes cloud access and data normalization', () => {
@@ -465,7 +474,9 @@ record('createProduct trusts cloud identity and writes safe product fields', () 
   assert(/createProductId\(userId,\s*requestId\)/.test(functionSource), 'createProduct request id is not idempotent');
   assert(/users\.where/.test(functionSource), 'createProduct does not verify the real user record');
   assert(/typeof value !== ['"]number['"]/.test(functionSource), 'createProduct does not require a numeric price');
-  assert(/fileID\.includes\(folder\)/.test(functionSource), 'createProduct does not constrain uploaded image ownership');
+  assert(/isOwnedProductImage\(fileID,\s*userId\)/.test(functionSource), 'createProduct does not strictly constrain uploaded image ownership');
+  assert(!/fileID\.includes\(folder\)/.test(functionSource), 'createProduct still uses substring image ownership checks');
+  assert(/IMAGE_FILE_NAME_PATTERN/.test(functionSource), 'createProduct does not restrict image file names and extensions');
   assert(/products\.doc\(productId\)\.set/.test(functionSource), 'createProduct does not use a deterministic product document');
   assert(/status:\s*['"]available['"]/.test(functionSource), 'createProduct does not force the initial status');
   assert(/viewCount:\s*0/.test(functionSource) && /favoriteCount:\s*0/.test(functionSource), 'createProduct does not initialize counters');
@@ -475,6 +486,8 @@ record('createProduct trusts cloud identity and writes safe product fields', () 
 
   assert(/wx\.cloud\.uploadFile/.test(serviceSource), 'publish service does not upload images');
   assert(/wx\.cloud\.deleteFile/.test(serviceSource), 'publish service does not clean orphaned images');
+  assert(/wx\.getImageInfo/.test(serviceSource), 'publish service does not verify that local files decode as images');
+  assert(/isOwnedProductImage/.test(serviceSource), 'publish cleanup is not scoped to the current user directory');
   assert(/wx\.cloud\.callFunction/.test(serviceSource), 'publish service does not call createProduct');
   assert(/requestId/.test(serviceSource), 'publish service does not carry an idempotency key');
   assert(/Promise\.race/.test(serviceSource), 'publish service request timeouts are missing');
@@ -569,6 +582,39 @@ record('login and profile pages implement auth state UI', () => {
   });
 });
 
+record('core page cleanup and navigation failure recovery are present', () => {
+  const homeSource = readText(path.join(root, 'pages/home/index.js'));
+  const publishSource = readText(path.join(root, 'pages/publish/index.js'));
+  const loginSource = readText(path.join(root, 'pages/login/index.js'));
+
+  assert(/onPullDownRefresh[\s\S]*finally[\s\S]*stopPullDownRefresh/.test(homeSource), 'home pull-down refresh can remain active');
+  assert(/requestVersion/.test(homeSource) && /isPageActive/.test(homeSource), 'home stale page request protection is missing');
+  assert(/finally[\s\S]*closeSubmissionLoading/.test(publishSource), 'publish Loading is not closed in finally');
+  assert(/finally[\s\S]*isSubmitting:\s*false/.test(publishSource), 'publish button can remain disabled after failure');
+  assert(/const navigated = await AuthGuard\.navigateAfterLogin/.test(loginSource), 'login does not observe navigation failure');
+  assert(/isReturning:\s*false/.test(loginSource), 'login navigation failure does not unlock the return state');
+});
+
+record('runtime logs are minimal and do not include sensitive payloads', () => {
+  const runtimeFiles = files.filter((file) => (
+    path.extname(file) === '.js'
+    && !relative(file).startsWith('scripts/')
+    && !relative(file).startsWith('mock/')
+  ));
+
+  runtimeFiles.forEach((file) => {
+    const source = readText(file);
+    const logCalls = source.match(/console\.(?:log|info|warn|error)\s*\([\s\S]*?\);/g) || [];
+    logCalls.forEach((call) => {
+      assert(!/\bOPENID\b|\bopenid\b/i.test(call), `${relative(file)} logs an identity field`);
+      assert(
+        !/,\s*(?:error|event|request|record|user|product|tempFilePath|fileID)\b/.test(call),
+        `${relative(file)} logs a sensitive runtime payload`
+      );
+    });
+  });
+});
+
 record('cloud function dependencies are ignored and not tracked', () => {
   ['authUser', 'productQuery', 'createProduct'].forEach((functionName) => {
     const modulePath = `cloudfunctions/${functionName}/node_modules`;
@@ -590,16 +636,24 @@ record('cloud function dependencies are ignored and not tracked', () => {
 
 async function verifyServiceFlow() {
   const ProductService = require(path.join(root, 'services/product-service'));
-  const { SEED_PRODUCTS } = require(path.join(
-    root,
-    'cloudfunctions/productQuery/seed-products'
-  ));
+  const { PRODUCTS } = require(path.join(root, 'mock/index'));
   const {
     PRODUCT_STATUS,
     PUBLIC_PRODUCT_STATUSES,
     PRODUCT_SORT
   } = require(path.join(root, 'constants/product'));
   const originalWx = global.wx;
+  const queryFixtures = PRODUCTS.map((product) => ({
+    ...product,
+    _id: product.id,
+    location: product.locationName,
+    sellerId: product.seller && product.seller.id,
+    sellerName: product.seller && product.seller.nickname,
+    sellerAvatar: product.seller && product.seller.avatar,
+    sellerVerified: product.seller && product.seller.verified === true,
+    createdAt: new Date(product.publishedAt),
+    updatedAt: new Date(product.publishedAt)
+  }));
 
   function matchesKeyword(product, keyword) {
     if (!keyword) {
@@ -651,7 +705,7 @@ async function verifyServiceFlow() {
           const statuses = Array.isArray(request.statuses)
             ? request.statuses
             : PUBLIC_PRODUCT_STATUSES;
-          const filtered = SEED_PRODUCTS.filter((product) => (
+          const filtered = queryFixtures.filter((product) => (
             statuses.includes(product.status)
             && (request.categoryId === 'all' || product.categoryId === request.categoryId)
             && matchesKeyword(product, request.keyword)
@@ -677,7 +731,7 @@ async function verifyServiceFlow() {
         }
 
         if (data.action === 'detail') {
-          const product = SEED_PRODUCTS.find((item) => (
+          const product = queryFixtures.find((item) => (
             item._id === request.productId
             && PUBLIC_PRODUCT_STATUSES.includes(item.status)
           ));
@@ -831,6 +885,222 @@ async function verifyServiceFlow() {
   }
 }
 
+async function verifyProductQueryFunctionFlow() {
+  const functionPath = path.join(root, 'cloudfunctions/productQuery/index.js');
+  const originalLoad = Module._load;
+  const records = [
+    {
+      _id: 'product-public',
+      title: '公开商品',
+      description: '用于验证公开字段过滤。',
+      price: 12,
+      originalPrice: null,
+      categoryId: 'life',
+      categoryName: '生活',
+      condition: '九成新',
+      images: ['cloud://test-env.bucket/products/u_owner/20260717/public.jpg'],
+      coverImage: 'cloud://test-env.bucket/products/u_owner/20260717/public.jpg',
+      coverLabel: '公开',
+      coverTone: 'sand',
+      location: '图书馆南门',
+      campus: '示例大学',
+      distanceText: '校内面交',
+      sellerId: 'u_owner',
+      sellerOpenid: 'private-openid',
+      sellerName: '公开卖家名',
+      sellerAvatar: '',
+      sellerVerified: false,
+      status: 'available',
+      tags: ['台灯'],
+      viewCount: 1,
+      favoriteCount: 2,
+      createdAt: new Date('2026-07-17T08:00:00.000Z'),
+      updatedAt: new Date('2026-07-17T08:00:00.000Z')
+    },
+    {
+      _id: 'product-hidden',
+      title: '隐藏商品',
+      description: '该商品不应被公开读取。',
+      price: 99,
+      categoryId: 'life',
+      status: 'draft',
+      favoriteCount: 0,
+      viewCount: 0,
+      createdAt: new Date('2026-07-16T08:00:00.000Z')
+    }
+  ];
+
+  function matches(record, condition) {
+    if (!condition || typeof condition !== 'object') {
+      return true;
+    }
+    if (Array.isArray(condition.$and)) {
+      return condition.$and.every((item) => matches(record, item));
+    }
+    if (Array.isArray(condition.$or)) {
+      return condition.$or.some((item) => matches(record, item));
+    }
+    return Object.entries(condition).every(([key, expected]) => {
+      if (expected && Array.isArray(expected.$in)) {
+        return expected.$in.includes(record[key]);
+      }
+      if (expected && expected.$regexp instanceof RegExp) {
+        const value = Array.isArray(record[key])
+          ? record[key].join(' ')
+          : String(record[key] || '');
+        return expected.$regexp.test(value);
+      }
+      return record[key] === expected;
+    });
+  }
+
+  function createQuery(condition) {
+    const orderRules = [];
+    let offset = 0;
+    let limit = records.length;
+    const query = {
+      orderBy(field, direction) {
+        orderRules.push({ field, direction });
+        return query;
+      },
+      skip(value) {
+        offset = value;
+        return query;
+      },
+      limit(value) {
+        limit = value;
+        return query;
+      },
+      async count() {
+        return {
+          total: records.filter((record) => matches(record, condition)).length
+        };
+      },
+      async get() {
+        const filtered = records
+          .filter((record) => matches(record, condition))
+          .sort((left, right) => {
+            for (const rule of orderRules) {
+              const leftValue = left[rule.field];
+              const rightValue = right[rule.field];
+              if (leftValue === rightValue) {
+                continue;
+              }
+              const direction = rule.direction === 'desc' ? -1 : 1;
+              return leftValue > rightValue ? direction : -direction;
+            }
+            return 0;
+          });
+        return {
+          data: filtered.slice(offset, offset + limit)
+        };
+      }
+    };
+    return query;
+  }
+
+  const command = {
+    in(value) {
+      return { $in: value };
+    },
+    and(value) {
+      return { $and: value };
+    },
+    or(value) {
+      return { $or: value };
+    }
+  };
+  const db = {
+    command,
+    RegExp({ regexp, options }) {
+      return {
+        $regexp: new RegExp(regexp, options)
+      };
+    },
+    collection(name) {
+      assert(name === 'products', `unexpected productQuery collection ${name}`);
+      return {
+        where(condition) {
+          return createQuery(condition);
+        }
+      };
+    }
+  };
+  const cloudMock = {
+    DYNAMIC_CURRENT_ENV: 'dynamic-env',
+    init() {},
+    database() {
+      return db;
+    }
+  };
+
+  Module._load = function loadWithCloudMock(request, parent, isMain) {
+    if (request === 'wx-server-sdk') {
+      return cloudMock;
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  try {
+    delete require.cache[require.resolve(functionPath)];
+    const productQueryFunction = require(functionPath);
+    const listResult = await productQueryFunction.main({
+      action: 'list',
+      data: {
+        page: 1,
+        pageSize: 20,
+        categoryId: 'all',
+        sortBy: 'newest'
+      }
+    });
+    assert(listResult.success === true, 'productQuery rejected a valid public list request');
+    assert(listResult.data.list.length === 1, 'productQuery list leaked a hidden status');
+    assert(
+      !Object.prototype.hasOwnProperty.call(listResult.data.list[0], 'sellerOpenid'),
+      'productQuery list leaked sellerOpenid'
+    );
+
+    const cappedResult = await productQueryFunction.main({
+      action: 'list',
+      data: {
+        page: 999999,
+        pageSize: 999999,
+        categoryId: 'all',
+        sortBy: 'default'
+      }
+    });
+    assert(
+      cappedResult.data.page === 100 && cappedResult.data.pageSize === 20,
+      'productQuery does not cap abusive pagination values'
+    );
+
+    const hiddenDetail = await productQueryFunction.main({
+      action: 'detail',
+      data: {
+        productId: 'product-hidden'
+      }
+    });
+    assert(
+      hiddenDetail.success === false && hiddenDetail.code === 'PRODUCT_NOT_FOUND',
+      'productQuery detail returned a hidden product'
+    );
+
+    const seedResult = await productQueryFunction.main({
+      action: 'seed',
+      data: {
+        confirm: 'SEED_PRODUCTS_V1'
+      }
+    });
+    assert(
+      seedResult.success === false && seedResult.code === 'INVALID_ACTION',
+      'productQuery still exposes the production seed action'
+    );
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[require.resolve(functionPath)];
+  }
+}
+
 async function verifyPublishServiceFlow() {
   const ProductPublishService = require(path.join(
     root,
@@ -843,6 +1113,13 @@ async function verifyPublishServiceFlow() {
   let functionMode = 'success';
 
   global.wx = {
+    getImageInfo({ success }) {
+      success({
+        width: 1200,
+        height: 900,
+        type: 'jpeg'
+      });
+    },
     cloud: {
       uploadFile({ cloudPath, success }) {
         uploadedPaths.push(cloudPath);
@@ -901,11 +1178,13 @@ async function verifyPublishServiceFlow() {
   const localImages = [
     {
       tempFilePath: 'C:\\temp\\lamp-one.jpg',
-      size: 1024
+      size: 1024,
+      fileType: 'image'
     },
     {
       tempFilePath: 'C:\\temp\\lamp-two.png',
-      size: 2048
+      size: 2048,
+      fileType: 'image'
     }
   ];
 
@@ -928,6 +1207,36 @@ async function verifyPublishServiceFlow() {
       invalidPriceError = error;
     }
     assert(invalidPriceError && invalidPriceError.code === 'PRICE_INVALID', 'publish validation accepts an invalid price');
+
+    let invalidImageTypeError;
+    try {
+      ProductPublishService.validateProductDraft(draft, [{
+        tempFilePath: 'C:\\temp\\payload.exe',
+        size: 1024,
+        fileType: 'image'
+      }]);
+    } catch (error) {
+      invalidImageTypeError = error;
+    }
+    assert(
+      invalidImageTypeError && invalidImageTypeError.code === 'IMAGE_TYPE_INVALID',
+      'publish validation accepts a non-image extension'
+    );
+
+    let invalidImageSizeError;
+    try {
+      ProductPublishService.validateProductDraft(draft, [{
+        tempFilePath: 'C:\\temp\\empty.jpg',
+        size: 0,
+        fileType: 'image'
+      }]);
+    } catch (error) {
+      invalidImageSizeError = error;
+    }
+    assert(
+      invalidImageSizeError && invalidImageSizeError.code === 'IMAGE_SIZE_INVALID',
+      'publish validation accepts an empty image'
+    );
 
     const normalized = ProductPublishService.validateProductDraft(draft, localImages);
     assert(normalized.title === '校园二手台灯', 'publish validation does not normalize the title');
@@ -986,6 +1295,11 @@ async function verifyPublishServiceFlow() {
     assert(databaseError && databaseError.code === 'DATABASE_ERROR', 'publish service did not preserve the business error');
     assert(deletedFileLists.length === 1, 'publish failure did not clean its uploaded image');
     assert(deletedFileLists[0].length === 1, 'publish cleanup targeted the wrong image count');
+    const refusedForeignDelete = await ProductPublishService.deleteCloudFiles([
+      'cloud://test-env.bucket/products/u_other/20260717/foreign.jpg'
+    ], 'u_test');
+    assert(refusedForeignDelete === false, 'publish cleanup accepted another user directory');
+    assert(deletedFileLists.length === 1, 'publish cleanup attempted to delete another user file');
   } finally {
     if (originalWx === undefined) {
       delete global.wx;
@@ -1138,12 +1452,56 @@ async function verifyCreateProductFunctionFlow() {
     });
     assert(stringPrice.success === false && stringPrice.code === 'INVALID_PARAMS', 'createProduct accepts a string price');
 
+    const infinitePrice = await createProductFunction.main({
+      requestId: 'req_server_verification_0003',
+      product: Object.assign({}, validProduct, {
+        price: Infinity
+      })
+    });
+    assert(infinitePrice.success === false && infinitePrice.code === 'INVALID_PARAMS', 'createProduct accepts an infinite price');
+
+    const tooManyImages = await createProductFunction.main({
+      requestId: 'req_server_verification_0004',
+      product: Object.assign({}, validProduct, {
+        images: Array.from({ length: 7 }, (_, index) => (
+          `cloud://test-env.bucket/products/${userId}/20260717/lamp-${index}.jpg`
+        ))
+      })
+    });
+    assert(tooManyImages.success === false && tooManyImages.code === 'INVALID_PARAMS', 'createProduct accepts too many images');
+
+    const embeddedUserFolder = await createProductFunction.main({
+      requestId: 'req_server_verification_0005',
+      product: Object.assign({}, validProduct, {
+        images: [
+          `cloud://test-env.bucket/foreign/products/${userId}/20260717/lamp.jpg`
+        ]
+      })
+    });
+    assert(
+      embeddedUserFolder.success === false && embeddedUserFolder.code === 'INVALID_PARAMS',
+      'createProduct accepts a user folder embedded in an unrelated path'
+    );
+
     users.clear();
     const missingUser = await createProductFunction.main({
-      requestId: 'req_server_verification_0003',
+      requestId: 'req_server_verification_0006',
       product: validProduct
     });
     assert(missingUser.success === false && missingUser.code === 'USER_NOT_FOUND', 'createProduct accepts a missing user');
+
+    users.set(userId, {
+      _id: userId,
+      nickname: '停用用户',
+      avatarUrl: '',
+      campus: '示例大学',
+      status: 'disabled'
+    });
+    const disabledUser = await createProductFunction.main({
+      requestId: 'req_server_verification_0007',
+      product: validProduct
+    });
+    assert(disabledUser.success === false && disabledUser.code === 'USER_DISABLED', 'createProduct accepts a disabled user');
   } finally {
     Module._load = originalLoad;
     delete require.cache[require.resolve(functionPath)];
@@ -1273,6 +1631,8 @@ record('project.private.config.json is ignored and not tracked', () => {
 async function runAsyncChecks() {
   await verifyServiceFlow();
   checks.push('PASS ProductService filtering, sorting, pagination and detail boundaries');
+  await verifyProductQueryFunctionFlow();
+  checks.push('PASS productQuery public fields, status filtering, query limits and disabled seed action');
   await verifyPublishServiceFlow();
   checks.push('PASS ProductPublishService validation, upload, idempotency and cleanup flow');
   await verifyCreateProductFunctionFlow();

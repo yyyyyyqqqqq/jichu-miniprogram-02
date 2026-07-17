@@ -35,6 +35,7 @@ const VALID_CONDITIONS = new Set([
 const MAX_PRICE = 999999.99;
 const MAX_IMAGES = 6;
 const REQUEST_ID_PATTERN = /^[a-zA-Z0-9_-]{12,80}$/;
+const IMAGE_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:jpg|jpeg|png|gif|webp)$/i;
 
 const ERROR_CODES = {
   OK: 'OK',
@@ -89,17 +90,36 @@ function isValidPrice(value) {
   return Math.abs(value * 100 - Math.round(value * 100)) < 0.000001;
 }
 
+function getCloudFilePath(fileID) {
+  if (
+    typeof fileID !== 'string'
+    || fileID.length > 1024
+    || !fileID.startsWith('cloud://')
+  ) {
+    return '';
+  }
+
+  const match = fileID.match(/^cloud:\/\/[^/]+\/(.+)$/);
+  return match ? match[1] : '';
+}
+
+function isOwnedProductImage(fileID, userId) {
+  const filePath = getCloudFilePath(fileID);
+  const segments = filePath.split('/');
+  return segments.length === 4
+    && segments[0] === 'products'
+    && segments[1] === userId
+    && /^\d{8}$/.test(segments[2])
+    && IMAGE_FILE_NAME_PATTERN.test(segments[3]);
+}
+
 function normalizeImages(value, userId) {
   if (!Array.isArray(value) || value.length < 1 || value.length > MAX_IMAGES) {
     return [];
   }
 
-  const folder = `/products/${userId}/`;
   const images = value.filter((fileID, index, list) => (
-    typeof fileID === 'string'
-    && fileID.length <= 1024
-    && fileID.startsWith('cloud://')
-    && fileID.includes(folder)
+    isOwnedProductImage(fileID, userId)
     && list.indexOf(fileID) === index
   ));
   return images.length === value.length ? images : [];
@@ -149,7 +169,7 @@ async function findProduct(productId) {
 }
 
 function validateProduct(value, userId) {
-  if (!value || typeof value !== 'object') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
   }
 
@@ -206,8 +226,11 @@ function toSellerFields(user, identity, userId) {
 }
 
 exports.main = async (event = {}) => {
-  const requestId = typeof event.requestId === 'string'
-    ? event.requestId.trim()
+  const request = event && typeof event === 'object' && !Array.isArray(event)
+    ? event
+    : {};
+  const requestId = typeof request.requestId === 'string'
+    ? request.requestId.trim()
     : '';
   if (!REQUEST_ID_PATTERN.test(requestId)) {
     return failure(ERROR_CODES.INVALID_PARAMS, '发布请求参数不正确');
@@ -225,11 +248,11 @@ exports.main = async (event = {}) => {
     if (!user) {
       return failure(ERROR_CODES.USER_NOT_FOUND, '用户记录不存在，请重新登录');
     }
-    if (user.status === 'disabled') {
+    if (user.status !== 'active') {
       return failure(ERROR_CODES.USER_DISABLED, '当前账户暂不可发布商品');
     }
 
-    const product = validateProduct(event.product, userId);
+    const product = validateProduct(request.product, userId);
     if (!product) {
       return failure(ERROR_CODES.INVALID_PARAMS, '商品信息不完整或格式不正确');
     }

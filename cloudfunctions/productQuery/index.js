@@ -1,5 +1,4 @@
 const cloud = require('wx-server-sdk');
-const { SEED_PRODUCTS } = require('./seed-products');
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV
@@ -26,6 +25,7 @@ const VALID_SORTS = new Set([
   'priceDesc'
 ]);
 const MAX_PAGE_SIZE = 20;
+const MAX_PAGE = 100;
 const MAX_KEYWORD_LENGTH = 40;
 const MAX_SEARCH_TOKENS = 5;
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -36,8 +36,7 @@ const ERROR_CODES = {
   INVALID_PARAMS: 'INVALID_PARAMS',
   PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
   DATABASE_ERROR: 'DATABASE_ERROR',
-  INTERNAL_ERROR: 'INTERNAL_ERROR',
-  SEED_DISABLED: 'SEED_DISABLED'
+  INTERNAL_ERROR: 'INTERNAL_ERROR'
 };
 
 function success(data) {
@@ -200,7 +199,7 @@ async function listProducts(data) {
     return failure(ERROR_CODES.INVALID_PARAMS, '商品查询参数不正确');
   }
 
-  const page = normalizePositiveInteger(data.page, 1);
+  const page = normalizePositiveInteger(data.page, 1, MAX_PAGE);
   const pageSize = normalizePositiveInteger(data.pageSize, 6, MAX_PAGE_SIZE);
   const keyword = normalizeKeyword(data.keyword);
   const statuses = normalizeStatuses(data.statuses);
@@ -262,43 +261,20 @@ async function getProductDetail(data) {
   });
 }
 
-async function seedProducts(data) {
-  if (process.env.PRODUCT_SEED_ENABLED !== 'true') {
-    return failure(
-      ERROR_CODES.SEED_DISABLED,
-      '测试数据初始化未启用'
-    );
-  }
-  if (!data || data.confirm !== 'SEED_PRODUCTS_V1') {
-    return failure(
-      ERROR_CODES.INVALID_PARAMS,
-      '缺少测试数据初始化确认参数'
-    );
-  }
-
-  const writes = SEED_PRODUCTS.map((product) => {
-    const { _id, ...record } = product;
-    return products.doc(_id).set({
-      data: record
-    });
-  });
-  await Promise.all(writes);
-
-  return success({
-    count: SEED_PRODUCTS.length,
-    mode: 'idempotent-upsert'
-  });
-}
-
 exports.main = async (event = {}) => {
-  const action = typeof event.action === 'string'
-    ? event.action.trim()
+  const request = event && typeof event === 'object' && !Array.isArray(event)
+    ? event
+    : {};
+  const action = typeof request.action === 'string'
+    ? request.action.trim()
     : '';
-  const data = event.data && typeof event.data === 'object'
-    ? event.data
+  const data = request.data
+    && typeof request.data === 'object'
+    && !Array.isArray(request.data)
+    ? request.data
     : {};
 
-  if (!['list', 'detail', 'seed'].includes(action)) {
+  if (!['list', 'detail'].includes(action)) {
     return failure(ERROR_CODES.INVALID_ACTION, '不支持的商品操作');
   }
 
@@ -306,10 +282,7 @@ exports.main = async (event = {}) => {
     if (action === 'list') {
       return await listProducts(data);
     }
-    if (action === 'detail') {
-      return await getProductDetail(data);
-    }
-    return await seedProducts(data);
+    return await getProductDetail(data);
   } catch (error) {
     console.error('[productQuery] request failed', {
       action,

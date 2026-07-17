@@ -159,13 +159,25 @@ Page({
       );
       const selected = Array.isArray(result.tempFiles) ? result.tempFiles : [];
       let oversizedCount = 0;
+      let invalidImageCount = 0;
       const additions = [];
       selected.forEach((file) => {
         const tempFilePath = file && typeof file.tempFilePath === 'string'
           ? file.tempFilePath
           : '';
-        const size = Number(file && file.size) || 0;
+        const size = Number(file && file.size);
+        const fileType = file && typeof file.fileType === 'string'
+          ? file.fileType.toLowerCase()
+          : 'image';
         if (!tempFilePath || existingPaths.has(tempFilePath)) {
+          return;
+        }
+        if (
+          fileType !== 'image'
+          || !Number.isFinite(size)
+          || size <= 0
+        ) {
+          invalidImageCount += 1;
           return;
         }
         if (size > PRODUCT_PUBLISH_LIMITS.MAX_IMAGE_SIZE) {
@@ -175,13 +187,16 @@ Page({
         existingPaths.add(tempFilePath);
         additions.push({
           tempFilePath,
-          size
+          size,
+          fileType
         });
       });
 
-      if (oversizedCount > 0) {
+      if (oversizedCount > 0 || invalidImageCount > 0) {
         wx.showToast({
-          title: '已跳过超过 10MB 的图片',
+          title: oversizedCount > 0
+            ? '已跳过无效或超过 10MB 的图片'
+            : '已跳过无效图片',
           icon: 'none'
         });
       }
