@@ -143,17 +143,22 @@
   display: flex;
   flex-wrap: wrap;
   gap: 10rpx;
-  height: 44rpx;
+  min-height: 44rpx;
   margin-top: 16rpx;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .tag-item {
+  min-height: 44rpx;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
   padding: 5rpx 12rpx;
   border-radius: 8rpx;
   background: #f1f5f3;
   color: #68736d;
   font-size: 21rpx;
+  line-height: 1.4;
 }
 
 .product-meta,

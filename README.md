@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-第四阶段商品只读链路已完成源码接入：
+第五阶段商品云端发布链路已完成源码接入：
 
 - 微信原生小程序基础工程与统一公共样式
 - 首页组合搜索、分类筛选、综合/最新/价格排序、下拉刷新和稳定分页
@@ -31,6 +31,11 @@
 - 云端搜索、分类、四种排序和真实 `skip + limit` 分页
 - 客户端商品数据标准化、超时和统一错误映射
 - 16 条可控、幂等的云数据库测试商品初始化数据
+- 登录用户商品发布表单、客户端与服务端双重校验
+- 最多 6 张商品图片选择、预览、删除与云存储上传
+- `createProduct` 云函数可信身份校验、幂等写入与稳定错误结构
+- 上传失败、保存失败、超时重试与孤儿图片清理
+- 发布成功跳转商品详情，以及首页列表刷新标记
 
 ## 技术栈
 
@@ -42,7 +47,7 @@
 - 无第三方 UI 库
 - 小程序客户端无 npm 运行时依赖
 
-小程序客户端使用 `wx.cloud.callFunction()` 调用认证与商品查询云函数，不直接访问 `users` 或 `products` 集合。
+小程序客户端使用 `wx.cloud.callFunction()` 调用认证、商品查询和商品发布云函数，不直接访问 `users` 或 `products` 集合。
 
 ## 目录结构
 
@@ -53,6 +58,7 @@
 ├── cloudfunctions/       微信云函数
 │   └── authUser/         登录与当前用户查询
 │   └── productQuery/     商品列表、详情与受控测试数据初始化
+│   └── createProduct/    登录用户商品校验与幂等写入
 ├── config/               云环境统一配置
 ├── constants/            分类、商品状态和路由常量
 ├── custom-tab-bar/       自定义底部导航
@@ -70,7 +76,7 @@
 2. 项目目录选择 `D:\codex\jichu mini program02`。
 3. 工具会读取 `project.config.json` 中现有 AppID：`wx5e54edaf5c80418c`。
 4. 确认当前账号有该 AppID 权限；如无权限，请在开发者工具导入界面选择本人有权限的 AppID，不要把私有配置提交到仓库。
-5. 按下方说明准备 `products` 集合并部署 `productQuery`。
+5. 按下方说明准备 `products` 集合并部署 `productQuery` 与 `createProduct`。
 6. 点击“编译”，首页应显示来自云数据库的商品列表。
 
 ## 云开发配置
@@ -91,6 +97,12 @@ cloudfunctions/authUser
 
 ```text
 cloudfunctions/productQuery
+```
+
+商品发布云函数：
+
+```text
+cloudfunctions/createProduct
 ```
 
 云函数通过 `cloud.getWXContext()` 获取真实微信身份，客户端不会传递或接收身份标识。云端使用 AppID 与身份标识的 SHA-256 摘要生成确定性用户文档 ID，避免并发首次登录生成重复用户。
@@ -117,10 +129,26 @@ cloudfunctions/productQuery
   --project "D:\codex\jichu mini program02"
 ```
 
+部署商品发布云函数：
+
+```powershell
+& "D:\program\微信web开发者工具\cli.bat" cloud functions deploy `
+  --env "cloud1-d9gpdpv6p2db56d8e" `
+  --paths "D:\codex\jichu mini program02\cloudfunctions\createProduct" `
+  --remote-npm-install `
+  --project "D:\codex\jichu mini program02"
+```
+
 集合创建、权限、索引、测试数据初始化与验证步骤见：
 
 ```text
 docs/phase-4-cloud-products.md
+```
+
+商品发布部署、云存储检查与人工验收步骤见：
+
+```text
+docs/phase-5-cloud-product-publish.md
 ```
 
 ## 商品数据与架构
@@ -142,6 +170,18 @@ available / reserved / sold
 旧数据中的 `published` 会在客户端标准化为 `available`。`draft`、`offline` 和 `deleted` 不会出现在首页，也不能通过公开详情接口读取。
 
 `mock/products.js` 仍作为本地开发 fixture 保留，但正式运行不会静默回退到 Mock。
+
+商品发布统一经过：
+
+```text
+Publish Page
+→ ProductPublishService 上传云存储图片
+→ createProduct 取得可信微信身份并查询 users
+→ products 幂等写入
+→ ProductService / productQuery 读取新商品
+```
+
+客户端仅提交经过校验的商品字段和云文件 `fileID`。卖家、状态、计数及服务端时间均由云函数构造，发布请求 ID 与用户 ID 共同生成确定性商品文档 ID，避免超时重试产生重复商品。
 
 ## 认证架构
 
@@ -173,8 +213,8 @@ id / nickname / avatarUrl / campus / profileCompleted
 
 ## 本阶段未实现
 
-- 商品发布、图片上传和云数据库写入
-- 收藏持久化与商品管理
+- 商品编辑、删除、下架与“我的发布”管理
+- 收藏持久化
 - 私信聊天与面交预约
 - 地图选点
 - 任何在线支付、担保支付或物流能力
@@ -193,14 +233,13 @@ node scripts/verify-project.js
 npm run verify
 ```
 
-验证覆盖 JSON、页面和组件四件套、云函数结构、身份来源、安全返回、本地缓存、AuthService/AuthStore 接口、非阻塞 bootstrap、白名单登录守卫、并发登录、旧请求失效、退出登录，以及第二阶段全部商品浏览回归。
+验证覆盖 JSON、页面和组件四件套、云函数结构、身份来源、安全返回、本地缓存、AuthService/AuthStore 接口、非阻塞 bootstrap、白名单登录守卫、商品读取回归，以及发布校验、上传路径、受保护字段、幂等重试和孤儿图片清理。
 
 ## 后续阶段
 
-1. 第五阶段：登录用户发布商品、图片上传、云数据库写入与“我的发布”
-2. 第六阶段：收藏、个人中心与商品管理
-3. 第七阶段：消息、聊天与面交预约
-4. 第八阶段：权限、索引、异常处理与最终验收
+1. 第六阶段：收藏、个人中心与商品管理
+2. 第七阶段：消息、聊天与面交预约
+3. 第八阶段：权限、索引、异常处理与最终验收
 
 ## Git 仓库
 

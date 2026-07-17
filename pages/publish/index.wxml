@@ -1,22 +1,193 @@
-<view class="page-shell--plain">
-  <view wx:if="{{isLoggedIn}}" class="surface-card placeholder-page">
-    <view class="placeholder-mark">＋</view>
-    <view class="placeholder-title">发布身份已确认</view>
-    <view class="placeholder-description">
-      商品发布将在下一阶段开放，届时将接入图片上传和云数据库商品写入。
+<view class="page-shell--plain publish-page">
+  <block wx:if="{{isLoggedIn}}">
+    <view class="publish-header">
+      <text class="eyebrow">即出 · 发布闲置</text>
+      <view class="page-title">让闲置遇见新同学</view>
+      <view class="page-subtitle">信息真实清楚，更容易约到校内面交</view>
     </view>
-    <button class="secondary-button notice-button" bindtap="showNotice">
-      了解当前进度
-    </button>
-  </view>
 
-  <view wx:else class="surface-card placeholder-page">
-    <view class="placeholder-mark">登</view>
-    <view class="placeholder-title">登录后进入发布功能</view>
-    <view class="placeholder-description">
-      当前页面不会创建商品。完成微信身份登录后可进入发布占位页。
+    <view wx:if="{{outcomeUnknown}}" class="result-notice">
+      <text class="result-notice__title">发布结果正在确认</text>
+      <text class="result-notice__description">
+        网络中断时无法立即确认结果。请保持表单不变，点击底部按钮安全重试，不会重复创建商品。
+      </text>
     </view>
-    <button class="primary-button notice-button" bindtap="goLogin">
+
+    <view class="surface-card form-card">
+      <view class="form-section form-section--first">
+        <view class="section-heading">
+          <text class="section-title">商品图片</text>
+          <text class="section-meta">{{images.length}} / {{maxImages}}</text>
+        </view>
+        <view class="section-tip">至少 1 张，最多 6 张；点击图片可预览</view>
+
+        <view class="image-grid">
+          <view
+            wx:for="{{images}}"
+            wx:key="tempFilePath"
+            class="image-item"
+          >
+            <image
+              class="selected-image"
+              src="{{item.tempFilePath}}"
+              mode="aspectFill"
+              data-index="{{index}}"
+              bindtap="onPreviewImage"
+            />
+            <view
+              wx:if="{{!isSubmitting && !outcomeUnknown}}"
+              class="remove-image"
+              data-index="{{index}}"
+              catchtap="onRemoveImage"
+            >
+              ×
+            </view>
+          </view>
+
+          <button
+            wx:if="{{images.length < maxImages}}"
+            class="choose-image"
+            disabled="{{isSubmitting || outcomeUnknown}}"
+            bindtap="onChooseImages"
+          >
+            <text class="choose-image__plus">＋</text>
+            <text>添加图片</text>
+          </button>
+        </view>
+      </view>
+
+      <view class="form-section">
+        <view class="field-heading">
+          <text class="field-label">商品标题</text>
+          <text class="required-mark">*</text>
+        </view>
+        <input
+          class="form-input"
+          value="{{title}}"
+          maxlength="40"
+          disabled="{{isSubmitting || outcomeUnknown}}"
+          placeholder="例如：九成新机械键盘"
+          bindinput="onTitleInput"
+        />
+      </view>
+
+      <view class="form-section">
+        <view class="field-heading">
+          <text class="field-label">物品描述</text>
+          <text class="required-mark">*</text>
+          <text class="field-count">{{descriptionLength}} / 1000</text>
+        </view>
+        <textarea
+          class="form-textarea"
+          value="{{description}}"
+          maxlength="1000"
+          disabled="{{isSubmitting || outcomeUnknown}}"
+          auto-height
+          placeholder="说明使用情况、配件、瑕疵和面交注意事项"
+          bindinput="onDescriptionInput"
+        />
+      </view>
+
+      <view class="form-section">
+        <view class="field-heading">
+          <text class="field-label">商品价格</text>
+          <text class="required-mark">*</text>
+        </view>
+        <view class="price-input-wrap">
+          <text class="currency-symbol">¥</text>
+          <input
+            class="form-input price-input"
+            value="{{price}}"
+            type="digit"
+            maxlength="9"
+            disabled="{{isSubmitting || outcomeUnknown}}"
+            placeholder="0.00"
+            bindinput="onPriceInput"
+          />
+        </view>
+      </view>
+
+      <view class="form-section">
+        <view class="field-heading">
+          <text class="field-label">商品分类</text>
+          <text class="required-mark">*</text>
+        </view>
+        <view class="option-grid">
+          <view
+            wx:for="{{categories}}"
+            wx:key="id"
+            class="option-chip {{item.id === categoryId ? 'option-chip--active' : ''}}"
+            data-id="{{item.id}}"
+            bindtap="onCategoryTap"
+          >
+            {{item.name}}
+          </view>
+        </view>
+      </view>
+
+      <view class="form-section">
+        <view class="field-heading">
+          <text class="field-label">新旧程度</text>
+          <text class="required-mark">*</text>
+        </view>
+        <view class="option-grid option-grid--condition">
+          <view
+            wx:for="{{conditions}}"
+            wx:key="*this"
+            class="option-chip {{item === condition ? 'option-chip--active' : ''}}"
+            data-value="{{item}}"
+            bindtap="onConditionTap"
+          >
+            {{item}}
+          </view>
+        </view>
+      </view>
+
+      <view class="form-section">
+        <view class="field-heading">
+          <text class="field-label">交易地点</text>
+          <text class="required-mark">*</text>
+        </view>
+        <input
+          class="form-input"
+          value="{{location}}"
+          maxlength="80"
+          disabled="{{isSubmitting || outcomeUnknown}}"
+          placeholder="例如：图书馆南门"
+          bindinput="onLocationInput"
+        />
+        <view class="section-tip">请填写校内公共区域，不要填写宿舍门牌等敏感地址</view>
+      </view>
+    </view>
+
+    <view class="safety-note">
+      <view class="safety-mark">安</view>
+      <view class="safety-copy">
+        <text class="safety-title">仅支持校园线下面交</text>
+        <text class="safety-description">平台不提供在线支付、物流或担保交易</text>
+      </view>
+    </view>
+
+    <view class="submit-panel">
+      <text wx:if="{{submitStage}}" class="submit-stage">{{submitStage}}</text>
+      <button
+        class="primary-button submit-button"
+        loading="{{isSubmitting}}"
+        disabled="{{isSubmitting}}"
+        bindtap="onSubmit"
+      >
+        {{outcomeUnknown ? '确认发布结果' : (isSubmitting ? '正在发布' : '确认发布')}}
+      </button>
+    </view>
+  </block>
+
+  <view wx:else class="surface-card placeholder-page login-placeholder">
+    <view class="placeholder-mark">登</view>
+    <view class="placeholder-title">登录后发布校园闲置</view>
+    <view class="placeholder-description">
+      登录用于确认真实卖家身份，商品仍只支持校内线下面交。
+    </view>
+    <button class="primary-button login-button" bindtap="goLogin">
       微信登录
     </button>
   </view>

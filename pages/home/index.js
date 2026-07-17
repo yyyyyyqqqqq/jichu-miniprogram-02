@@ -1,5 +1,6 @@
 const ProductService = require('../../services/product-service');
 const NavigationService = require('../../services/navigation-service');
+const AppStore = require('../../store/app-store');
 const { CATEGORIES } = require('../../constants/categories');
 const {
   PRODUCT_SORT,
@@ -35,6 +36,7 @@ Page({
   onLoad() {
     this.isPageActive = true;
     this.requestVersion = 0;
+    this.observedProductsVersion = AppStore.getProductsVersion();
     this.loadProducts({ mode: 'initial' });
   },
 
@@ -42,6 +44,16 @@ Page({
     const tabBar = this.getTabBar && this.getTabBar();
     if (tabBar) {
       tabBar.setData({ selected: 'home' });
+    }
+
+    const productsVersion = AppStore.getProductsVersion();
+    if (
+      this.isPageActive
+      && productsVersion !== this.observedProductsVersion
+    ) {
+      this.observedProductsVersion = productsVersion;
+      this.cancelSearchTimer();
+      this.loadProducts({ mode: 'query' });
     }
   },
 

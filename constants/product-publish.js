@@ -1,0 +1,31 @@
+const { CATEGORIES } = require('./categories');
+
+const PRODUCT_PUBLISH_LIMITS = {
+  TITLE_MIN_LENGTH: 2,
+  TITLE_MAX_LENGTH: 40,
+  DESCRIPTION_MIN_LENGTH: 5,
+  DESCRIPTION_MAX_LENGTH: 1000,
+  LOCATION_MIN_LENGTH: 2,
+  LOCATION_MAX_LENGTH: 80,
+  MAX_PRICE: 999999.99,
+  MAX_IMAGES: 6,
+  MAX_IMAGE_SIZE: 10 * 1024 * 1024
+};
+
+const PRODUCT_CONDITIONS = [
+  '全新',
+  '九成新',
+  '八成新',
+  '七成新',
+  '六成及以下'
+];
+
+const PRODUCT_PUBLISH_CATEGORIES = CATEGORIES.filter((category) => (
+  category.id !== 'all'
+));
+
+module.exports = {
+  PRODUCT_PUBLISH_LIMITS,
+  PRODUCT_CONDITIONS,
+  PRODUCT_PUBLISH_CATEGORIES
+};

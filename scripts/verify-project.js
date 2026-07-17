@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const Module = require('module');
 const { execFileSync, spawnSync } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
@@ -349,7 +350,7 @@ record('cloud function project structure is complete', () => {
   const functionRoot = projectConfig.cloudfunctionRoot;
   assert(functionRoot === 'cloudfunctions/', 'cloudfunctionRoot is not configured');
 
-  ['authUser', 'productQuery'].forEach((functionName) => {
+  ['authUser', 'productQuery', 'createProduct'].forEach((functionName) => {
     const functionDirectory = path.join(root, functionRoot, functionName);
     ['index.js', 'package.json', 'package-lock.json'].forEach((name) => {
       assert(
@@ -449,6 +450,49 @@ record('ProductService centralizes cloud access and data normalization', () => {
   assert(/mergeProducts/.test(homeSource), 'home product de-duplication is missing');
 });
 
+record('createProduct trusts cloud identity and writes safe product fields', () => {
+  const functionSource = readText(path.join(root, 'cloudfunctions/createProduct/index.js'));
+  const serviceSource = readText(path.join(root, 'services/product-publish-service.js'));
+  const publishSource = readText(path.join(root, 'pages/publish/index.js'));
+  const publishTemplate = readText(path.join(root, 'pages/publish/index.wxml'));
+  const homeSource = readText(path.join(root, 'pages/home/index.js'));
+  const appStoreSource = readText(path.join(root, 'store/app-store.js'));
+  const cloudConfigSource = readText(path.join(root, 'config/cloud.js'));
+
+  assert(/cloud\.getWXContext\s*\(\s*\)/.test(functionSource), 'createProduct does not use getWXContext');
+  assert(!/event\.(?:openid|openId|OPENID)/.test(functionSource), 'createProduct trusts a client identity field');
+  assert(/createHash\(\s*['"]sha256['"]\s*\)/.test(functionSource), 'createProduct does not derive deterministic ids');
+  assert(/createProductId\(userId,\s*requestId\)/.test(functionSource), 'createProduct request id is not idempotent');
+  assert(/users\.where/.test(functionSource), 'createProduct does not verify the real user record');
+  assert(/typeof value !== ['"]number['"]/.test(functionSource), 'createProduct does not require a numeric price');
+  assert(/fileID\.includes\(folder\)/.test(functionSource), 'createProduct does not constrain uploaded image ownership');
+  assert(/products\.doc\(productId\)\.set/.test(functionSource), 'createProduct does not use a deterministic product document');
+  assert(/status:\s*['"]available['"]/.test(functionSource), 'createProduct does not force the initial status');
+  assert(/viewCount:\s*0/.test(functionSource) && /favoriteCount:\s*0/.test(functionSource), 'createProduct does not initialize counters');
+  assert(/db\.serverDate\(\)/.test(functionSource), 'createProduct does not use server timestamps');
+  assert(/toSellerFields\(user,\s*identity,\s*userId\)/.test(functionSource), 'createProduct does not build seller fields server-side');
+  assert(/success:\s*true/.test(functionSource) && /success:\s*false/.test(functionSource), 'createProduct response envelope is inconsistent');
+
+  assert(/wx\.cloud\.uploadFile/.test(serviceSource), 'publish service does not upload images');
+  assert(/wx\.cloud\.deleteFile/.test(serviceSource), 'publish service does not clean orphaned images');
+  assert(/wx\.cloud\.callFunction/.test(serviceSource), 'publish service does not call createProduct');
+  assert(/requestId/.test(serviceSource), 'publish service does not carry an idempotency key');
+  assert(/Promise\.race/.test(serviceSource), 'publish service request timeouts are missing');
+  assert(!/wx\.cloud\.database/.test(serviceSource), 'publish service writes the database directly');
+  assert(/createProductFunctionName/.test(cloudConfigSource), 'createProduct function name is not centralized');
+
+  assert(/AuthGuard\.requireLogin/.test(publishSource), 'publish page does not reuse the login guard');
+  assert(/isSubmitting/.test(publishSource) && /finally/.test(publishSource), 'publish duplicate-click or loading cleanup is missing');
+  assert(/wx\.chooseMedia/.test(publishSource), 'publish page cannot choose product images');
+  assert(/wx\.previewMedia/.test(publishSource), 'publish page cannot preview product images');
+  assert(/publishProduct/.test(publishSource), 'publish page does not use the publish service');
+  assert(/(?:bindtap|catchtap)="onRemoveImage"/.test(publishTemplate), 'publish page cannot remove a selected image');
+  assert(!/wx\.cloud\.(?:database|callFunction)/.test(publishSource), 'publish page accesses cloud data directly');
+  assert(/markProductsChanged/.test(publishSource), 'publish success does not invalidate the home list');
+  assert(/getProductsVersion/.test(homeSource), 'home does not observe published product changes');
+  assert(/productsVersion/.test(appStoreSource), 'product refresh version is missing');
+});
+
 record('App bootstrap is non-blocking and cloud initialization is centralized', () => {
   const appSource = readText(path.join(root, 'app.js'));
   const cloudConfigSource = readText(path.join(root, 'config/cloud.js'));
@@ -526,7 +570,7 @@ record('login and profile pages implement auth state UI', () => {
 });
 
 record('cloud function dependencies are ignored and not tracked', () => {
-  ['authUser', 'productQuery'].forEach((functionName) => {
+  ['authUser', 'productQuery', 'createProduct'].forEach((functionName) => {
     const modulePath = `cloudfunctions/${functionName}/node_modules`;
     const ignored = spawnSync(
       'git',
@@ -787,6 +831,325 @@ async function verifyServiceFlow() {
   }
 }
 
+async function verifyPublishServiceFlow() {
+  const ProductPublishService = require(path.join(
+    root,
+    'services/product-publish-service'
+  ));
+  const originalWx = global.wx;
+  const uploadedPaths = [];
+  const deletedFileLists = [];
+  const functionRequests = [];
+  let functionMode = 'success';
+
+  global.wx = {
+    cloud: {
+      uploadFile({ cloudPath, success }) {
+        uploadedPaths.push(cloudPath);
+        success({
+          fileID: `cloud://test-env.bucket/${cloudPath}`
+        });
+        return {
+          abort() {}
+        };
+      },
+      deleteFile({ fileList, success }) {
+        deletedFileLists.push(fileList.slice());
+        success({
+          fileList: fileList.map((fileID) => ({
+            fileID,
+            status: 0
+          }))
+        });
+      },
+      callFunction({ name, data, success }) {
+        functionRequests.push({ name, data });
+        if (functionMode === 'failure') {
+          success({
+            result: {
+              success: false,
+              code: 'DATABASE_ERROR',
+              message: '商品保存失败，请稍后重试',
+              data: null
+            }
+          });
+          return;
+        }
+        success({
+          result: {
+            success: true,
+            code: 'OK',
+            message: '',
+            data: {
+              productId: 'p_verification',
+              reused: functionMode === 'reused'
+            }
+          }
+        });
+      }
+    }
+  };
+
+  const draft = {
+    title: '  校园二手台灯  ',
+    description: '宿舍自用，功能正常，可在图书馆附近交易。',
+    price: '29.90',
+    categoryId: 'life',
+    condition: '九成新',
+    location: '图书馆南门'
+  };
+  const localImages = [
+    {
+      tempFilePath: 'C:\\temp\\lamp-one.jpg',
+      size: 1024
+    },
+    {
+      tempFilePath: 'C:\\temp\\lamp-two.png',
+      size: 2048
+    }
+  ];
+
+  try {
+    let missingImageError;
+    try {
+      ProductPublishService.validateProductDraft(draft, []);
+    } catch (error) {
+      missingImageError = error;
+    }
+    assert(missingImageError && missingImageError.code === 'IMAGE_REQUIRED', 'publish validation accepts a draft without images');
+
+    let invalidPriceError;
+    try {
+      ProductPublishService.validateProductDraft(
+        Object.assign({}, draft, { price: '1.234' }),
+        localImages
+      );
+    } catch (error) {
+      invalidPriceError = error;
+    }
+    assert(invalidPriceError && invalidPriceError.code === 'PRICE_INVALID', 'publish validation accepts an invalid price');
+
+    const normalized = ProductPublishService.validateProductDraft(draft, localImages);
+    assert(normalized.title === '校园二手台灯', 'publish validation does not normalize the title');
+    assert(normalized.price === 29.9 && typeof normalized.price === 'number', 'publish validation does not produce a numeric price');
+
+    const requestId = 'req_verification_0001';
+    const result = await ProductPublishService.publishProduct({
+      draft,
+      localImages,
+      userId: 'u_test',
+      requestId
+    });
+    assert(result.productId === 'p_verification', 'publish service did not return the product id');
+    assert(uploadedPaths.length === 2, 'publish service did not upload every selected image');
+    assert(uploadedPaths.every((cloudPath) => cloudPath.startsWith('products/u_test/')), 'publish upload paths are not user-scoped');
+    assert(functionRequests.length === 1, 'publish service called createProduct an unexpected number of times');
+    assert(functionRequests[0].name === 'createProduct', 'publish service called the wrong cloud function');
+    assert(functionRequests[0].data.requestId === requestId, 'publish service dropped the idempotency key');
+    assert(functionRequests[0].data.product.price === 29.9, 'publish service sent a non-numeric price');
+    [
+      'sellerId',
+      'sellerOpenid',
+      'status',
+      'viewCount',
+      'favoriteCount',
+      'createdAt',
+      'updatedAt'
+    ].forEach((field) => {
+      assert(!(field in functionRequests[0].data.product), `publish service sent protected field ${field}`);
+    });
+
+    functionMode = 'reused';
+    const pendingFileIds = functionRequests[0].data.product.images.slice();
+    const reused = await ProductPublishService.publishProduct({
+      draft,
+      localImages,
+      userId: 'u_test',
+      requestId,
+      pendingFileIds
+    });
+    assert(reused.reused === true, 'publish retry did not preserve server idempotency');
+    assert(uploadedPaths.length === 2, 'publish retry uploaded the same images again');
+
+    functionMode = 'failure';
+    let databaseError;
+    try {
+      await ProductPublishService.publishProduct({
+        draft,
+        localImages: [localImages[0]],
+        userId: 'u_test',
+        requestId: 'req_verification_0002'
+      });
+    } catch (error) {
+      databaseError = error;
+    }
+    assert(databaseError && databaseError.code === 'DATABASE_ERROR', 'publish service did not preserve the business error');
+    assert(deletedFileLists.length === 1, 'publish failure did not clean its uploaded image');
+    assert(deletedFileLists[0].length === 1, 'publish cleanup targeted the wrong image count');
+  } finally {
+    if (originalWx === undefined) {
+      delete global.wx;
+    } else {
+      global.wx = originalWx;
+    }
+  }
+}
+
+async function verifyCreateProductFunctionFlow() {
+  const crypto = require('crypto');
+  const functionPath = path.join(root, 'cloudfunctions/createProduct/index.js');
+  const originalLoad = Module._load;
+  const users = new Map();
+  const products = new Map();
+  let setCount = 0;
+
+  const openId = 'verification-openid';
+  const appId = 'verification-appid';
+  const userId = `u_${crypto
+    .createHash('sha256')
+    .update(`${appId}:${openId}`)
+    .digest('hex')
+    .slice(0, 32)}`;
+  users.set(userId, {
+    _id: userId,
+    nickname: '验收同学',
+    avatarUrl: 'cloud://test-env.bucket/avatars/user.jpg',
+    campus: '示例大学',
+    status: 'active'
+  });
+
+  function createCollection(store, name) {
+    return {
+      where(query) {
+        return {
+          limit() {
+            return this;
+          },
+          async get() {
+            const item = store.get(query._id);
+            return {
+              data: item ? [item] : []
+            };
+          }
+        };
+      },
+      doc(id) {
+        return {
+          async set({ data }) {
+            setCount += 1;
+            store.set(id, Object.assign({ _id: id }, data));
+          }
+        };
+      },
+      name
+    };
+  }
+
+  const db = {
+    collection(name) {
+      if (name === 'users') {
+        return createCollection(users, name);
+      }
+      if (name === 'products') {
+        return createCollection(products, name);
+      }
+      throw new Error(`unexpected collection ${name}`);
+    },
+    serverDate() {
+      return {
+        $serverDate: true
+      };
+    }
+  };
+  const cloudMock = {
+    DYNAMIC_CURRENT_ENV: 'dynamic-env',
+    init() {},
+    database() {
+      return db;
+    },
+    getWXContext() {
+      return {
+        OPENID: openId,
+        APPID: appId
+      };
+    }
+  };
+
+  Module._load = function loadWithCloudMock(request, parent, isMain) {
+    if (request === 'wx-server-sdk') {
+      return cloudMock;
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  try {
+    delete require.cache[require.resolve(functionPath)];
+    const createProductFunction = require(functionPath);
+    const requestId = 'req_server_verification_0001';
+    const validProduct = {
+      title: '  云端验收台灯  ',
+      description: '真实服务端字段校验用商品描述。',
+      price: 29.9,
+      categoryId: 'life',
+      condition: '九成新',
+      location: '图书馆南门',
+      images: [
+        `cloud://test-env.bucket/products/${userId}/20260717/lamp.jpg`
+      ],
+      sellerId: 'u_spoofed',
+      sellerOpenid: 'spoofed-openid',
+      sellerName: '伪造卖家',
+      status: 'sold',
+      viewCount: 999,
+      favoriteCount: 999,
+      createdAt: 'client-time',
+      updatedAt: 'client-time'
+    };
+
+    const created = await createProductFunction.main({
+      requestId,
+      product: validProduct
+    });
+    assert(created.success === true && created.data.reused === false, 'createProduct did not create a valid product');
+    assert(setCount === 1 && products.size === 1, 'createProduct wrote an unexpected number of documents');
+    const storedProduct = products.get(created.data.productId);
+    assert(storedProduct.price === 29.9 && typeof storedProduct.price === 'number', 'createProduct did not store a numeric price');
+    assert(storedProduct.coverImage === validProduct.images[0], 'createProduct cover image is not the first cloud file');
+    assert(storedProduct.sellerId === userId, 'createProduct trusted a spoofed seller id');
+    assert(storedProduct.sellerOpenid === openId, 'createProduct trusted a spoofed seller openid');
+    assert(storedProduct.sellerName === '验收同学', 'createProduct trusted a spoofed seller name');
+    assert(storedProduct.status === 'available', 'createProduct trusted a spoofed product status');
+    assert(storedProduct.viewCount === 0 && storedProduct.favoriteCount === 0, 'createProduct trusted spoofed counters');
+    assert(storedProduct.createdAt.$serverDate === true, 'createProduct trusted a client creation time');
+    assert(storedProduct.updatedAt.$serverDate === true, 'createProduct trusted a client update time');
+
+    const repeated = await createProductFunction.main({
+      requestId,
+      product: validProduct
+    });
+    assert(repeated.success === true && repeated.data.reused === true, 'createProduct repeat request is not idempotent');
+    assert(setCount === 1 && products.size === 1, 'createProduct repeat request created a duplicate');
+
+    const stringPrice = await createProductFunction.main({
+      requestId: 'req_server_verification_0002',
+      product: Object.assign({}, validProduct, {
+        price: '29.90'
+      })
+    });
+    assert(stringPrice.success === false && stringPrice.code === 'INVALID_PARAMS', 'createProduct accepts a string price');
+
+    users.clear();
+    const missingUser = await createProductFunction.main({
+      requestId: 'req_server_verification_0003',
+      product: validProduct
+    });
+    assert(missingUser.success === false && missingUser.code === 'USER_NOT_FOUND', 'createProduct accepts a missing user');
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[require.resolve(functionPath)];
+  }
+}
+
 async function verifyAuthStateFlow() {
   const AuthService = require(path.join(root, 'services/auth-service'));
   const AuthStore = require(path.join(root, 'store/auth-store'));
@@ -910,6 +1273,10 @@ record('project.private.config.json is ignored and not tracked', () => {
 async function runAsyncChecks() {
   await verifyServiceFlow();
   checks.push('PASS ProductService filtering, sorting, pagination and detail boundaries');
+  await verifyPublishServiceFlow();
+  checks.push('PASS ProductPublishService validation, upload, idempotency and cleanup flow');
+  await verifyCreateProductFunctionFlow();
+  checks.push('PASS createProduct identity, protected fields, validation and idempotency flow');
   await verifyAuthStateFlow();
   checks.push('PASS AuthStore bootstrap, login, cache, concurrency and logout flow');
 }

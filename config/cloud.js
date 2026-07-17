@@ -4,6 +4,9 @@ const CLOUD_CONFIG = {
   authTimeoutMs: 10000,
   productFunctionName: 'productQuery',
   productTimeoutMs: 10000,
+  createProductFunctionName: 'createProduct',
+  createProductTimeoutMs: 15000,
+  productUploadTimeoutMs: 30000,
   userCacheKey: 'auth:user-summary'
 };
 
