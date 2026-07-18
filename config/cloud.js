@@ -6,6 +6,8 @@ const CLOUD_CONFIG = {
   productTimeoutMs: 15000,
   createProductFunctionName: 'createProduct',
   createProductTimeoutMs: 15000,
+  manageProductFunctionName: 'manageProduct',
+  manageProductTimeoutMs: 15000,
   productImageValidationTimeoutMs: 5000,
   productUploadTimeoutMs: 30000,
   userCacheKey: 'auth:user-summary'

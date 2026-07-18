@@ -88,6 +88,12 @@ async function navigateAfterLogin(options = {}) {
   ) {
     return NavigationService.safeNavigateBack();
   }
+  if (
+    target === AUTH_TARGETS.MY_PRODUCTS
+    && hasPreviousRoute(ROUTES.MY_PRODUCTS)
+  ) {
+    return NavigationService.safeNavigateBack();
+  }
 
   const url = buildTargetUrl(target, options.productId);
   if (url === ROUTES.HOME) {

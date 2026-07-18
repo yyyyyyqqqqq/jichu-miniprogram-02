@@ -66,7 +66,7 @@
     <view class="menu-item" bindtap="goMyProducts">
       <view class="menu-icon">发</view>
       <text class="menu-label">我的发布</text>
-      <text class="menu-state">{{isLoggedIn ? '下一阶段开放' : '需登录'}}</text>
+      <text class="menu-state">{{isLoggedIn ? '查看与管理' : '需登录'}}</text>
       <text class="menu-arrow">›</text>
     </view>
     <view class="menu-item" bindtap="goFavorites">

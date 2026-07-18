@@ -8,7 +8,9 @@ const db = cloud.database();
 const command = db.command;
 const products = db.collection('products');
 
-const PUBLIC_STATUSES = ['available', 'reserved', 'sold'];
+const PUBLIC_LIST_STATUSES = ['available', 'reserved'];
+const PUBLIC_DETAIL_STATUSES = ['available', 'reserved', 'sold'];
+const MY_PRODUCT_STATUSES = ['available', 'offline', 'sold'];
 const VALID_CATEGORIES = new Set([
   'all',
   'digital',
@@ -34,6 +36,7 @@ const ERROR_CODES = {
   OK: 'OK',
   INVALID_ACTION: 'INVALID_ACTION',
   INVALID_PARAMS: 'INVALID_PARAMS',
+  UNAUTHORIZED: 'UNAUTHORIZED',
   PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
   DATABASE_ERROR: 'DATABASE_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
@@ -89,9 +92,17 @@ function normalizeSortBy(value) {
 
 function normalizeStatuses(value) {
   if (!Array.isArray(value)) {
-    return PUBLIC_STATUSES;
+    return PUBLIC_LIST_STATUSES;
   }
-  return [...new Set(value.filter((status) => PUBLIC_STATUSES.includes(status)))];
+  return [...new Set(value.filter((status) => PUBLIC_LIST_STATUSES.includes(status)))];
+}
+
+function normalizeMyStatuses(value) {
+  if (value === undefined || value === null || value === '') {
+    return MY_PRODUCT_STATUSES;
+  }
+  const statuses = Array.isArray(value) ? value : [value];
+  return [...new Set(statuses.filter((status) => MY_PRODUCT_STATUSES.includes(status)))];
 }
 
 function normalizeProductId(value) {
@@ -192,6 +203,14 @@ function toPublicProduct(record) {
   };
 }
 
+function toMyProduct(record) {
+  return Object.assign({}, toPublicProduct(record), {
+    offlineAt: record.offlineAt,
+    soldAt: record.soldAt,
+    relistedAt: record.relistedAt
+  });
+}
+
 async function listProducts(data) {
   const categoryId = normalizeCategoryId(data.categoryId);
   const sortBy = normalizeSortBy(data.sortBy);
@@ -245,7 +264,7 @@ async function getProductDetail(data) {
 
   const result = await products.where({
     _id: productId,
-    status: command.in(PUBLIC_STATUSES)
+    status: command.in(PUBLIC_DETAIL_STATUSES)
   }).limit(1).get();
   const product = result.data && result.data[0];
 
@@ -258,6 +277,41 @@ async function getProductDetail(data) {
 
   return success({
     product: toPublicProduct(product)
+  });
+}
+
+async function listMyProducts(data, openId) {
+  const statuses = normalizeMyStatuses(data.status);
+  if (statuses.length === 0) {
+    return failure(ERROR_CODES.INVALID_PARAMS, '商品状态筛选参数不正确');
+  }
+
+  const page = normalizePositiveInteger(data.page, 1, MAX_PAGE);
+  const pageSize = normalizePositiveInteger(data.pageSize, 6, MAX_PAGE_SIZE);
+  const condition = {
+    sellerOpenid: openId,
+    status: command.in(statuses)
+  };
+  const offset = (page - 1) * pageSize;
+  const countResult = await products.where(condition).count();
+  const total = Number(countResult.total) || 0;
+  const result = await products
+    .where(condition)
+    .orderBy('createdAt', 'desc')
+    .orderBy('_id', 'asc')
+    .skip(offset)
+    .limit(pageSize)
+    .get();
+  const list = Array.isArray(result.data)
+    ? result.data.map(toMyProduct)
+    : [];
+
+  return success({
+    list,
+    total,
+    page,
+    pageSize,
+    hasMore: offset + list.length < total
   });
 }
 
@@ -274,7 +328,7 @@ exports.main = async (event = {}) => {
     ? request.data
     : {};
 
-  if (!['list', 'detail'].includes(action)) {
+  if (!['list', 'detail', 'myProducts'].includes(action)) {
     return failure(ERROR_CODES.INVALID_ACTION, '不支持的商品操作');
   }
 
@@ -282,7 +336,18 @@ exports.main = async (event = {}) => {
     if (action === 'list') {
       return await listProducts(data);
     }
-    return await getProductDetail(data);
+    if (action === 'detail') {
+      return await getProductDetail(data);
+    }
+
+    const context = cloud.getWXContext();
+    const openId = context && typeof context.OPENID === 'string'
+      ? context.OPENID
+      : '';
+    if (!openId) {
+      return failure(ERROR_CODES.UNAUTHORIZED, '登录状态已失效，请重新登录');
+    }
+    return await listMyProducts(data, openId);
   } catch (error) {
     console.error('[productQuery] request failed', {
       action,

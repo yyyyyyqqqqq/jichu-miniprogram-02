@@ -1,3 +1,10 @@
 {
-  "navigationBarTitleText": "我的发布"
+  "navigationBarTitleText": "我的发布",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark",
+  "onReachBottomDistance": 120,
+  "usingComponents": {
+    "empty-state": "/components/empty-state/index",
+    "loading-state": "/components/loading-state/index"
+  }
 }

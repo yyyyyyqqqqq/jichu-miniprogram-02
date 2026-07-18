@@ -350,7 +350,7 @@ record('cloud function project structure is complete', () => {
   const functionRoot = projectConfig.cloudfunctionRoot;
   assert(functionRoot === 'cloudfunctions/', 'cloudfunctionRoot is not configured');
 
-  ['authUser', 'productQuery', 'createProduct'].forEach((functionName) => {
+  ['authUser', 'productQuery', 'createProduct', 'manageProduct'].forEach((functionName) => {
     const functionDirectory = path.join(root, functionRoot, functionName);
     ['index.js', 'package.json', 'package-lock.json'].forEach((name) => {
       assert(
@@ -416,8 +416,13 @@ record('AuthService and AuthStore expose the required boundaries', () => {
 record('productQuery enforces public reads, real pagination and safe errors', () => {
   const source = readText(path.join(root, 'cloudfunctions/productQuery/index.js'));
 
-  assert(/['"]list['"]/.test(source) && /['"]detail['"]/.test(source), 'productQuery actions are incomplete');
-  assert(/status:\s*command\.in\(PUBLIC_STATUSES\)/.test(source), 'productQuery detail does not filter public statuses');
+  assert(
+    /['"]list['"]/.test(source)
+    && /['"]detail['"]/.test(source)
+    && /['"]myProducts['"]/.test(source),
+    'productQuery actions are incomplete'
+  );
+  assert(/status:\s*command\.in\(PUBLIC_DETAIL_STATUSES\)/.test(source), 'productQuery detail does not filter public statuses');
   assert(/\.skip\(offset\)\.limit\(pageSize\)/.test(source), 'productQuery does not use database pagination');
   assert(/const MAX_PAGE = \d+/.test(source), 'productQuery does not cap the maximum page');
   assert(/normalizePositiveInteger\(data\.page,\s*1,\s*MAX_PAGE\)/.test(source), 'productQuery page cap is not enforced');
@@ -428,6 +433,8 @@ record('productQuery enforces public reads, real pagination and safe errors', ()
   assert(!/wx\.cloud\.database/.test(source), 'productQuery uses a client database API');
   assert(!/['"]seed['"]/.test(source), 'productQuery exposes a production seed action');
   assert(!/PRODUCT_SEED_ENABLED|SEED_PRODUCTS_V1|seed-products/.test(source), 'productQuery retains production seed code');
+  assert(/cloud\.getWXContext\s*\(\s*\)/.test(source), 'productQuery myProducts does not use getWXContext');
+  assert(/sellerOpenid:\s*openId/.test(source), 'productQuery myProducts does not scope queries to the caller');
   assert(
     !fs.existsSync(path.join(root, 'cloudfunctions/productQuery/seed-products.js')),
     'productQuery seed fixture is still packaged with the production function'
@@ -441,6 +448,53 @@ record('productQuery enforces public reads, real pagination and safe errors', ()
     'productQuery public field mapper is missing'
   );
   assert(!/sellerOpenid|\bopenid\b/i.test(publicProductSource), 'productQuery returns a seller identity secret');
+});
+
+record('my-products lifecycle uses guarded services and server ownership checks', () => {
+  const appConfig = readJson(path.join(root, 'app.json'));
+  const pageSource = readText(path.join(root, 'pages/my-products/index.js'));
+  const pageTemplate = readText(path.join(root, 'pages/my-products/index.wxml'));
+  const pageConfig = readJson(path.join(root, 'pages/my-products/index.json'));
+  const serviceSource = readText(path.join(root, 'services/my-products-service.js'));
+  const functionSource = readText(path.join(root, 'cloudfunctions/manageProduct/index.js'));
+  const cloudConfigSource = readText(path.join(root, 'config/cloud.js'));
+  const authGuardSource = readText(path.join(root, 'services/auth-guard.js'));
+
+  assert(appConfig.pages.includes('pages/my-products/index'), 'my-products page is not registered');
+  assert(pageConfig.enablePullDownRefresh === true, 'my-products pull-down refresh is not enabled');
+  assert(/AuthGuard\.requireLogin/.test(pageSource), 'my-products page does not use AuthGuard');
+  assert(/MyProductsService\.getMyProducts/.test(pageSource), 'my-products page does not use its query service');
+  assert(/MyProductsService\.manageProduct/.test(pageSource), 'my-products page does not use its management service');
+  assert(/requestVersion/.test(pageSource), 'my-products stale-request protection is missing');
+  assert(/isManaging/.test(pageSource) && /actionPromise/.test(pageSource), 'my-products duplicate action protection is missing');
+  assert(/onPullDownRefresh/.test(pageSource) && /onReachBottom/.test(pageSource), 'my-products refresh or pagination is missing');
+  assert(
+    /viewState:\s*['"]error['"]/.test(pageSource)
+    && /['"]success['"]\s*:\s*['"]empty['"]/.test(pageSource),
+    'my-products empty or error state is missing'
+  );
+  assert(/showModal/.test(pageSource), 'my-products destructive actions lack confirmation');
+  assert(/takeOffline/.test(pageTemplate) && /relist/.test(pageTemplate) && /markSold/.test(pageTemplate), 'my-products action buttons are incomplete');
+  assert(!/wx\.cloud\.(?:database|callFunction)/.test(pageSource), 'my-products page accesses cloud data directly');
+  assert(
+    /AUTH_TARGETS\.MY_PRODUCTS[\s\S]*hasPreviousRoute\(ROUTES\.MY_PRODUCTS\)[\s\S]*safeNavigateBack/.test(authGuardSource),
+    'my-products login return can create a duplicate page'
+  );
+
+  assert(/wx\.cloud\.callFunction/.test(serviceSource), 'my-products service does not call cloud functions');
+  assert(/Promise\.race/.test(serviceSource), 'my-products service timeout handling is missing');
+  assert(/manageProductFunctionName/.test(cloudConfigSource), 'manageProduct function name is not centralized');
+  assert(!/sellerOpenid|ownerOpenid|\bopenid\b/i.test(serviceSource), 'my-products service sends a client identity field');
+  assert(!/wx\.cloud\.database/.test(serviceSource), 'my-products service accesses the client database');
+
+  assert(/cloud\.getWXContext\s*\(\s*\)/.test(functionSource), 'manageProduct does not use getWXContext');
+  assert(/product\.sellerOpenid\s*!==\s*openId/.test(functionSource), 'manageProduct does not enforce ownership');
+  assert(/PRODUCT_FORBIDDEN/.test(functionSource), 'manageProduct does not expose PRODUCT_FORBIDDEN');
+  assert(/PRODUCT_NOT_FOUND/.test(functionSource), 'manageProduct does not expose PRODUCT_NOT_FOUND');
+  assert(/INVALID_STATUS_TRANSITION/.test(functionSource), 'manageProduct does not expose INVALID_STATUS_TRANSITION');
+  assert(/UNAUTHORIZED/.test(functionSource), 'manageProduct does not expose UNAUTHORIZED');
+  assert(/status:\s*transition\.from/.test(functionSource), 'manageProduct update is not conditional on the old status');
+  assert(!/request\.(?:sellerOpenid|ownerOpenid|openid|openId|status)/.test(functionSource), 'manageProduct trusts a client authorization or status field');
 });
 
 record('ProductService centralizes cloud access and data normalization', () => {
@@ -616,7 +670,7 @@ record('runtime logs are minimal and do not include sensitive payloads', () => {
 });
 
 record('cloud function dependencies are ignored and not tracked', () => {
-  ['authUser', 'productQuery', 'createProduct'].forEach((functionName) => {
+  ['authUser', 'productQuery', 'createProduct', 'manageProduct'].forEach((functionName) => {
     const modulePath = `cloudfunctions/${functionName}/node_modules`;
     const ignored = spawnSync(
       'git',
@@ -918,6 +972,45 @@ async function verifyProductQueryFunctionFlow() {
       updatedAt: new Date('2026-07-17T08:00:00.000Z')
     },
     {
+      _id: 'product-sold',
+      title: '已售商品',
+      description: '已售商品保留详情但不进入公开列表。',
+      price: 30,
+      categoryId: 'life',
+      categoryName: '生活',
+      status: 'sold',
+      sellerOpenid: 'private-openid',
+      favoriteCount: 0,
+      viewCount: 3,
+      createdAt: new Date('2026-07-17T07:30:00.000Z')
+    },
+    {
+      _id: 'product-owner-offline',
+      title: '本人下架商品',
+      description: '仅本人列表可以读取。',
+      price: 20,
+      categoryId: 'life',
+      categoryName: '生活',
+      status: 'offline',
+      sellerOpenid: 'private-openid',
+      favoriteCount: 0,
+      viewCount: 2,
+      createdAt: new Date('2026-07-17T07:00:00.000Z')
+    },
+    {
+      _id: 'product-foreign-offline',
+      title: '他人下架商品',
+      description: '不得出现在本人列表。',
+      price: 25,
+      categoryId: 'life',
+      categoryName: '生活',
+      status: 'offline',
+      sellerOpenid: 'foreign-openid',
+      favoriteCount: 0,
+      viewCount: 2,
+      createdAt: new Date('2026-07-17T06:30:00.000Z')
+    },
+    {
       _id: 'product-hidden',
       title: '隐藏商品',
       description: '该商品不应被公开读取。',
@@ -1026,11 +1119,17 @@ async function verifyProductQueryFunctionFlow() {
       };
     }
   };
+  let queryOpenId = 'private-openid';
   const cloudMock = {
     DYNAMIC_CURRENT_ENV: 'dynamic-env',
     init() {},
     database() {
       return db;
+    },
+    getWXContext() {
+      return {
+        OPENID: queryOpenId
+      };
     }
   };
 
@@ -1059,6 +1158,57 @@ async function verifyProductQueryFunctionFlow() {
       !Object.prototype.hasOwnProperty.call(listResult.data.list[0], 'sellerOpenid'),
       'productQuery list leaked sellerOpenid'
     );
+    assert(
+      !listResult.data.list.some((product) => product.status === 'sold'),
+      'productQuery public list still includes sold products'
+    );
+
+    const soldDetail = await productQueryFunction.main({
+      action: 'detail',
+      data: {
+        productId: 'product-sold'
+      }
+    });
+    assert(
+      soldDetail.success === true && soldDetail.data.product.status === 'sold',
+      'productQuery no longer exposes sold product detail'
+    );
+
+    const myProductsResult = await productQueryFunction.main({
+      action: 'myProducts',
+      data: {
+        status: 'offline',
+        page: 1,
+        pageSize: 20
+      }
+    });
+    assert(myProductsResult.success === true, 'productQuery rejected myProducts');
+    assert(
+      myProductsResult.data.list.length === 1
+      && myProductsResult.data.list[0]._id === 'product-owner-offline',
+      'productQuery myProducts leaked another owner or missed the caller product'
+    );
+    assert(
+      !Object.prototype.hasOwnProperty.call(
+        myProductsResult.data.list[0],
+        'sellerOpenid'
+      ),
+      'productQuery myProducts leaked sellerOpenid'
+    );
+
+    queryOpenId = '';
+    const unauthorizedMyProducts = await productQueryFunction.main({
+      action: 'myProducts',
+      data: {
+        status: 'available'
+      }
+    });
+    assert(
+      unauthorizedMyProducts.success === false
+      && unauthorizedMyProducts.code === 'UNAUTHORIZED',
+      'productQuery myProducts accepts a missing cloud identity'
+    );
+    queryOpenId = 'private-openid';
 
     const cappedResult = await productQueryFunction.main({
       action: 'list',
@@ -1094,6 +1244,321 @@ async function verifyProductQueryFunctionFlow() {
     assert(
       seedResult.success === false && seedResult.code === 'INVALID_ACTION',
       'productQuery still exposes the production seed action'
+    );
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[require.resolve(functionPath)];
+  }
+}
+
+async function verifyMyProductsServiceFlow() {
+  const servicePath = path.join(root, 'services/my-products-service');
+  const originalWx = global.wx;
+  const requests = [];
+
+  global.wx = {
+    cloud: {
+      callFunction({ name, data, success }) {
+        requests.push({ name, data });
+        if (name === 'productQuery') {
+          success({
+            result: {
+              success: true,
+              code: 'OK',
+              message: '',
+              data: {
+                list: [{
+                  _id: 'product-owner-offline',
+                  title: '本人下架商品',
+                  price: 20,
+                  status: 'offline',
+                  createdAt: new Date('2026-07-17T07:00:00.000Z'),
+                  updatedAt: new Date('2026-07-17T07:10:00.000Z')
+                }],
+                total: 1,
+                page: 1,
+                pageSize: 6,
+                hasMore: false
+              }
+            }
+          });
+          return;
+        }
+        success({
+          result: {
+            success: true,
+            code: 'OK',
+            message: '',
+            data: {
+              productId: data.productId,
+              status: 'available',
+              reused: false
+            }
+          }
+        });
+      }
+    }
+  };
+
+  try {
+    delete require.cache[require.resolve(servicePath)];
+    const MyProductsService = require(servicePath);
+    const result = await MyProductsService.getMyProducts({
+      status: 'offline',
+      page: 1,
+      pageSize: 6
+    });
+    assert(
+      result.list.length === 1
+      && result.list[0].id === 'product-owner-offline'
+      && result.list[0].status === 'offline',
+      'my-products service did not normalize the owner list'
+    );
+    assert(requests[0].name === 'productQuery', 'my-products service called the wrong query function');
+    assert(requests[0].data.action === 'myProducts', 'my-products service called the wrong query action');
+    assert(
+      !/sellerOpenid|ownerOpenid|\bopenid\b/i.test(JSON.stringify(requests[0].data)),
+      'my-products service sent a client identity field'
+    );
+
+    const managed = await MyProductsService.manageProduct(
+      'relist',
+      'product-owner-offline'
+    );
+    assert(
+      managed.productId === 'product-owner-offline'
+      && managed.status === 'available',
+      'my-products service did not normalize the management result'
+    );
+    assert(requests[1].name === 'manageProduct', 'my-products service called the wrong management function');
+    assert(
+      Object.keys(requests[1].data).sort().join(',') === 'action,productId',
+      'my-products service sent fields beyond action and productId'
+    );
+
+    let invalidActionError;
+    try {
+      await MyProductsService.manageProduct(
+        'delete',
+        'product-owner-offline'
+      );
+    } catch (error) {
+      invalidActionError = error;
+    }
+    assert(
+      invalidActionError && invalidActionError.code === 'INVALID_ACTION',
+      'my-products service accepted an unsupported management action'
+    );
+  } finally {
+    delete require.cache[require.resolve(servicePath)];
+    if (originalWx === undefined) {
+      delete global.wx;
+    } else {
+      global.wx = originalWx;
+    }
+  }
+}
+
+async function verifyManageProductFunctionFlow() {
+  const functionPath = path.join(root, 'cloudfunctions/manageProduct/index.js');
+  const originalLoad = Module._load;
+  const products = new Map([
+    ['product-own', {
+      _id: 'product-own',
+      sellerOpenid: 'owner-openid',
+      status: 'available'
+    }],
+    ['product-foreign', {
+      _id: 'product-foreign',
+      sellerOpenid: 'foreign-openid',
+      status: 'available'
+    }]
+  ]);
+  let currentOpenId = 'owner-openid';
+
+  function matches(record, condition) {
+    return Object.entries(condition).every(([key, value]) => (
+      record[key] === value
+    ));
+  }
+
+  function createQuery(condition) {
+    let queryLimit = products.size;
+    const query = {
+      limit(value) {
+        queryLimit = value;
+        return query;
+      },
+      async get() {
+        return {
+          data: [...products.values()]
+            .filter((product) => matches(product, condition))
+            .slice(0, queryLimit)
+        };
+      },
+      async update({ data }) {
+        let updated = 0;
+        products.forEach((product, id) => {
+          if (!matches(product, condition)) {
+            return;
+          }
+          products.set(id, Object.assign({}, product, data));
+          updated += 1;
+        });
+        return {
+          stats: {
+            updated
+          }
+        };
+      }
+    };
+    return query;
+  }
+
+  const db = {
+    collection(name) {
+      assert(name === 'products', `unexpected manageProduct collection ${name}`);
+      return {
+        where(condition) {
+          return createQuery(condition);
+        }
+      };
+    },
+    serverDate() {
+      return {
+        $serverDate: true
+      };
+    }
+  };
+  const cloudMock = {
+    DYNAMIC_CURRENT_ENV: 'dynamic-env',
+    init() {},
+    database() {
+      return db;
+    },
+    getWXContext() {
+      return {
+        OPENID: currentOpenId
+      };
+    }
+  };
+
+  Module._load = function loadWithCloudMock(request, parent, isMain) {
+    if (request === 'wx-server-sdk') {
+      return cloudMock;
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  try {
+    delete require.cache[require.resolve(functionPath)];
+    const manageProductFunction = require(functionPath);
+
+    const offline = await manageProductFunction.main({
+      action: 'takeOffline',
+      productId: 'product-own'
+    });
+    assert(
+      offline.success === true
+      && offline.data.status === 'offline'
+      && offline.data.reused === false,
+      'manageProduct failed available -> offline'
+    );
+    assert(
+      products.get('product-own').offlineAt.$serverDate === true,
+      'manageProduct did not write offlineAt'
+    );
+
+    const repeatedOffline = await manageProductFunction.main({
+      action: 'takeOffline',
+      productId: 'product-own'
+    });
+    assert(
+      repeatedOffline.success === true && repeatedOffline.data.reused === true,
+      'manageProduct repeated takeOffline is not idempotent'
+    );
+
+    const relisted = await manageProductFunction.main({
+      action: 'relist',
+      productId: 'product-own'
+    });
+    assert(
+      relisted.success === true
+      && relisted.data.status === 'available'
+      && products.get('product-own').offlineAt === null
+      && products.get('product-own').relistedAt.$serverDate === true,
+      'manageProduct failed offline -> available'
+    );
+
+    const sold = await manageProductFunction.main({
+      action: 'markSold',
+      productId: 'product-own'
+    });
+    assert(
+      sold.success === true
+      && sold.data.status === 'sold'
+      && products.get('product-own').soldAt.$serverDate === true,
+      'manageProduct failed available -> sold'
+    );
+
+    const repeatedSold = await manageProductFunction.main({
+      action: 'markSold',
+      productId: 'product-own'
+    });
+    assert(
+      repeatedSold.success === true && repeatedSold.data.reused === true,
+      'manageProduct repeated markSold is not idempotent'
+    );
+
+    const invalidRelist = await manageProductFunction.main({
+      action: 'relist',
+      productId: 'product-own'
+    });
+    assert(
+      invalidRelist.success === false
+      && invalidRelist.code === 'INVALID_STATUS_TRANSITION',
+      'manageProduct allows sold -> available'
+    );
+
+    const forbidden = await manageProductFunction.main({
+      action: 'takeOffline',
+      productId: 'product-foreign',
+      sellerOpenid: 'foreign-openid'
+    });
+    assert(
+      forbidden.success === false && forbidden.code === 'PRODUCT_FORBIDDEN',
+      'manageProduct trusts a forged sellerOpenid'
+    );
+    assert(
+      products.get('product-foreign').status === 'available',
+      'manageProduct changed another owner product'
+    );
+
+    const missing = await manageProductFunction.main({
+      action: 'takeOffline',
+      productId: 'product-missing'
+    });
+    assert(
+      missing.success === false && missing.code === 'PRODUCT_NOT_FOUND',
+      'manageProduct does not distinguish a missing product'
+    );
+
+    const invalidParams = await manageProductFunction.main({
+      action: 'takeOffline'
+    });
+    assert(
+      invalidParams.success === false && invalidParams.code === 'INVALID_PARAMS',
+      'manageProduct accepts a missing product id'
+    );
+
+    currentOpenId = '';
+    const unauthorized = await manageProductFunction.main({
+      action: 'takeOffline',
+      productId: 'product-foreign'
+    });
+    assert(
+      unauthorized.success === false && unauthorized.code === 'UNAUTHORIZED',
+      'manageProduct accepts a missing cloud identity'
     );
   } finally {
     Module._load = originalLoad;
@@ -1632,7 +2097,11 @@ async function runAsyncChecks() {
   await verifyServiceFlow();
   checks.push('PASS ProductService filtering, sorting, pagination and detail boundaries');
   await verifyProductQueryFunctionFlow();
-  checks.push('PASS productQuery public fields, status filtering, query limits and disabled seed action');
+  checks.push('PASS productQuery public fields, owner filtering, query limits and disabled seed action');
+  await verifyMyProductsServiceFlow();
+  checks.push('PASS MyProductsService query, management payload and error boundaries');
+  await verifyManageProductFunctionFlow();
+  checks.push('PASS manageProduct ownership, transitions, idempotency and stable errors');
   await verifyPublishServiceFlow();
   checks.push('PASS ProductPublishService validation, upload, idempotency and cleanup flow');
   await verifyCreateProductFunctionFlow();

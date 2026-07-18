@@ -1,19 +1,152 @@
-<view class="page-shell--plain">
-  <view wx:if="{{isLoggedIn}}" class="surface-card placeholder-page">
-    <view class="placeholder-mark">发</view>
-    <view class="placeholder-title">我的发布</view>
-    <view class="placeholder-description">
-      当前已完成身份登录，商品发布和管理将在下一阶段开放。
+<view class="page-shell--plain my-products-page">
+  <view class="my-products-header">
+    <view>
+      <view class="page-title">我的发布</view>
+      <view class="page-subtitle">管理商品在售、下架与已售状态</view>
+    </view>
+    <view wx:if="{{isLoggedIn}}" class="total-badge">{{total}} 件</view>
+  </view>
+
+  <view wx:if="{{isLoggedIn}}" class="status-tabs surface-card">
+    <view
+      wx:for="{{statusTabs}}"
+      wx:key="value"
+      class="status-tab {{item.value === selectedStatus ? 'status-tab--active' : ''}}"
+      data-status="{{item.value}}"
+      catchtap="onStatusChange"
+    >
+      {{item.label}}
     </view>
   </view>
-  <view wx:else class="surface-card placeholder-page">
+
+  <view wx:if="{{isRestoring}}" class="auth-tip">
+    正在校验登录状态
+  </view>
+
+  <loading-state
+    wx:if="{{isLoggedIn && viewState === 'loading'}}"
+    text="正在加载我的发布"
+  />
+
+  <empty-state
+    wx:elif="{{isLoggedIn && viewState === 'error'}}"
+    title="加载遇到问题"
+    description="{{errorMessage}}"
+    action-text="重新加载"
+    bind:action="onRetry"
+  />
+
+  <empty-state
+    wx:elif="{{isLoggedIn && viewState === 'empty'}}"
+    title="{{selectedStatus === 'available' ? '暂无在售商品' : (selectedStatus === 'offline' ? '暂无已下架商品' : '暂无已售商品')}}"
+    description="{{selectedStatus === 'available' ? '发布成功的商品会显示在这里' : '当前状态下还没有商品'}}"
+  />
+
+  <view wx:elif="{{isLoggedIn && viewState === 'success'}}" class="my-product-list">
+    <view
+      wx:for="{{products}}"
+      wx:key="id"
+      class="my-product-card surface-card"
+    >
+      <view
+        class="my-product-main"
+        data-id="{{item.id}}"
+        data-status="{{item.status}}"
+        bindtap="onProductTap"
+      >
+        <view class="my-product-cover my-product-cover--{{item.coverTone}}">
+          <image
+            wx:if="{{item.coverImage}}"
+            class="my-product-image"
+            src="{{item.coverImage}}"
+            mode="aspectFill"
+          />
+          <text wx:else class="my-product-cover-label">{{item.coverLabel}}</text>
+        </view>
+
+        <view class="my-product-content">
+          <view class="my-product-title-row">
+            <text class="my-product-title">{{item.title}}</text>
+            <text class="my-product-status my-product-status--{{item.statusClass}}">
+              {{item.statusText}}
+            </text>
+          </view>
+          <text class="my-product-price">{{item.priceDisplay}}</text>
+          <view class="my-product-meta">
+            <text>{{item.publishedAtText}}</text>
+            <text>{{item.viewCountText}} 浏览</text>
+            <text>{{item.favoriteCountText}} 收藏</text>
+          </view>
+        </view>
+      </view>
+
+      <view wx:if="{{item.status === 'available'}}" class="my-product-actions">
+        <button
+          class="manage-button manage-button--secondary"
+          data-action="takeOffline"
+          data-id="{{item.id}}"
+          disabled="{{isManaging}}"
+          catchtap="onManageTap"
+        >
+          {{managingProductId === item.id && managingAction === 'takeOffline' ? '下架中' : '下架'}}
+        </button>
+        <button
+          class="manage-button manage-button--primary"
+          data-action="markSold"
+          data-id="{{item.id}}"
+          disabled="{{isManaging}}"
+          catchtap="onManageTap"
+        >
+          {{managingProductId === item.id && managingAction === 'markSold' ? '处理中' : '标记已售'}}
+        </button>
+      </view>
+
+      <view wx:elif="{{item.status === 'offline'}}" class="my-product-actions">
+        <button
+          class="manage-button manage-button--primary"
+          data-action="relist"
+          data-id="{{item.id}}"
+          disabled="{{isManaging}}"
+          catchtap="onManageTap"
+        >
+          {{managingProductId === item.id ? '上架中' : '重新上架'}}
+        </button>
+      </view>
+
+      <view wx:else class="sold-note">
+        已完成线下面交，本阶段不支持恢复为在售
+      </view>
+    </view>
+
+    <loading-state
+      wx:if="{{isLoadingMore}}"
+      compact
+      text="正在加载更多"
+    />
+
+    <view wx:elif="{{loadMoreError}}" class="load-more-error">
+      <text>加载更多失败，已有商品不会丢失</text>
+      <button class="load-more-retry" bindtap="onLoadMoreRetry">点击重试</button>
+    </view>
+
+    <view wx:elif="{{!hasMore}}" class="list-end">已经到底啦</view>
+  </view>
+
+  <view
+    wx:elif="{{!isLoggedIn && !isRestoring}}"
+    class="surface-card login-card"
+  >
     <view class="placeholder-mark">登</view>
     <view class="placeholder-title">登录后管理发布</view>
     <view class="placeholder-description">
-      当前不会创建、编辑或删除任何商品。
+      登录身份只在云端用于查询和管理你自己的商品。
     </view>
-    <button class="primary-button protected-login-button" bindtap="goLogin">
+    <button class="primary-button login-button" bindtap="goLogin">
       微信登录
     </button>
+  </view>
+
+  <view class="lifecycle-note">
+    商品状态由云端校验所有权后更新 · 不支持客户端直接改库
   </view>
 </view>

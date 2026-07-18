@@ -1,6 +1,265 @@
-/* 使用 app.wxss 中的公共占位页样式。 */
+.my-products-page {
+  padding-bottom: calc(80rpx + env(safe-area-inset-bottom));
+}
 
-.protected-login-button {
+.my-products-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.total-badge {
+  min-width: 92rpx;
+  height: 54rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18rpx;
+  border-radius: 999rpx;
+  background: #eaf7f1;
+  color: #16865c;
+  font-size: 23rpx;
+  font-weight: 650;
+}
+
+.status-tabs {
+  display: flex;
+  margin-top: 28rpx;
+  padding: 8rpx;
+}
+
+.status-tab {
+  min-width: 0;
+  height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  border-radius: 18rpx;
+  color: #738079;
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.status-tab--active {
+  background: #eaf7f1;
+  color: #13865a;
+}
+
+.auth-tip {
+  margin-top: 22rpx;
+  color: #82908a;
+  font-size: 24rpx;
+  text-align: center;
+}
+
+.my-product-list {
+  margin-top: 24rpx;
+}
+
+.my-product-card {
+  overflow: hidden;
+  margin-bottom: 20rpx;
+}
+
+.my-product-main {
+  display: flex;
+  padding: 22rpx;
+}
+
+.my-product-cover {
+  width: 176rpx;
+  height: 176rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  overflow: hidden;
+  border-radius: 20rpx;
+  background: #e8f6ef;
+}
+
+.my-product-cover--blue {
+  background: #e7f0fb;
+}
+
+.my-product-cover--sand {
+  background: #f4eee2;
+}
+
+.my-product-cover--rose {
+  background: #f8e9eb;
+}
+
+.my-product-cover--lime {
+  background: #edf5df;
+}
+
+.my-product-cover--orange {
+  background: #faeddf;
+}
+
+.my-product-image {
+  width: 100%;
+  height: 100%;
+}
+
+.my-product-cover-label {
+  color: rgba(28, 74, 53, 0.55);
+  font-size: 34rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+}
+
+.my-product-content {
+  min-width: 0;
+  flex: 1;
+  margin-left: 22rpx;
+}
+
+.my-product-title-row {
+  display: flex;
+  align-items: flex-start;
+}
+
+.my-product-title {
+  min-width: 0;
+  display: -webkit-box;
+  flex: 1;
+  overflow: hidden;
+  color: #1f2a25;
+  font-size: 28rpx;
+  font-weight: 650;
+  line-height: 1.45;
+  word-break: break-all;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.my-product-status {
+  flex: none;
+  margin-left: 12rpx;
+  padding: 6rpx 11rpx;
+  border-radius: 999rpx;
+  background: #eaf7f1;
+  color: #13865a;
+  font-size: 20rpx;
+}
+
+.my-product-status--offline {
+  background: #f0f2f1;
+  color: #6d7772;
+}
+
+.my-product-status--sold {
+  background: #fff3e5;
+  color: #b26c12;
+}
+
+.my-product-price {
+  display: block;
+  margin-top: 18rpx;
+  color: #ef5d42;
+  font-size: 32rpx;
+  font-weight: 750;
+}
+
+.my-product-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx 16rpx;
+  margin-top: 16rpx;
+  color: #919a95;
+  font-size: 21rpx;
+}
+
+.my-product-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16rpx;
+  padding: 18rpx 22rpx 22rpx;
+  border-top: 1rpx solid #edf1ef;
+}
+
+.manage-button {
+  min-width: 148rpx;
+  height: 64rpx;
+  margin: 0;
+  padding: 0 24rpx;
+  border-radius: 16rpx;
+  font-size: 24rpx;
+  line-height: 64rpx;
+}
+
+.manage-button--secondary {
+  background: #f1f4f2;
+  color: #536159;
+}
+
+.manage-button--primary {
+  background: #eaf7f1;
+  color: #13865a;
+}
+
+.manage-button[disabled] {
+  opacity: 0.55;
+}
+
+.sold-note {
+  padding: 20rpx 22rpx;
+  border-top: 1rpx solid #edf1ef;
+  color: #8b9590;
+  font-size: 23rpx;
+  text-align: right;
+}
+
+.load-more-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24rpx;
+  color: #87918c;
+  font-size: 23rpx;
+}
+
+.load-more-retry {
+  height: 58rpx;
+  margin-top: 14rpx;
+  padding: 0 26rpx;
+  border-radius: 999rpx;
+  background: #eaf7f1;
+  color: #13865a;
+  font-size: 22rpx;
+  line-height: 58rpx;
+}
+
+.list-end {
+  padding: 28rpx 0;
+  color: #a0a8a4;
+  font-size: 22rpx;
+  text-align: center;
+}
+
+.login-card {
+  min-height: 560rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-top: 28rpx;
+  padding: 48rpx 36rpx;
+  text-align: center;
+}
+
+.login-button {
   width: 260rpx;
-  margin-top: 34rpx;
+  margin-top: 32rpx;
+}
+
+.lifecycle-note {
+  margin-top: 28rpx;
+  color: #9aa39e;
+  font-size: 21rpx;
+  line-height: 1.6;
+  text-align: center;
 }
