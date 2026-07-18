@@ -231,6 +231,7 @@ function normalizeProduct(record) {
     favoriteCountText: formatCount(record.favoriteCount),
     createdAt,
     updatedAt: normalizeDateValue(record.updatedAt),
+    version: normalizePositiveInteger(record.version, 1),
     publishedAt: createdAt,
     publishedAtText: formatPublishedTime(createdAt)
   };

@@ -175,6 +175,7 @@
 
 .my-product-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 16rpx;
   padding: 18rpx 22rpx 22rpx;
@@ -201,16 +202,28 @@
   color: #13865a;
 }
 
+.manage-button--danger {
+  background: #fff0ed;
+  color: #c8513d;
+}
+
 .manage-button[disabled] {
   opacity: 0.55;
 }
 
-.sold-note {
+.sold-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
   padding: 20rpx 22rpx;
   border-top: 1rpx solid #edf1ef;
+}
+
+.sold-note {
+  flex: 1;
   color: #8b9590;
   font-size: 23rpx;
-  text-align: right;
 }
 
 .load-more-error {

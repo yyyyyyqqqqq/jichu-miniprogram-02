@@ -205,6 +205,10 @@ function toPublicProduct(record) {
 
 function toMyProduct(record) {
   return Object.assign({}, toPublicProduct(record), {
+    version: Number.isInteger(Number(record.version))
+      && Number(record.version) >= 1
+      ? Number(record.version)
+      : 1,
     offlineAt: record.offlineAt,
     soldAt: record.soldAt,
     relistedAt: record.relistedAt

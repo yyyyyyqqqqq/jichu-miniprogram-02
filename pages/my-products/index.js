@@ -1,6 +1,7 @@
 const AuthStore = require('../../store/auth-store');
 const AuthGuard = require('../../services/auth-guard');
 const MyProductsService = require('../../services/my-products-service');
+const ProductEditService = require('../../services/product-edit-service');
 const NavigationService = require('../../services/navigation-service');
 const AppStore = require('../../store/app-store');
 const { PRODUCT_STATUS } = require('../../constants/product');
@@ -42,6 +43,12 @@ const ACTION_META = {
     content: '标记后不能在本阶段直接恢复为在售，请确认已经完成线下面交。',
     confirmText: '标记已售',
     successText: '商品已标记为已售'
+  },
+  softDelete: {
+    title: '确认删除商品？',
+    content: '删除后商品将不再展示，此操作暂不支持恢复。',
+    confirmText: '确认删除',
+    successText: '商品已删除'
   }
 };
 
@@ -74,6 +81,7 @@ Page({
     this.initialLoadStarted = false;
     this.loginGuardPromise = null;
     this.actionPromise = null;
+    this.observedProductsVersion = AppStore.getProductsVersion();
 
     this.unsubscribeAuth = AuthStore.subscribe((state) => {
       if (!this.isPageActive) {
@@ -105,6 +113,17 @@ Page({
   },
 
   onShow() {
+    const productsVersion = AppStore.getProductsVersion();
+    if (
+      this.isPageActive
+      && AuthStore.isLoggedIn()
+      && this.initialLoadStarted
+      && productsVersion !== this.observedProductsVersion
+    ) {
+      this.observedProductsVersion = productsVersion;
+      this.loadProducts({ mode: 'query' });
+      return;
+    }
     if (
       this.isPageActive
       && AuthStore.isLoggedIn()
@@ -320,7 +339,7 @@ Page({
   },
 
   async onManageTap(event) {
-    const { action, id } = event.currentTarget.dataset;
+    const { action, id, version } = event.currentTarget.dataset;
     const meta = ACTION_META[action];
     if (
       !meta
@@ -342,10 +361,16 @@ Page({
       managingAction: action
     });
 
-    const operation = MyProductsService.manageProduct(action, id);
+    const operation = action === 'softDelete'
+      ? MyProductsService.softDelete(
+        id,
+        version,
+        ProductEditService.createMutationId()
+      )
+      : MyProductsService.manageProduct(action, id);
     this.actionPromise = operation;
     try {
-      await operation;
+      const result = await operation;
       if (!this.isPageActive) {
         return;
       }
@@ -356,10 +381,12 @@ Page({
         total: Math.max(0, this.data.total - 1),
         viewState: products.length > 0 ? 'success' : 'empty'
       });
-      AppStore.markProductsChanged();
+      this.observedProductsVersion = AppStore.markProductsChanged();
       wx.showToast({
-        title: meta.successText,
-        icon: 'success'
+        title: result && result.cleanupPending
+          ? '商品已删除，部分图片待清理'
+          : meta.successText,
+        icon: result && result.cleanupPending ? 'none' : 'success'
       });
     } catch (error) {
       if (!this.isPageActive) {
@@ -404,6 +431,20 @@ Page({
     }
     NavigationService.safeNavigateTo(
       `${ROUTES.PRODUCT_DETAIL}?id=${encodeURIComponent(id)}`
+    );
+  },
+
+  onEditTap(event) {
+    const { id, status } = event.currentTarget.dataset;
+    if (
+      !id
+      || ![PRODUCT_STATUS.AVAILABLE, PRODUCT_STATUS.OFFLINE].includes(status)
+      || this.data.isManaging
+    ) {
+      return;
+    }
+    NavigationService.safeNavigateTo(
+      `${ROUTES.PRODUCT_EDIT}?id=${encodeURIComponent(id)}`
     );
   },
 

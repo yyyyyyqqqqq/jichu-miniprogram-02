@@ -3,6 +3,7 @@ const AppStore = require('../../store/app-store');
 const AuthGuard = require('../../services/auth-guard');
 const NavigationService = require('../../services/navigation-service');
 const ProductPublishService = require('../../services/product-publish-service');
+const ProductFormService = require('../../services/product-form-service');
 const {
   PRODUCT_PUBLISH_LIMITS,
   PRODUCT_CONDITIONS,
@@ -140,69 +141,27 @@ Page({
     }
 
     try {
-      const result = await new Promise((resolve, reject) => {
-        wx.chooseMedia({
-          count: remaining,
-          mediaType: ['image'],
-          sourceType: ['album', 'camera'],
-          sizeType: ['compressed'],
-          success: resolve,
-          fail: reject
-        });
-      });
+      const result = await ProductFormService.chooseImages(
+        this.data.images,
+        this.data.maxImages
+      );
       if (!this.isPageActive) {
         return;
       }
 
-      const existingPaths = new Set(
-        this.data.images.map((image) => image.tempFilePath)
-      );
-      const selected = Array.isArray(result.tempFiles) ? result.tempFiles : [];
-      let oversizedCount = 0;
-      let invalidImageCount = 0;
-      const additions = [];
-      selected.forEach((file) => {
-        const tempFilePath = file && typeof file.tempFilePath === 'string'
-          ? file.tempFilePath
-          : '';
-        const size = Number(file && file.size);
-        const fileType = file && typeof file.fileType === 'string'
-          ? file.fileType.toLowerCase()
-          : 'image';
-        if (!tempFilePath || existingPaths.has(tempFilePath)) {
-          return;
-        }
-        if (
-          fileType !== 'image'
-          || !Number.isFinite(size)
-          || size <= 0
-        ) {
-          invalidImageCount += 1;
-          return;
-        }
-        if (size > PRODUCT_PUBLISH_LIMITS.MAX_IMAGE_SIZE) {
-          oversizedCount += 1;
-          return;
-        }
-        existingPaths.add(tempFilePath);
-        additions.push({
-          tempFilePath,
-          size,
-          fileType
-        });
-      });
-
-      if (oversizedCount > 0 || invalidImageCount > 0) {
+      if (result.oversizedCount > 0 || result.invalidCount > 0) {
         wx.showToast({
-          title: oversizedCount > 0
+          title: result.oversizedCount > 0
             ? '已跳过无效或超过 10MB 的图片'
             : '已跳过无效图片',
           icon: 'none'
         });
       }
-      if (additions.length > 0) {
+      if (result.additions.length > 0) {
         this.setData({
-          images: this.data.images.concat(additions).slice(0, this.data.maxImages)
+          images: this.data.images
+            .concat(result.additions)
+            .slice(0, this.data.maxImages)
         });
       }
     } catch (error) {
@@ -223,13 +182,7 @@ Page({
     if (!Number.isInteger(index) || !this.data.images[index]) {
       return;
     }
-    wx.previewMedia({
-      current: index,
-      sources: this.data.images.map((image) => ({
-        url: image.tempFilePath,
-        type: 'image'
-      }))
-    });
+    ProductFormService.previewImages(this.data.images, index);
   },
 
   onRemoveImage(event) {
@@ -246,14 +199,7 @@ Page({
   },
 
   buildDraft() {
-    return {
-      title: this.data.title,
-      description: this.data.description,
-      price: this.data.price,
-      categoryId: this.data.categoryId,
-      condition: this.data.condition,
-      location: this.data.location
-    };
+    return ProductFormService.buildDraft(this.data);
   },
 
   showSubmissionLoading() {

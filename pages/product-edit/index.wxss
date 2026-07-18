@@ -1,0 +1,24 @@
+@import "../publish/index.wxss";
+
+.edit-page {
+  padding-bottom: calc(180rpx + env(safe-area-inset-bottom));
+}
+
+.new-image-badge {
+  position: absolute;
+  bottom: 8rpx;
+  left: 8rpx;
+  padding: 4rpx 10rpx;
+  border-radius: 999rpx;
+  background: rgba(22, 163, 106, 0.9);
+  color: #ffffff;
+  font-size: 19rpx;
+}
+
+.version-note {
+  margin: 24rpx 8rpx 0;
+  color: #8a9690;
+  font-size: 22rpx;
+  line-height: 1.6;
+  text-align: center;
+}

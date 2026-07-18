@@ -360,10 +360,25 @@ record('cloud function project structure is complete', () => {
     });
 
     const functionPackage = readJson(path.join(functionDirectory, 'package.json'));
+    const functionLock = readJson(path.join(functionDirectory, 'package-lock.json'));
     assert(
       functionPackage.dependencies
       && typeof functionPackage.dependencies['wx-server-sdk'] === 'string',
       `${functionName} does not depend on wx-server-sdk`
+    );
+    assert(
+      functionLock.packages
+      && functionLock.packages['']
+      && functionLock.packages[''].dependencies
+      && functionLock.packages[''].dependencies['wx-server-sdk']
+        === functionPackage.dependencies['wx-server-sdk'],
+      `${functionName} package-lock does not preserve the wx-server-sdk dependency`
+    );
+    assert(
+      functionLock.packages['node_modules/wx-server-sdk']
+      && typeof functionLock.packages['node_modules/wx-server-sdk'].version
+        === 'string',
+      `${functionName} package-lock does not resolve wx-server-sdk`
     );
   });
 });
@@ -415,12 +430,21 @@ record('AuthService and AuthStore expose the required boundaries', () => {
 
 record('productQuery enforces public reads, real pagination and safe errors', () => {
   const source = readText(path.join(root, 'cloudfunctions/productQuery/index.js'));
+  const serviceSource = readText(path.join(root, 'services/product-service.js'));
 
   assert(
     /['"]list['"]/.test(source)
     && /['"]detail['"]/.test(source)
     && /['"]myProducts['"]/.test(source),
     'productQuery actions are incomplete'
+  );
+  assert(
+    /if\s*\(\s*action\s*===\s*['"]list['"]\s*\)\s*{\s*return await listProducts\(data\);\s*}/s.test(source),
+    'productQuery no longer routes the public list action to listProducts'
+  );
+  assert(
+    /callProductQuery\(\s*['"]list['"]\s*,/.test(serviceSource),
+    'ProductService no longer calls the public list action'
   );
   assert(/status:\s*command\.in\(PUBLIC_DETAIL_STATUSES\)/.test(source), 'productQuery detail does not filter public statuses');
   assert(/\.skip\(offset\)\.limit\(pageSize\)/.test(source), 'productQuery does not use database pagination');
@@ -493,8 +517,66 @@ record('my-products lifecycle uses guarded services and server ownership checks'
   assert(/PRODUCT_NOT_FOUND/.test(functionSource), 'manageProduct does not expose PRODUCT_NOT_FOUND');
   assert(/INVALID_STATUS_TRANSITION/.test(functionSource), 'manageProduct does not expose INVALID_STATUS_TRANSITION');
   assert(/UNAUTHORIZED/.test(functionSource), 'manageProduct does not expose UNAUTHORIZED');
-  assert(/status:\s*transition\.from/.test(functionSource), 'manageProduct update is not conditional on the old status');
+  assert(/runProductTransaction/.test(functionSource), 'manageProduct state changes are not transaction protected');
+  assert(/version:\s*version\s*\+\s*1/.test(functionSource), 'manageProduct state changes do not increment version');
   assert(!/request\.(?:sellerOpenid|ownerOpenid|openid|openId|status)/.test(functionSource), 'manageProduct trusts a client authorization or status field');
+});
+
+record('product editing and soft deletion enforce versioned safe mutations', () => {
+  const appConfig = readJson(path.join(root, 'app.json'));
+  const routeSource = readText(path.join(root, 'constants/routes.js'));
+  const editPageSource = readText(path.join(root, 'pages/product-edit/index.js'));
+  const editTemplate = readText(path.join(root, 'pages/product-edit/index.wxml'));
+  const editServiceSource = readText(path.join(root, 'services/product-edit-service.js'));
+  const formServiceSource = readText(path.join(root, 'services/product-form-service.js'));
+  const manageSource = readText(path.join(root, 'cloudfunctions/manageProduct/index.js'));
+  const querySource = readText(path.join(root, 'cloudfunctions/productQuery/index.js'));
+  const createSource = readText(path.join(root, 'cloudfunctions/createProduct/index.js'));
+  const myProductsSource = readText(path.join(root, 'pages/my-products/index.js'));
+  const myProductsTemplate = readText(path.join(root, 'pages/my-products/index.wxml'));
+
+  assert(appConfig.pages.includes('pages/product-edit/index'), 'product-edit page is not registered');
+  assert(/PRODUCT_EDIT/.test(routeSource), 'product-edit protected route is missing');
+  assert(/AuthGuard\.requireLogin/.test(editPageSource), 'product-edit page does not use AuthGuard');
+  assert(/ProductEditService\.getEditableProduct/.test(editPageSource), 'product-edit page does not load owner-only data');
+  assert(/ProductEditService\.updateProduct/.test(editPageSource), 'product-edit page does not use the edit service');
+  assert(/isSubmitting/.test(editPageSource) && /submitPromise/.test(editPageSource), 'product-edit duplicate submit protection is missing');
+  assert(/viewState:\s*['"]error['"]/.test(editPageSource) && /onRetry/.test(editPageSource), 'product-edit load error recovery is missing');
+  assert(/enableAlertBeforeUnload/.test(editPageSource), 'product-edit unsaved-change warning is missing');
+  assert(/onRemoveImage/.test(editTemplate) && /onChooseImages/.test(editTemplate), 'product-edit image controls are incomplete');
+  assert(!/wx\.cloud\.(?:database|callFunction|uploadFile|deleteFile)/.test(editPageSource), 'product-edit page accesses cloud resources directly');
+
+  assert(/chooseImages/.test(formServiceSource) && /splitImages/.test(formServiceSource), 'shared product form image logic is missing');
+  assert(/ProductPublishService\.validateProductFields/.test(editServiceSource), 'product-edit does not reuse publish validation');
+  assert(/ProductPublishService\.uploadLocalImages/.test(editServiceSource), 'product-edit does not reuse safe image upload');
+  assert(/ProductPublishService\.deleteCloudFiles/.test(editServiceSource), 'product-edit cannot roll back new uploads');
+  assert(!/sellerOpenid|ownerOpenid|\bopenid\b/i.test(editServiceSource), 'product-edit service sends a client identity');
+  assert(!/filesToDelete/.test(editServiceSource), 'product-edit service sends a trusted deletion list');
+
+  assert(/getEditableProduct/.test(manageSource), 'owner-only editable product action is missing');
+  assert(/updateProduct/.test(manageSource), 'product update action is missing');
+  assert(/softDelete/.test(manageSource), 'soft delete action is missing');
+  assert(/retryImageCleanup/.test(manageSource), 'image cleanup retry action is missing');
+  assert(/ALLOWED_UPDATE_FIELDS/.test(manageSource), 'server update field whitelist is missing');
+  assert(/PRODUCT_VERSION_CONFLICT/.test(manageSource), 'version conflict error is missing');
+  assert(/db\.runTransaction/.test(manageSource), 'database mutations do not use a transaction');
+  assert(/getProductVersion/.test(manageSource), 'legacy product version compatibility is missing');
+  assert(/status:\s*['"]deleted['"]/.test(manageSource), 'soft delete does not write deleted status');
+  assert(/deletedAt:\s*db\.serverDate/.test(manageSource), 'soft delete timestamp is missing');
+  assert(!/\.remove\s*\(/.test(manageSource), 'soft delete physically removes a product document');
+  assert(/isFileStillReferenced/.test(manageSource), 'server image reference check is missing');
+  assert(/cloud\.deleteFile/.test(manageSource), 'server image cleanup is missing');
+  assert(
+    manageSource.indexOf('await document.update') < manageSource.indexOf('await cleanupImages'),
+    'image cleanup is not ordered after database mutation'
+  );
+  assert(!/request\.filesToDelete/.test(manageSource), 'server trusts a client deletion list');
+  assert(/imageCleanupStatus/.test(manageSource) && /partial_failed/.test(manageSource), 'cleanup retry state is missing');
+
+  assert(/version:\s*1/.test(createSource), 'new products do not start at version 1');
+  assert(/MY_PRODUCT_STATUSES/.test(querySource) && !/MY_PRODUCT_STATUSES\s*=\s*\[[^\]]*deleted/s.test(querySource), 'deleted products can enter myProducts');
+  assert(/softDelete/.test(myProductsSource) && /softDelete/.test(myProductsTemplate), 'my-products soft delete entry is missing');
+  assert(/PRODUCT_EDIT/.test(myProductsSource), 'my-products edit entry is missing');
 });
 
 record('ProductService centralizes cloud access and data normalization', () => {
@@ -550,8 +632,9 @@ record('createProduct trusts cloud identity and writes safe product fields', () 
 
   assert(/AuthGuard\.requireLogin/.test(publishSource), 'publish page does not reuse the login guard');
   assert(/isSubmitting/.test(publishSource) && /finally/.test(publishSource), 'publish duplicate-click or loading cleanup is missing');
-  assert(/wx\.chooseMedia/.test(publishSource), 'publish page cannot choose product images');
-  assert(/wx\.previewMedia/.test(publishSource), 'publish page cannot preview product images');
+  const formServiceSource = readText(path.join(root, 'services/product-form-service.js'));
+  assert(/chooseImages/.test(publishSource) && /wx\.chooseMedia/.test(formServiceSource), 'publish page cannot choose product images');
+  assert(/previewImages/.test(publishSource) && /wx\.previewMedia/.test(formServiceSource), 'publish page cannot preview product images');
   assert(/publishProduct/.test(publishSource), 'publish page does not use the publish service');
   assert(/(?:bindtap|catchtap)="onRemoveImage"/.test(publishTemplate), 'publish page cannot remove a selected image');
   assert(!/wx\.cloud\.(?:database|callFunction)/.test(publishSource), 'publish page accesses cloud data directly');
@@ -607,7 +690,8 @@ record('all protected entrances use AuthGuard', () => {
     'pages/favorites/index.js',
     'pages/my-products/index.js',
     'pages/profile/index.js',
-    'pages/product-detail/index.js'
+    'pages/product-detail/index.js',
+    'pages/product-edit/index.js'
   ];
 
   requiredGuardFiles.forEach((name) => {
@@ -1011,6 +1095,19 @@ async function verifyProductQueryFunctionFlow() {
       createdAt: new Date('2026-07-17T06:30:00.000Z')
     },
     {
+      _id: 'product-owner-deleted',
+      title: '本人已删除商品',
+      description: '软删除商品不得出现在任何正常查询中。',
+      price: 26,
+      categoryId: 'life',
+      categoryName: '生活',
+      status: 'deleted',
+      sellerOpenid: 'private-openid',
+      favoriteCount: 0,
+      viewCount: 0,
+      createdAt: new Date('2026-07-17T06:00:00.000Z')
+    },
+    {
       _id: 'product-hidden',
       title: '隐藏商品',
       description: '该商品不应被公开读取。',
@@ -1195,6 +1292,22 @@ async function verifyProductQueryFunctionFlow() {
       ),
       'productQuery myProducts leaked sellerOpenid'
     );
+    assert(
+      !myProductsResult.data.list.some((product) => product.status === 'deleted'),
+      'productQuery myProducts exposed a deleted product'
+    );
+
+    const deletedDetail = await productQueryFunction.main({
+      action: 'detail',
+      data: {
+        productId: 'product-owner-deleted'
+      }
+    });
+    assert(
+      deletedDetail.success === false
+      && deletedDetail.code === 'PRODUCT_NOT_FOUND',
+      'productQuery exposed a deleted product detail'
+    );
 
     queryOpenId = '';
     const unauthorizedMyProducts = await productQueryFunction.main({
@@ -1359,27 +1472,390 @@ async function verifyMyProductsServiceFlow() {
   }
 }
 
+async function verifyProductEditServiceFlow() {
+  const servicePath = path.join(root, 'services/product-edit-service');
+  const originalWx = global.wx;
+  const requests = [];
+  const uploadedFileIDs = [];
+  const deletedFileLists = [];
+  const existingImage = 'cloud://test-env.bucket/products/u_owner/20260718/existing.jpg';
+  let mode = 'success';
+
+  global.wx = {
+    getImageInfo({ success }) {
+      success({
+        width: 800,
+        height: 600,
+        type: 'jpeg'
+      });
+    },
+    cloud: {
+      uploadFile({ cloudPath, success }) {
+        const fileID = `cloud://test-env.bucket/${cloudPath}`;
+        uploadedFileIDs.push(fileID);
+        success({ fileID });
+        return {
+          abort() {}
+        };
+      },
+      deleteFile({ fileList, success }) {
+        deletedFileLists.push(fileList.slice());
+        success({
+          fileList: fileList.map((fileID) => ({
+            fileID,
+            status: 0
+          }))
+        });
+      },
+      callFunction({ name, data, success, fail }) {
+        requests.push({ name, data });
+        if (mode === 'timeout') {
+          fail({
+            errMsg: 'request:fail timeout'
+          });
+          return;
+        }
+        if (data.action === 'getEditableProduct') {
+          success({
+            result: {
+              success: true,
+              code: 'OK',
+              message: '',
+              data: {
+                product: {
+                  id: 'product-edit-service',
+                  title: '待编辑商品',
+                  description: '待编辑商品描述完整',
+                  price: 20,
+                  categoryId: 'life',
+                  condition: '九成新',
+                  location: '图书馆南门',
+                  images: [existingImage],
+                  status: 'available'
+                },
+                version: 1
+              }
+            }
+          });
+          return;
+        }
+        if (mode === 'conflict') {
+          success({
+            result: {
+              success: false,
+              code: 'PRODUCT_VERSION_CONFLICT',
+              message: '商品信息已在其他页面发生变化，请刷新后重新编辑',
+              data: null
+            }
+          });
+          return;
+        }
+        if (data.action === 'softDelete') {
+          success({
+            result: {
+              success: true,
+              code: 'OK',
+              message: '',
+              data: {
+                productId: data.productId,
+                status: 'deleted',
+                version: 2,
+                reused: false,
+                cleanupPending: false
+              }
+            }
+          });
+          return;
+        }
+        success({
+          result: {
+            success: true,
+            code: 'OK',
+            message: '',
+            data: {
+              productId: data.productId,
+              version: 2,
+              reused: false,
+              cleanupPending: false
+            }
+          }
+        });
+      }
+    }
+  };
+
+  try {
+    delete require.cache[require.resolve(servicePath)];
+    const ProductEditService = require(servicePath);
+    const loaded = await ProductEditService.getEditableProduct(
+      'product-edit-service'
+    );
+    assert(
+      loaded.product.title === '待编辑商品'
+      && loaded.version === 1
+      && loaded.product.images[0] === existingImage,
+      'product-edit service did not normalize editable product data'
+    );
+
+    const draft = {
+      title: '编辑后的商品',
+      description: '编辑后的商品描述内容完整',
+      price: '29.90',
+      categoryId: 'digital',
+      condition: '八成新',
+      location: '实验楼大厅'
+    };
+    const localImage = {
+      tempFilePath: 'C:\\temp\\edit-new.jpg',
+      size: 1024,
+      fileType: 'image'
+    };
+    const updated = await ProductEditService.updateProduct({
+      productId: 'product-edit-service',
+      expectedVersion: 1,
+      mutationId: 'mut_service_update_01',
+      draft,
+      existingFileIDs: [existingImage],
+      localImages: [localImage],
+      userId: 'u_owner'
+    });
+    assert(
+      updated.version === 2 && uploadedFileIDs.length === 1,
+      'product-edit service did not upload and update the product'
+    );
+    const updateRequest = requests.find((request) => (
+      request.data.action === 'updateProduct'
+    ));
+    assert(
+      updateRequest
+      && updateRequest.name === 'manageProduct'
+      && updateRequest.data.product.images.length === 2
+      && updateRequest.data.product.images[0] === existingImage,
+      'product-edit service did not preserve ordered final images'
+    );
+    assert(
+      !/sellerOpenid|ownerOpenid|\bopenid\b|filesToDelete/i.test(
+        JSON.stringify(updateRequest.data)
+      )
+      && !Object.prototype.hasOwnProperty.call(
+        updateRequest.data.product,
+        'status'
+      ),
+      'product-edit service sent an identity, status or deletion authority'
+    );
+
+    mode = 'conflict';
+    let conflictError;
+    try {
+      await ProductEditService.updateProduct({
+        productId: 'product-edit-service',
+        expectedVersion: 1,
+        mutationId: 'mut_service_update_02',
+        draft,
+        existingFileIDs: [existingImage],
+        localImages: [localImage],
+        userId: 'u_owner'
+      });
+    } catch (error) {
+      conflictError = error;
+    }
+    assert(
+      conflictError && conflictError.code === 'PRODUCT_VERSION_CONFLICT',
+      'product-edit service did not surface a version conflict'
+    );
+    assert(
+      deletedFileLists.some((fileList) => (
+        fileList.includes(uploadedFileIDs[uploadedFileIDs.length - 1])
+      )),
+      'product-edit service did not roll back a new upload after update failure'
+    );
+
+    mode = 'timeout';
+    const deletesBeforeTimeout = deletedFileLists.length;
+    let timeoutError;
+    try {
+      await ProductEditService.updateProduct({
+        productId: 'product-edit-service',
+        expectedVersion: 1,
+        mutationId: 'mut_service_update_03',
+        draft,
+        existingFileIDs: [],
+        localImages: [localImage],
+        userId: 'u_owner'
+      });
+    } catch (error) {
+      timeoutError = error;
+    }
+    assert(
+      timeoutError
+      && timeoutError.code === 'TIMEOUT'
+      && timeoutError.outcomeUnknown === true
+      && timeoutError.uploadedFileIds.length === 1,
+      'product-edit service did not preserve an ambiguous update for retry'
+    );
+    assert(
+      deletedFileLists.length === deletesBeforeTimeout,
+      'product-edit service deleted an upload while database outcome was unknown'
+    );
+
+    mode = 'success';
+    const deleted = await ProductEditService.softDelete({
+      productId: 'product-edit-service',
+      expectedVersion: 1,
+      mutationId: 'mut_service_delete_01'
+    });
+    assert(
+      deleted.status === 'deleted' && deleted.version === 2,
+      'product-edit service did not normalize soft delete success'
+    );
+    const deleteRequest = requests.find((request) => (
+      request.data.action === 'softDelete'
+    ));
+    assert(
+      Object.keys(deleteRequest.data).sort().join(',')
+        === 'action,expectedVersion,mutationId,productId',
+      'soft delete service sent fields beyond its versioned mutation envelope'
+    );
+  } finally {
+    delete require.cache[require.resolve(servicePath)];
+    if (originalWx === undefined) {
+      delete global.wx;
+    } else {
+      global.wx = originalWx;
+    }
+  }
+}
+
 async function verifyManageProductFunctionFlow() {
   const functionPath = path.join(root, 'cloudfunctions/manageProduct/index.js');
   const originalLoad = Module._load;
+  const ownerImageA = 'cloud://test-env.bucket/products/u_owner/20260718/a.jpg';
+  const ownerImageB = 'cloud://test-env.bucket/products/u_owner/20260718/b.jpg';
+  const ownerImageC = 'cloud://test-env.bucket/products/u_owner/20260718/c.jpg';
+  const cleanupImageA = 'cloud://test-env.bucket/products/u_owner/20260718/cleanup-a.jpg';
+  const cleanupImageB = 'cloud://test-env.bucket/products/u_owner/20260718/cleanup-b.jpg';
+  const sharedImage = 'cloud://test-env.bucket/products/u_owner/20260718/shared.jpg';
+  const retainImage = 'cloud://test-env.bucket/products/u_owner/20260718/retain.jpg';
+  const replaceOldImage = 'cloud://test-env.bucket/products/u_owner/20260718/replace-old.jpg';
+  const replaceNewImage = 'cloud://test-env.bucket/products/u_owner/20260718/replace-new.jpg';
   const products = new Map([
-    ['product-own', {
-      _id: 'product-own',
+    ['product-state', {
+      _id: 'product-state',
       sellerOpenid: 'owner-openid',
+      sellerId: 'u_owner',
       status: 'available'
+    }],
+    ['product-edit', {
+      _id: 'product-edit',
+      sellerOpenid: 'owner-openid',
+      sellerId: 'u_owner',
+      status: 'available',
+      title: '原商品标题',
+      description: '原商品描述内容完整',
+      price: 20,
+      categoryId: 'life',
+      categoryName: '生活',
+      condition: '九成新',
+      location: '图书馆南门',
+      images: [ownerImageA, ownerImageB],
+      coverImage: ownerImageA,
+      createdAt: { original: true }
+    }],
+    ['product-cleanup', {
+      _id: 'product-cleanup',
+      sellerOpenid: 'owner-openid',
+      sellerId: 'u_owner',
+      status: 'available',
+      version: 1,
+      title: '清理测试商品',
+      description: '清理测试商品描述',
+      price: 30,
+      categoryId: 'life',
+      condition: '八成新',
+      location: '操场东门',
+      images: [cleanupImageA, cleanupImageB],
+      coverImage: cleanupImageA
+    }],
+    ['product-shared-owner', {
+      _id: 'product-shared-owner',
+      sellerOpenid: 'owner-openid',
+      sellerId: 'u_owner',
+      status: 'available',
+      version: 1,
+      title: '共享图片商品一',
+      description: '共享图片商品描述一',
+      price: 40,
+      categoryId: 'life',
+      condition: '九成新',
+      location: '教学楼门口',
+      images: [sharedImage],
+      coverImage: sharedImage
+    }],
+    ['product-retain', {
+      _id: 'product-retain',
+      sellerOpenid: 'owner-openid',
+      sellerId: 'u_owner',
+      status: 'available',
+      version: 1,
+      title: '保留图片商品',
+      description: '保留全部旧图片测试描述',
+      price: 41,
+      categoryId: 'life',
+      condition: '九成新',
+      location: '教学楼门口',
+      images: [retainImage],
+      coverImage: retainImage
+    }],
+    ['product-replace', {
+      _id: 'product-replace',
+      sellerOpenid: 'owner-openid',
+      sellerId: 'u_owner',
+      status: 'available',
+      version: 1,
+      title: '替换图片商品',
+      description: '全部替换图片测试描述',
+      price: 42,
+      categoryId: 'life',
+      condition: '九成新',
+      location: '教学楼门口',
+      images: [replaceOldImage],
+      coverImage: replaceOldImage
+    }],
+    ['product-shared-other', {
+      _id: 'product-shared-other',
+      sellerOpenid: 'owner-openid',
+      sellerId: 'u_owner',
+      status: 'offline',
+      version: 1,
+      title: '共享图片商品二',
+      description: '共享图片商品描述二',
+      price: 45,
+      categoryId: 'life',
+      condition: '八成新',
+      location: '教学楼门口',
+      images: [sharedImage],
+      coverImage: sharedImage
     }],
     ['product-foreign', {
       _id: 'product-foreign',
       sellerOpenid: 'foreign-openid',
+      sellerId: 'u_foreign',
       status: 'available'
     }]
   ]);
   let currentOpenId = 'owner-openid';
+  let deleteMode = 'success';
+  const deletedFileIDs = [];
+  const deleteStatusSnapshots = [];
 
   function matches(record, condition) {
-    return Object.entries(condition).every(([key, value]) => (
-      record[key] === value
-    ));
+    return Object.entries(condition).every(([key, value]) => {
+      if (value && Array.isArray(value.$all)) {
+        return Array.isArray(record[key])
+          && value.$all.every((item) => record[key].includes(item));
+      }
+      return record[key] === value;
+    });
   }
 
   function createQuery(condition) {
@@ -1416,12 +1892,49 @@ async function verifyManageProductFunctionFlow() {
   }
 
   const db = {
+    command: {
+      all(values) {
+        return {
+          $all: values
+        };
+      }
+    },
     collection(name) {
       assert(name === 'products', `unexpected manageProduct collection ${name}`);
       return {
         where(condition) {
           return createQuery(condition);
         }
+      };
+    },
+    async runTransaction(callback) {
+      const transaction = {
+        collection(name) {
+          assert(name === 'products', `unexpected transaction collection ${name}`);
+          return {
+            doc(id) {
+              return {
+                async get() {
+                  return {
+                    data: products.has(id) ? products.get(id) : null
+                  };
+                },
+                async update({ data }) {
+                  assert(products.has(id), `transaction updated missing product ${id}`);
+                  products.set(id, Object.assign({}, products.get(id), data));
+                  return {
+                    stats: {
+                      updated: 1
+                    }
+                  };
+                }
+              };
+            }
+          };
+        }
+      };
+      return {
+        result: await callback(transaction)
       };
     },
     serverDate() {
@@ -1440,6 +1953,23 @@ async function verifyManageProductFunctionFlow() {
       return {
         OPENID: currentOpenId
       };
+    },
+    async deleteFile({ fileList }) {
+      fileList.forEach((fileID) => {
+        deletedFileIDs.push(fileID);
+        const referencingProduct = [...products.values()].find((product) => (
+          Array.isArray(product.images) && product.images.includes(fileID)
+        ));
+        deleteStatusSnapshots.push(
+          referencingProduct ? referencingProduct.status : 'unreferenced'
+        );
+      });
+      return {
+        fileList: fileList.map((fileID) => ({
+          fileID,
+          status: deleteMode === 'success' ? 0 : -1
+        }))
+      };
     }
   };
 
@@ -1454,56 +1984,76 @@ async function verifyManageProductFunctionFlow() {
     delete require.cache[require.resolve(functionPath)];
     const manageProductFunction = require(functionPath);
 
+    const editable = await manageProductFunction.main({
+      action: 'getEditableProduct',
+      productId: 'product-edit'
+    });
+    assert(
+      editable.success === true
+      && editable.data.version === 1
+      && editable.data.product.id === 'product-edit'
+      && !Object.prototype.hasOwnProperty.call(
+        editable.data.product,
+        'sellerOpenid'
+      ),
+      'manageProduct failed to return safe owner-only editable data'
+    );
+
     const offline = await manageProductFunction.main({
       action: 'takeOffline',
-      productId: 'product-own'
+      productId: 'product-state'
     });
     assert(
       offline.success === true
       && offline.data.status === 'offline'
+      && offline.data.version === 2
       && offline.data.reused === false,
       'manageProduct failed available -> offline'
     );
     assert(
-      products.get('product-own').offlineAt.$serverDate === true,
+      products.get('product-state').offlineAt.$serverDate === true,
       'manageProduct did not write offlineAt'
     );
 
     const repeatedOffline = await manageProductFunction.main({
       action: 'takeOffline',
-      productId: 'product-own'
+      productId: 'product-state'
     });
     assert(
-      repeatedOffline.success === true && repeatedOffline.data.reused === true,
+      repeatedOffline.success === true
+      && repeatedOffline.data.reused === true
+      && repeatedOffline.data.version === 2,
       'manageProduct repeated takeOffline is not idempotent'
     );
 
     const relisted = await manageProductFunction.main({
       action: 'relist',
-      productId: 'product-own'
+      productId: 'product-state'
     });
     assert(
       relisted.success === true
       && relisted.data.status === 'available'
-      && products.get('product-own').offlineAt === null
-      && products.get('product-own').relistedAt.$serverDate === true,
+      && relisted.data.version === 3
+      && products.get('product-state').offlineAt === null
+      && products.get('product-state').relistedAt.$serverDate === true,
       'manageProduct failed offline -> available'
     );
 
     const sold = await manageProductFunction.main({
       action: 'markSold',
-      productId: 'product-own'
+      productId: 'product-state'
     });
     assert(
       sold.success === true
       && sold.data.status === 'sold'
-      && products.get('product-own').soldAt.$serverDate === true,
+      && sold.data.version === 4
+      && products.get('product-state').soldAt.$serverDate === true,
       'manageProduct failed available -> sold'
     );
 
     const repeatedSold = await manageProductFunction.main({
       action: 'markSold',
-      productId: 'product-own'
+      productId: 'product-state'
     });
     assert(
       repeatedSold.success === true && repeatedSold.data.reused === true,
@@ -1512,12 +2062,240 @@ async function verifyManageProductFunctionFlow() {
 
     const invalidRelist = await manageProductFunction.main({
       action: 'relist',
-      productId: 'product-own'
+      productId: 'product-state'
     });
     assert(
       invalidRelist.success === false
       && invalidRelist.code === 'INVALID_STATUS_TRANSITION',
       'manageProduct allows sold -> available'
+    );
+
+    const updateRequest = {
+      action: 'updateProduct',
+      productId: 'product-edit',
+      expectedVersion: 1,
+      mutationId: 'mut_update_product_001',
+      product: {
+        title: '更新后的商品标题',
+        description: '更新后的商品描述内容完整',
+        price: 29.9,
+        categoryId: 'digital',
+        categoryName: '伪造分类名',
+        condition: '八成新',
+        location: '实验楼大厅',
+        images: [ownerImageA, ownerImageC]
+      }
+    };
+    const updated = await manageProductFunction.main(updateRequest);
+    assert(
+      updated.success === true
+      && updated.data.version === 2
+      && products.get('product-edit').title === '更新后的商品标题'
+      && products.get('product-edit').categoryName === '数码'
+      && products.get('product-edit').status === 'available'
+      && products.get('product-edit').sellerOpenid === 'owner-openid'
+      && products.get('product-edit').createdAt.original === true,
+      'manageProduct did not update only allowed product fields'
+    );
+    assert(
+      deletedFileIDs.includes(ownerImageB),
+      'manageProduct did not delete a removed unreferenced old image'
+    );
+
+    const repeatedUpdate = await manageProductFunction.main(updateRequest);
+    assert(
+      repeatedUpdate.success === true
+      && repeatedUpdate.data.reused === true
+      && repeatedUpdate.data.version === 2,
+      'manageProduct update retry is not idempotent'
+    );
+
+    const staleUpdate = await manageProductFunction.main(Object.assign(
+      {},
+      updateRequest,
+      {
+        mutationId: 'mut_update_product_002',
+        expectedVersion: 1
+      }
+    ));
+    assert(
+      staleUpdate.success === false
+      && staleUpdate.code === 'PRODUCT_VERSION_CONFLICT',
+      'manageProduct accepted a stale product version'
+    );
+
+    const forgedStatusUpdate = await manageProductFunction.main(Object.assign(
+      {},
+      updateRequest,
+      {
+        mutationId: 'mut_update_product_003',
+        expectedVersion: 2,
+        product: Object.assign({}, updateRequest.product, {
+          status: 'sold'
+        })
+      }
+    ));
+    assert(
+      forgedStatusUpdate.success === false
+      && forgedStatusUpdate.code === 'INVALID_PRODUCT_FIELD'
+      && products.get('product-edit').status === 'available',
+      'manageProduct accepted a forged status field'
+    );
+
+    deleteMode = 'fail';
+    const cleanupPartial = await manageProductFunction.main({
+      action: 'updateProduct',
+      productId: 'product-cleanup',
+      expectedVersion: 1,
+      mutationId: 'mut_cleanup_failure_01',
+      product: {
+        title: '清理失败但业务成功',
+        description: '清理失败时数据库更新仍然成功',
+        price: 31,
+        categoryId: 'life',
+        categoryName: '生活',
+        condition: '八成新',
+        location: '操场东门',
+        images: [cleanupImageA]
+      }
+    });
+    assert(
+      cleanupPartial.success === true
+      && cleanupPartial.data.cleanupPending === true
+      && products.get('product-cleanup').title === '清理失败但业务成功'
+      && products.get('product-cleanup').imageCleanupStatus === 'partial_failed',
+      'image cleanup failure rolled back a successful database update'
+    );
+
+    deleteMode = 'success';
+    const cleanupRetry = await manageProductFunction.main({
+      action: 'retryImageCleanup',
+      productId: 'product-cleanup'
+    });
+    assert(
+      cleanupRetry.success === true
+      && cleanupRetry.data.cleanupPending === false
+      && products.get('product-cleanup').imageCleanupStatus === 'completed',
+      'image cleanup retry did not complete a pending cleanup'
+    );
+
+    const deletedCountBeforeRetain = deletedFileIDs.length;
+    const retainedAllImages = await manageProductFunction.main({
+      action: 'updateProduct',
+      productId: 'product-retain',
+      expectedVersion: 1,
+      mutationId: 'mut_retain_images_001',
+      product: {
+        title: '保留全部旧图片',
+        description: '只更新文字并保留全部旧图片',
+        price: 41,
+        categoryId: 'life',
+        categoryName: '生活',
+        condition: '九成新',
+        location: '教学楼门口',
+        images: [retainImage]
+      }
+    });
+    assert(
+      retainedAllImages.success === true
+      && deletedFileIDs.length === deletedCountBeforeRetain,
+      'manageProduct deleted an image when all old images were retained'
+    );
+
+    const replacedAllImages = await manageProductFunction.main({
+      action: 'updateProduct',
+      productId: 'product-replace',
+      expectedVersion: 1,
+      mutationId: 'mut_replace_images_01',
+      product: {
+        title: '全部替换商品图片',
+        description: '全部旧图片替换为本次新图片',
+        price: 42,
+        categoryId: 'life',
+        categoryName: '生活',
+        condition: '九成新',
+        location: '教学楼门口',
+        images: [replaceNewImage]
+      }
+    });
+    assert(
+      replacedAllImages.success === true
+      && products.get('product-replace').images[0] === replaceNewImage
+      && deletedFileIDs.includes(replaceOldImage),
+      'manageProduct failed to replace all old images safely'
+    );
+
+    const beforeSharedDeleteCount = deletedFileIDs
+      .filter((fileID) => fileID === sharedImage).length;
+    const sharedDeleted = await manageProductFunction.main({
+      action: 'softDelete',
+      productId: 'product-shared-owner',
+      expectedVersion: 1,
+      mutationId: 'mut_shared_delete_001'
+    });
+    assert(
+      sharedDeleted.success === true
+      && sharedDeleted.data.status === 'deleted'
+      && sharedDeleted.data.cleanupPending === false
+      && deletedFileIDs.filter((fileID) => fileID === sharedImage).length
+        === beforeSharedDeleteCount,
+      'manageProduct deleted an image still referenced by another product'
+    );
+
+    const softDeleted = await manageProductFunction.main({
+      action: 'softDelete',
+      productId: 'product-edit',
+      expectedVersion: 2,
+      mutationId: 'mut_soft_delete_001'
+    });
+    assert(
+      softDeleted.success === true
+      && softDeleted.data.status === 'deleted'
+      && softDeleted.data.version === 3
+      && products.get('product-edit').status === 'deleted'
+      && products.get('product-edit').deletedAt.$serverDate === true
+      && products.has('product-edit'),
+      'manageProduct did not soft delete the product'
+    );
+    assert(
+      deleteStatusSnapshots
+        .filter((status, index) => (
+          [ownerImageA, ownerImageC].includes(deletedFileIDs[index])
+        ))
+        .every((status) => status === 'deleted'),
+      'manageProduct deleted cloud images before database soft delete'
+    );
+
+    const repeatedDelete = await manageProductFunction.main({
+      action: 'softDelete',
+      productId: 'product-edit',
+      expectedVersion: 2,
+      mutationId: 'mut_soft_delete_002'
+    });
+    assert(
+      repeatedDelete.success === true
+      && repeatedDelete.data.reused === true
+      && repeatedDelete.data.version === 3,
+      'manageProduct repeated soft delete is not idempotent'
+    );
+
+    const deletedEdit = await manageProductFunction.main({
+      action: 'getEditableProduct',
+      productId: 'product-edit'
+    });
+    assert(
+      deletedEdit.success === false && deletedEdit.code === 'PRODUCT_DELETED',
+      'manageProduct allows a deleted product to be edited'
+    );
+
+    const deletedTransition = await manageProductFunction.main({
+      action: 'takeOffline',
+      productId: 'product-edit'
+    });
+    assert(
+      deletedTransition.success === false
+      && deletedTransition.code === 'PRODUCT_DELETED',
+      'manageProduct allows a deleted product status transition'
     );
 
     const forbidden = await manageProductFunction.main({
@@ -1532,6 +2310,29 @@ async function verifyManageProductFunctionFlow() {
     assert(
       products.get('product-foreign').status === 'available',
       'manageProduct changed another owner product'
+    );
+
+    const forbiddenEdit = await manageProductFunction.main({
+      action: 'getEditableProduct',
+      productId: 'product-foreign'
+    });
+    assert(
+      forbiddenEdit.success === false
+      && forbiddenEdit.code === 'PRODUCT_FORBIDDEN',
+      'manageProduct returned another owner editable data'
+    );
+
+    const forbiddenDelete = await manageProductFunction.main({
+      action: 'softDelete',
+      productId: 'product-foreign',
+      expectedVersion: 1,
+      mutationId: 'mut_foreign_delete_01'
+    });
+    assert(
+      forbiddenDelete.success === false
+      && forbiddenDelete.code === 'PRODUCT_FORBIDDEN'
+      && products.get('product-foreign').status === 'available',
+      'manageProduct soft deleted another owner product'
     );
 
     const missing = await manageProductFunction.main({
@@ -2100,8 +2901,10 @@ async function runAsyncChecks() {
   checks.push('PASS productQuery public fields, owner filtering, query limits and disabled seed action');
   await verifyMyProductsServiceFlow();
   checks.push('PASS MyProductsService query, management payload and error boundaries');
+  await verifyProductEditServiceFlow();
+  checks.push('PASS ProductEditService upload, rollback, retry and versioned payload boundaries');
   await verifyManageProductFunctionFlow();
-  checks.push('PASS manageProduct ownership, transitions, idempotency and stable errors');
+  checks.push('PASS manageProduct ownership, transactions, editing, soft delete and cleanup boundaries');
   await verifyPublishServiceFlow();
   checks.push('PASS ProductPublishService validation, upload, idempotency and cleanup flow');
   await verifyCreateProductFunctionFlow();

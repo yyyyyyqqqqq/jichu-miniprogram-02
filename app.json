@@ -4,6 +4,7 @@
     "pages/messages/index",
     "pages/profile/index",
     "pages/product-detail/index",
+    "pages/product-edit/index",
     "pages/publish/index",
     "pages/login/index",
     "pages/favorites/index",

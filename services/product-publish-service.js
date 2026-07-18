@@ -103,7 +103,7 @@ function validatePrice(value) {
   return price;
 }
 
-function validateProductDraft(draft, localImages) {
+function validateProductFields(draft) {
   const value = draft && typeof draft === 'object' ? draft : {};
   const title = normalizeText(value.title);
   if (!title) {
@@ -149,7 +149,20 @@ function validateProductDraft(draft, localImages) {
     throw createError('LOCATION_LENGTH_INVALID');
   }
 
-  if (!Array.isArray(localImages) || localImages.length === 0) {
+  return {
+    title,
+    description,
+    price: validatePrice(value.price),
+    categoryId,
+    categoryName,
+    condition,
+    location
+  };
+}
+
+function validateLocalImages(localImages, options = {}) {
+  const allowEmpty = options.allowEmpty === true;
+  if (!Array.isArray(localImages) || (!allowEmpty && localImages.length === 0)) {
     throw createError('IMAGE_REQUIRED');
   }
   if (localImages.length > PRODUCT_PUBLISH_LIMITS.MAX_IMAGES) {
@@ -176,16 +189,13 @@ function validateProductDraft(draft, localImages) {
       throw createError('IMAGE_TOO_LARGE');
     }
   });
+  return localImages;
+}
 
-  return {
-    title,
-    description,
-    price: validatePrice(value.price),
-    categoryId,
-    categoryName,
-    condition,
-    location
-  };
+function validateProductDraft(draft, localImages) {
+  const normalized = validateProductFields(draft);
+  validateLocalImages(localImages);
+  return normalized;
 }
 
 function randomToken(length = 10) {
@@ -385,6 +395,57 @@ function uploadSingleImage(tempFilePath, cloudPath) {
   });
 }
 
+async function uploadLocalImages(options = {}) {
+  const localImages = Array.isArray(options.localImages)
+    ? options.localImages
+    : [];
+  validateLocalImages(localImages, { allowEmpty: true });
+  const userId = normalizeUserId(options.userId);
+  if (!userId) {
+    throw createError('AUTH_CONTEXT_MISSING');
+  }
+  const shouldContinue = typeof options.shouldContinue === 'function'
+    ? options.shouldContinue
+    : () => true;
+  const onProgress = typeof options.onProgress === 'function'
+    ? options.onProgress
+    : () => {};
+  const uploadedFileIds = [];
+
+  try {
+    for (let index = 0; index < localImages.length; index += 1) {
+      if (!shouldContinue()) {
+        throw createError('OPERATION_CANCELLED');
+      }
+      const image = localImages[index];
+      const tempFilePath = image && typeof image.tempFilePath === 'string'
+        ? image.tempFilePath
+        : '';
+      if (!tempFilePath) {
+        throw createError('INVALID_PARAMS');
+      }
+      await validateImageDecoding(tempFilePath);
+      onProgress({
+        stage: 'uploading',
+        completed: index,
+        total: localImages.length
+      });
+      const fileID = await uploadSingleImage(
+        tempFilePath,
+        buildCloudPath(userId, tempFilePath, index)
+      );
+      uploadedFileIds.push(fileID);
+    }
+    return uploadedFileIds;
+  } catch (error) {
+    const normalizedError = error instanceof ProductPublishError
+      ? error
+      : mapTransportError(error, 'UPLOAD_FAILED');
+    normalizedError.uploadedFileIds = uploadedFileIds.slice();
+    throw normalizedError;
+  }
+}
+
 function normalizeCloudFileIds(value, userId) {
   if (!Array.isArray(value)) {
     return [];
@@ -520,32 +581,13 @@ async function publishProduct(options = {}) {
 
   try {
     if (fileIDs.length === 0) {
-      fileIDs = [];
-      for (let index = 0; index < options.localImages.length; index += 1) {
-        if (!shouldContinue()) {
-          throw createError('OPERATION_CANCELLED');
-        }
-        const image = options.localImages[index];
-        const tempFilePath = image && typeof image.tempFilePath === 'string'
-          ? image.tempFilePath
-          : '';
-        if (!tempFilePath) {
-          throw createError('INVALID_PARAMS');
-        }
-        await validateImageDecoding(tempFilePath);
-
-        onProgress({
-          stage: 'uploading',
-          completed: index,
-          total: options.localImages.length
-        });
-        const fileID = await uploadSingleImage(
-          tempFilePath,
-          buildCloudPath(userId, tempFilePath, index)
-        );
-        uploadedThisAttempt.push(fileID);
-        fileIDs.push(fileID);
-      }
+      fileIDs = await uploadLocalImages({
+        localImages: options.localImages,
+        userId,
+        shouldContinue,
+        onProgress
+      });
+      uploadedThisAttempt.push(...fileIDs);
     }
 
     if (!shouldContinue()) {
@@ -573,6 +615,15 @@ async function publishProduct(options = {}) {
       ? error
       : mapTransportError(error, 'UNKNOWN_ERROR');
     if (
+      uploadedThisAttempt.length === 0
+      && Array.isArray(normalizedError.uploadedFileIds)
+    ) {
+      uploadedThisAttempt.push(...normalizedError.uploadedFileIds);
+    }
+    if (fileIDs.length === 0 && uploadedThisAttempt.length > 0) {
+      fileIDs = uploadedThisAttempt.slice();
+    }
+    if (
       fileIDs.length > 0
       && AMBIGUOUS_ERROR_CODES.has(normalizedError.code)
     ) {
@@ -587,7 +638,11 @@ async function publishProduct(options = {}) {
 module.exports = {
   ProductPublishError,
   createSubmissionId,
+  validateProductFields,
+  validateLocalImages,
   validateProductDraft,
+  uploadLocalImages,
+  normalizeCloudFileIds,
   publishProduct,
   deleteCloudFiles
 };

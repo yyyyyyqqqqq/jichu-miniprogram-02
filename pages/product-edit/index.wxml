@@ -1,0 +1,189 @@
+<view class="page-shell--plain publish-page edit-page">
+  <loading-state
+    wx:if="{{viewState === 'loading' || isRestoring}}"
+    text="正在加载商品信息"
+  />
+
+  <empty-state
+    wx:elif="{{viewState === 'error'}}"
+    title="无法编辑商品"
+    description="{{errorMessage}}"
+    action-text="重新加载"
+    bind:action="onRetry"
+  />
+
+  <block wx:elif="{{viewState === 'success' && isLoggedIn}}">
+    <view class="publish-header">
+      <text class="eyebrow">即出 · 编辑闲置</text>
+      <view class="page-title">更新商品信息</view>
+      <view class="page-subtitle">已售商品不可编辑；保存时会检查并发版本</view>
+    </view>
+
+    <view wx:if="{{outcomeUnknown}}" class="result-notice">
+      <text class="result-notice__title">编辑结果正在确认</text>
+      <text class="result-notice__description">
+        请保持表单不变并点击底部按钮重试。相同请求不会重复更新商品。
+      </text>
+    </view>
+
+    <view class="surface-card form-card">
+      <view class="form-section form-section--first">
+        <view class="section-heading">
+          <text class="section-title">商品图片</text>
+          <text class="section-meta">{{images.length}} / {{maxImages}}</text>
+        </view>
+        <view class="section-tip">保留旧图或添加新图；至少保留 1 张</view>
+
+        <view class="image-grid">
+          <view
+            wx:for="{{images}}"
+            wx:key="key"
+            class="image-item"
+          >
+            <image
+              class="selected-image"
+              src="{{item.previewUrl}}"
+              mode="aspectFill"
+              data-index="{{index}}"
+              bindtap="onPreviewImage"
+            />
+            <view
+              wx:if="{{!isSubmitting && !outcomeUnknown}}"
+              class="remove-image"
+              data-index="{{index}}"
+              catchtap="onRemoveImage"
+            >
+              ×
+            </view>
+            <text wx:if="{{item.kind === 'local'}}" class="new-image-badge">新</text>
+          </view>
+
+          <button
+            wx:if="{{images.length < maxImages}}"
+            class="choose-image"
+            disabled="{{isSubmitting || outcomeUnknown}}"
+            bindtap="onChooseImages"
+          >
+            <text class="choose-image__plus">＋</text>
+            <text>添加图片</text>
+          </button>
+        </view>
+      </view>
+
+      <view class="form-section">
+        <view class="field-heading">
+          <text class="field-label">商品标题</text>
+          <text class="required-mark">*</text>
+        </view>
+        <input
+          class="form-input"
+          value="{{title}}"
+          maxlength="40"
+          disabled="{{isSubmitting || outcomeUnknown}}"
+          bindinput="onTitleInput"
+        />
+      </view>
+
+      <view class="form-section">
+        <view class="field-heading">
+          <text class="field-label">物品描述</text>
+          <text class="required-mark">*</text>
+          <text class="field-count">{{descriptionLength}} / 1000</text>
+        </view>
+        <textarea
+          class="form-textarea"
+          value="{{description}}"
+          maxlength="1000"
+          disabled="{{isSubmitting || outcomeUnknown}}"
+          auto-height
+          bindinput="onDescriptionInput"
+        />
+      </view>
+
+      <view class="form-section">
+        <view class="field-heading">
+          <text class="field-label">商品价格</text>
+          <text class="required-mark">*</text>
+        </view>
+        <view class="price-input-wrap">
+          <text class="currency-symbol">¥</text>
+          <input
+            class="form-input price-input"
+            value="{{price}}"
+            type="digit"
+            maxlength="9"
+            disabled="{{isSubmitting || outcomeUnknown}}"
+            bindinput="onPriceInput"
+          />
+        </view>
+      </view>
+
+      <view class="form-section">
+        <view class="field-heading">
+          <text class="field-label">商品分类</text>
+          <text class="required-mark">*</text>
+        </view>
+        <view class="option-grid">
+          <view
+            wx:for="{{categories}}"
+            wx:key="id"
+            class="option-chip {{item.id === categoryId ? 'option-chip--active' : ''}}"
+            data-id="{{item.id}}"
+            bindtap="onCategoryTap"
+          >
+            {{item.name}}
+          </view>
+        </view>
+      </view>
+
+      <view class="form-section">
+        <view class="field-heading">
+          <text class="field-label">新旧程度</text>
+          <text class="required-mark">*</text>
+        </view>
+        <view class="option-grid option-grid--condition">
+          <view
+            wx:for="{{conditions}}"
+            wx:key="*this"
+            class="option-chip {{item === condition ? 'option-chip--active' : ''}}"
+            data-value="{{item}}"
+            bindtap="onConditionTap"
+          >
+            {{item}}
+          </view>
+        </view>
+      </view>
+
+      <view class="form-section">
+        <view class="field-heading">
+          <text class="field-label">交易地点</text>
+          <text class="required-mark">*</text>
+        </view>
+        <input
+          class="form-input"
+          value="{{location}}"
+          maxlength="80"
+          disabled="{{isSubmitting || outcomeUnknown}}"
+          bindinput="onLocationInput"
+        />
+        <view class="section-tip">请填写校内公共区域，不要填写敏感地址</view>
+      </view>
+    </view>
+
+    <view class="version-note">
+      当前版本 {{version}} · 保存时若发现其他页面已修改，将停止覆盖
+    </view>
+
+    <view class="submit-panel">
+      <text wx:if="{{submitStage}}" class="submit-stage">{{submitStage}}</text>
+      <button
+        class="primary-button submit-button"
+        loading="{{isSubmitting}}"
+        disabled="{{isSubmitting}}"
+        bindtap="onSubmit"
+      >
+        {{outcomeUnknown ? '确认编辑结果' : (isSubmitting ? '正在保存' : '保存修改')}}
+      </button>
+    </view>
+  </block>
+</view>

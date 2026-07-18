@@ -1,6 +1,7 @@
 const ROUTES = {
   HOME: '/pages/home/index',
   PRODUCT_DETAIL: '/pages/product-detail/index',
+  PRODUCT_EDIT: '/pages/product-edit/index',
   PUBLISH: '/pages/publish/index',
   MESSAGES: '/pages/messages/index',
   PROFILE: '/pages/profile/index',
@@ -18,7 +19,8 @@ const AUTH_TARGETS = {
   MESSAGES: 'messages',
   FAVORITES: 'favorites',
   MY_PRODUCTS: 'my-products',
-  PRODUCT_DETAIL: 'product-detail'
+  PRODUCT_DETAIL: 'product-detail',
+  PRODUCT_EDIT: 'product-edit'
 };
 
 const AUTH_TARGET_CONFIG = {
@@ -44,6 +46,10 @@ const AUTH_TARGET_CONFIG = {
   },
   [AUTH_TARGETS.PRODUCT_DETAIL]: {
     route: ROUTES.PRODUCT_DETAIL,
+    method: 'redirectTo'
+  },
+  [AUTH_TARGETS.PRODUCT_EDIT]: {
+    route: ROUTES.PRODUCT_EDIT,
     method: 'redirectTo'
   }
 };

@@ -83,6 +83,15 @@
       <view wx:if="{{item.status === 'available'}}" class="my-product-actions">
         <button
           class="manage-button manage-button--secondary"
+          data-id="{{item.id}}"
+          data-status="{{item.status}}"
+          disabled="{{isManaging}}"
+          catchtap="onEditTap"
+        >
+          编辑
+        </button>
+        <button
+          class="manage-button manage-button--secondary"
           data-action="takeOffline"
           data-id="{{item.id}}"
           disabled="{{isManaging}}"
@@ -99,9 +108,28 @@
         >
           {{managingProductId === item.id && managingAction === 'markSold' ? '处理中' : '标记已售'}}
         </button>
+        <button
+          class="manage-button manage-button--danger"
+          data-action="softDelete"
+          data-id="{{item.id}}"
+          data-version="{{item.version}}"
+          disabled="{{isManaging}}"
+          catchtap="onManageTap"
+        >
+          {{managingProductId === item.id && managingAction === 'softDelete' ? '删除中' : '删除'}}
+        </button>
       </view>
 
       <view wx:elif="{{item.status === 'offline'}}" class="my-product-actions">
+        <button
+          class="manage-button manage-button--secondary"
+          data-id="{{item.id}}"
+          data-status="{{item.status}}"
+          disabled="{{isManaging}}"
+          catchtap="onEditTap"
+        >
+          编辑
+        </button>
         <button
           class="manage-button manage-button--primary"
           data-action="relist"
@@ -111,10 +139,30 @@
         >
           {{managingProductId === item.id ? '上架中' : '重新上架'}}
         </button>
+        <button
+          class="manage-button manage-button--danger"
+          data-action="softDelete"
+          data-id="{{item.id}}"
+          data-version="{{item.version}}"
+          disabled="{{isManaging}}"
+          catchtap="onManageTap"
+        >
+          {{managingProductId === item.id && managingAction === 'softDelete' ? '删除中' : '删除'}}
+        </button>
       </view>
 
-      <view wx:else class="sold-note">
-        已完成线下面交，本阶段不支持恢复为在售
+      <view wx:else class="sold-actions">
+        <text class="sold-note">已售商品不支持编辑或恢复</text>
+        <button
+          class="manage-button manage-button--danger"
+          data-action="softDelete"
+          data-id="{{item.id}}"
+          data-version="{{item.version}}"
+          disabled="{{isManaging}}"
+          catchtap="onManageTap"
+        >
+          {{managingProductId === item.id ? '删除中' : '删除'}}
+        </button>
       </view>
     </view>
 

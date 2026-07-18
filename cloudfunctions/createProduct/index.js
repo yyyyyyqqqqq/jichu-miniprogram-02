@@ -274,6 +274,7 @@ exports.main = async (event = {}) => {
         {
           publishRequestId: requestId,
           status: 'available',
+          version: 1,
           viewCount: 0,
           favoriteCount: 0,
           createdAt: db.serverDate(),

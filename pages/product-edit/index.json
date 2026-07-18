@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "编辑商品",
+  "usingComponents": {
+    "empty-state": "/components/empty-state/index",
+    "loading-state": "/components/loading-state/index"
+  }
+}

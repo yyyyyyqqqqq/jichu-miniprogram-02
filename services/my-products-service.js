@@ -1,5 +1,6 @@
 const { CLOUD_CONFIG } = require('../config/cloud');
 const ProductService = require('./product-service');
+const ProductEditService = require('./product-edit-service');
 const { PRODUCT_STATUS } = require('../constants/product');
 
 const DEFAULT_PAGE_SIZE = 6;
@@ -24,6 +25,9 @@ const ERROR_MESSAGES = {
   UNAUTHORIZED: '登录状态已失效，请重新登录',
   PRODUCT_NOT_FOUND: '商品不存在',
   PRODUCT_FORBIDDEN: '无权管理该商品',
+  PRODUCT_DELETED: '商品已被删除',
+  PRODUCT_NOT_EDITABLE: '当前商品状态不支持此操作',
+  PRODUCT_VERSION_CONFLICT: '商品信息已在其他页面发生变化，请刷新后重试',
   INVALID_STATUS_TRANSITION: '当前商品状态不支持此操作',
   DATABASE_ERROR: '商品数据暂不可用，请稍后重试',
   INTERNAL_ERROR: '商品管理服务暂不可用',
@@ -212,12 +216,22 @@ async function manageProduct(action, productId) {
   return {
     productId: data.productId,
     status: data.status,
+    version: normalizePositiveInteger(data.version, 1, Number.MAX_SAFE_INTEGER),
     reused: data.reused === true
   };
+}
+
+function softDelete(productId, expectedVersion, mutationId) {
+  return ProductEditService.softDelete({
+    productId,
+    expectedVersion,
+    mutationId
+  });
 }
 
 module.exports = {
   MyProductsError,
   getMyProducts,
-  manageProduct
+  manageProduct,
+  softDelete
 };

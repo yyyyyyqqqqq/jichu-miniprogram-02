@@ -23,7 +23,10 @@ function buildLoginUrl(options = {}) {
   const target = normalizeTarget(options.target);
   const parts = [`target=${encodeURIComponent(target)}`];
 
-  if (target === AUTH_TARGETS.PRODUCT_DETAIL) {
+  if (
+    target === AUTH_TARGETS.PRODUCT_DETAIL
+    || target === AUTH_TARGETS.PRODUCT_EDIT
+  ) {
     const productId = normalizeProductId(options.productId);
     if (productId) {
       parts.push(`id=${encodeURIComponent(productId)}`);
@@ -58,7 +61,10 @@ function buildTargetUrl(target, productId) {
   const config = AUTH_TARGET_CONFIG[target]
     || AUTH_TARGET_CONFIG[AUTH_TARGETS.PROFILE];
 
-  if (target === AUTH_TARGETS.PRODUCT_DETAIL) {
+  if (
+    target === AUTH_TARGETS.PRODUCT_DETAIL
+    || target === AUTH_TARGETS.PRODUCT_EDIT
+  ) {
     const id = normalizeProductId(productId);
     return id
       ? `${config.route}?id=${encodeURIComponent(id)}`
@@ -91,6 +97,12 @@ async function navigateAfterLogin(options = {}) {
   if (
     target === AUTH_TARGETS.MY_PRODUCTS
     && hasPreviousRoute(ROUTES.MY_PRODUCTS)
+  ) {
+    return NavigationService.safeNavigateBack();
+  }
+  if (
+    target === AUTH_TARGETS.PRODUCT_EDIT
+    && hasPreviousRoute(ROUTES.PRODUCT_EDIT)
   ) {
     return NavigationService.safeNavigateBack();
   }
