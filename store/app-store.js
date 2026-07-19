@@ -1,7 +1,8 @@
 const state = {
   initialized: false,
   initializedAt: '',
-  productsVersion: 0
+  productsVersion: 0,
+  favoritesVersion: 0
 };
 
 function initialize() {
@@ -24,7 +25,8 @@ function getState() {
   return {
     initialized: state.initialized,
     initializedAt: state.initializedAt,
-    productsVersion: state.productsVersion
+    productsVersion: state.productsVersion,
+    favoritesVersion: state.favoritesVersion
   };
 }
 
@@ -37,9 +39,21 @@ function getProductsVersion() {
   return state.productsVersion;
 }
 
+function markFavoritesChanged() {
+  state.favoritesVersion += 1;
+  state.productsVersion += 1;
+  return state.favoritesVersion;
+}
+
+function getFavoritesVersion() {
+  return state.favoritesVersion;
+}
+
 module.exports = {
   initialize,
   getState,
   markProductsChanged,
-  getProductsVersion
+  getProductsVersion,
+  markFavoritesChanged,
+  getFavoritesVersion
 };

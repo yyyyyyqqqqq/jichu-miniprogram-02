@@ -431,6 +431,11 @@
   flex: 1.7;
 }
 
+.favorite-button--active {
+  background: #fff4e8;
+  color: #d97820;
+}
+
 .action-button--disabled,
 .action-button[disabled] {
   background: #dfe4e1;

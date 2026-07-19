@@ -131,11 +131,12 @@
 
     <view class="detail-actions">
       <button
-        class="secondary-button action-button"
-        disabled="{{product.isSold}}"
+        wx:if="{{!isOwnProduct}}"
+        class="secondary-button action-button favorite-button {{isFavorited ? 'favorite-button--active' : ''}}"
+        disabled="{{isFavoriteLoading || (!isFavorited && !canFavorite)}}"
         bindtap="onFavoriteTap"
       >
-        收藏
+        {{isFavoriteLoading ? '处理中' : (isFavorited ? '★ 已收藏' : '☆ 收藏')}}
       </button>
       <button
         class="primary-button action-button action-button--main {{product.isSold ? 'action-button--disabled' : ''}}"

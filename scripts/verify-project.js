@@ -350,7 +350,14 @@ record('cloud function project structure is complete', () => {
   const functionRoot = projectConfig.cloudfunctionRoot;
   assert(functionRoot === 'cloudfunctions/', 'cloudfunctionRoot is not configured');
 
-  ['authUser', 'productQuery', 'createProduct', 'manageProduct'].forEach((functionName) => {
+  [
+    'authUser',
+    'productQuery',
+    'createProduct',
+    'manageProduct',
+    'favoriteProduct',
+    'userQuery'
+  ].forEach((functionName) => {
     const functionDirectory = path.join(root, functionRoot, functionName);
     ['index.js', 'package.json', 'package-lock.json'].forEach((name) => {
       assert(
@@ -383,6 +390,32 @@ record('cloud function project structure is complete', () => {
   });
 });
 
+record('cloud functions with runtime evidence lock the Node websocket dependency', () => {
+  ['favoriteProduct', 'userQuery', 'productQuery'].forEach((functionName) => {
+    const functionDirectory = path.join(root, 'cloudfunctions', functionName);
+    const functionPackage = readJson(path.join(functionDirectory, 'package.json'));
+    const functionLock = readJson(path.join(functionDirectory, 'package-lock.json'));
+    const declaredVersion = functionPackage.dependencies
+      && functionPackage.dependencies.ws;
+    assert(
+      typeof declaredVersion === 'string' && declaredVersion,
+      `${functionName} does not declare ws as a production dependency`
+    );
+    assert(
+      functionLock.packages
+      && functionLock.packages['']
+      && functionLock.packages[''].dependencies
+      && functionLock.packages[''].dependencies.ws === declaredVersion,
+      `${functionName} package-lock does not preserve the ws dependency`
+    );
+    assert(
+      functionLock.packages['node_modules/ws']
+      && typeof functionLock.packages['node_modules/ws'].version === 'string',
+      `${functionName} package-lock does not resolve ws`
+    );
+  });
+});
+
 record('authUser obtains identity securely and returns a safe envelope', () => {
   const source = readText(path.join(root, 'cloudfunctions/authUser/index.js'));
   assert(/cloud\.getWXContext\s*\(\s*\)/.test(source), 'authUser does not use getWXContext');
@@ -400,6 +433,71 @@ record('authUser obtains identity securely and returns a safe envelope', () => {
   const safeUserSource = source.slice(safeUserStart, safeUserEnd);
   assert(safeUserStart >= 0 && safeUserEnd > safeUserStart, 'toSafeUser implementation is missing');
   assert(!/\bopenid\b/i.test(safeUserSource), 'authUser safe response includes openid');
+});
+
+record('favorites use guarded services, transactions and safe public fields', () => {
+  const functionSource = readText(path.join(root, 'cloudfunctions/favoriteProduct/index.js'));
+  const serviceSource = readText(path.join(root, 'services/favorite-service.js'));
+  const pageSource = readText(path.join(root, 'pages/favorites/index.js'));
+  const pageTemplate = readText(path.join(root, 'pages/favorites/index.wxml'));
+  const detailSource = readText(path.join(root, 'pages/product-detail/index.js'));
+  const detailTemplate = readText(path.join(root, 'pages/product-detail/index.wxml'));
+  const profileTemplate = readText(path.join(root, 'pages/profile/index.wxml'));
+  const configSource = readText(path.join(root, 'config/cloud.js'));
+
+  assert(/cloud\.getWXContext\s*\(\s*\)/.test(functionSource), 'favoriteProduct does not use cloud identity');
+  assert(!/request\.(?:userOpenid|openid|openId|OPENID)/.test(functionSource), 'favoriteProduct trusts a client identity');
+  assert(/createFavoriteId\(openId,\s*productId\)/.test(functionSource), 'favorite relation id is not deterministic');
+  assert(/db\.runTransaction/.test(functionSource), 'favorite mutations are not transactional');
+  assert(/Math\.max\(0,\s*currentCount\s*-\s*1\)/.test(functionSource), 'favoriteCount can become negative');
+  assert(/product\.sellerOpenid\s*===\s*openId/.test(functionSource), 'own-product favorite rejection is missing');
+  assert(/product\.status\s*!==\s*['"]available['"]/.test(functionSource), 'non-available products can be newly favorited');
+  assert(/product\.status\s*===\s*['"]deleted['"]/.test(functionSource), 'deleted product favorite rejection is missing');
+  assert(/ALLOWED_LIST_STATUSES/.test(functionSource) && !/ALLOWED_LIST_STATUSES\s*=\s*new Set\(\[[^\]]*deleted/s.test(functionSource), 'deleted favorites can enter the list');
+  assert(!/sellerOpenid\s*:/.test(functionSource.slice(functionSource.indexOf('function toFavoriteProduct'), functionSource.indexOf('async function getFavoriteStatus'))), 'favorite list returns sellerOpenid');
+  assert(/\.skip\(offset\)[\s\S]*\.limit\(pageSize\)/.test(functionSource), 'favorite list pagination is missing');
+  assert(/orderBy\(\s*['"]createdAt['"]\s*,\s*['"]desc['"]\s*\)[\s\S]*orderBy\(\s*['"]_id['"]\s*,\s*['"]desc['"]\s*\)/.test(functionSource), 'favorite list ordering does not match its deployed compound index');
+  assert(/createSafeDiagnostic\(error,\s*trace\.step\)/.test(functionSource), 'favorite failures do not record a safe execution step');
+  assert(!/console\.error\([^)]*\b(?:openId|productId|favoriteId|fileID)\b/s.test(functionSource), 'favorite failure log includes a sensitive identifier');
+  assert(/wx\.cloud\.callFunction/.test(serviceSource), 'favorite service does not call its cloud function');
+  assert(!/\b(?:userOpenid|openid|openId|OPENID)\b/.test(serviceSource), 'favorite service sends or references an identity field');
+  assert(!/wx\.cloud\.database/.test(serviceSource), 'favorite service accesses the database directly');
+  assert(/favoriteProductFunctionName/.test(configSource), 'favorite cloud function config is missing');
+  assert(/AuthGuard\.requireLogin/.test(detailSource), 'detail favorite action does not use AuthGuard');
+  assert(/isFavoriteLoading/.test(detailSource) && /disabled=/.test(detailTemplate), 'detail duplicate favorite protection is missing');
+  assert(/listMyFavorites/.test(pageSource), 'favorites page does not load real data');
+  assert(/onPullDownRefresh/.test(pageSource) && /onReachBottom/.test(pageSource), 'favorites page refresh or pagination is missing');
+  assert(/removeFavorite/.test(pageSource) && /取消收藏/.test(pageTemplate), 'favorites page cannot remove favorites');
+  assert(/我的收藏/.test(profileTemplate) && /查看收藏/.test(profileTemplate), 'profile favorite entry is still a placeholder');
+});
+
+record('public user profiles use a safe id and strict response whitelist', () => {
+  const functionSource = readText(path.join(root, 'cloudfunctions/userQuery/index.js'));
+  const serviceSource = readText(path.join(root, 'services/public-user-service.js'));
+  const pageSource = readText(path.join(root, 'pages/user-profile/index.js'));
+  const pageTemplate = readText(path.join(root, 'pages/user-profile/index.wxml'));
+  const detailSource = readText(path.join(root, 'pages/product-detail/index.js'));
+  const productQuerySource = readText(path.join(root, 'cloudfunctions/productQuery/index.js'));
+
+  assert(/PUBLIC_USER_ID_PATTERN\s*=\s*\/\^u_/.test(functionSource), 'public user id is not constrained');
+  assert(/_id:\s*publicUserId/.test(functionSource), 'public user id is not resolved server-side');
+  assert(/sellerOpenid:\s*user\.openid/.test(functionSource), 'public products are not scoped through the server user mapping');
+  assert(/status:\s*['"]available['"]/.test(functionSource), 'public profile exposes non-available products');
+  const profileStart = functionSource.indexOf('profile: {');
+  const profileEnd = functionSource.indexOf('async function publicProducts');
+  const profileSource = functionSource.slice(profileStart, profileEnd);
+  assert(profileStart >= 0 && profileEnd > profileStart, 'public profile response is missing');
+  assert(!/\bopenid\b/i.test(profileSource), 'public profile response exposes openid');
+  assert(!/phone|mobile|role|status|lastLoginAt/.test(profileSource), 'public profile response includes a private field');
+  const publicProductStart = functionSource.indexOf('function toPublicProduct');
+  const publicProductEnd = functionSource.indexOf('async function findPublicUser');
+  assert(!/sellerOpenid|\bopenid\b/i.test(functionSource.slice(publicProductStart, publicProductEnd)), 'public user products expose identity secrets');
+  assert(!/\b(?:openid|openId|OPENID)\b/.test(serviceSource), 'public user client service references an internal identity');
+  assert(/userId/.test(pageSource) && !/options\.(?:openid|openId)/.test(pageSource), 'public user page uses an unsafe URL parameter');
+  assert(/在售商品/.test(pageTemplate) && !/关注|粉丝|评分|私信/.test(pageTemplate), 'public profile UI exceeds phase scope');
+  assert(/sellerPublicUserId:\s*record\.sellerId/.test(productQuerySource), 'productQuery does not expose the safe seller public id');
+  assert(!/sellerOpenid/.test(productQuerySource.slice(productQuerySource.indexOf('function toPublicProduct'), productQuerySource.indexOf('function toMyProduct'))), 'public product response exposes sellerOpenid');
+  assert(/\?userId=/.test(detailSource) && !/\?openid=/.test(detailSource), 'detail seller link does not use publicUserId');
 });
 
 record('AuthService and AuthStore expose the required boundaries', () => {
@@ -754,7 +852,14 @@ record('runtime logs are minimal and do not include sensitive payloads', () => {
 });
 
 record('cloud function dependencies are ignored and not tracked', () => {
-  ['authUser', 'productQuery', 'createProduct', 'manageProduct'].forEach((functionName) => {
+  [
+    'authUser',
+    'productQuery',
+    'createProduct',
+    'manageProduct',
+    'favoriteProduct',
+    'userQuery'
+  ].forEach((functionName) => {
     const modulePath = `cloudfunctions/${functionName}/node_modules`;
     const ignored = spawnSync(
       'git',
@@ -2774,6 +2879,522 @@ async function verifyCreateProductFunctionFlow() {
   }
 }
 
+async function verifyFavoriteProductFunctionFlow() {
+  const functionPath = path.join(root, 'cloudfunctions/favoriteProduct/index.js');
+  const originalLoad = Module._load;
+  const productRecords = new Map();
+  const favoriteRecords = new Map();
+  let currentOpenId = 'owner-openid';
+  let forcedFavoriteReadError = null;
+
+  function missingDocumentError(id) {
+    const error = new Error(`document.get:fail document with _id ${id} does not exist`);
+    error.errCode = -1;
+    error.errMsg = error.message;
+    return error;
+  }
+
+  function createDocument(records, id) {
+    return {
+      async get() {
+        if (records === favoriteRecords && forcedFavoriteReadError) {
+          throw forcedFavoriteReadError;
+        }
+        if (!records.has(id)) {
+          throw missingDocumentError(id);
+        }
+        return { data: { ...records.get(id) } };
+      },
+      async set(options) {
+        records.set(id, { _id: id, ...options.data });
+        return { stats: { created: 1 } };
+      },
+      async update(options) {
+        if (!records.has(id)) {
+          throw missingDocumentError(id);
+        }
+        records.set(id, { ...records.get(id), ...options.data });
+        return { stats: { updated: 1 } };
+      },
+      async remove() {
+        const existed = records.delete(id);
+        return { stats: { removed: existed ? 1 : 0 } };
+      }
+    };
+  }
+
+  function matches(record, condition) {
+    return Object.entries(condition).every(([key, value]) => record[key] === value);
+  }
+
+  function createQuery(records, condition) {
+    let offset = 0;
+    let limit = 100;
+    const orders = [];
+    const query = {
+      orderBy(field, direction) {
+        orders.push({ field, direction });
+        return query;
+      },
+      skip(value) {
+        offset = value;
+        return query;
+      },
+      limit(value) {
+        limit = value;
+        return query;
+      },
+      async count() {
+        return {
+          total: [...records.values()].filter((record) => matches(record, condition)).length
+        };
+      },
+      async get() {
+        const data = [...records.values()]
+          .filter((record) => matches(record, condition))
+          .sort((left, right) => {
+            for (const order of orders) {
+              const leftValue = left[order.field] instanceof Date
+                ? left[order.field].getTime()
+                : left[order.field];
+              const rightValue = right[order.field] instanceof Date
+                ? right[order.field].getTime()
+                : right[order.field];
+              if (leftValue === rightValue) {
+                continue;
+              }
+              const compared = leftValue < rightValue ? -1 : 1;
+              return order.direction === 'desc' ? -compared : compared;
+            }
+            return 0;
+          })
+          .slice(offset, offset + limit)
+          .map((record) => ({ ...record }));
+        return { data };
+      }
+    };
+    return query;
+  }
+
+  function collection(name) {
+    const records = name === 'products' ? productRecords : favoriteRecords;
+    return {
+      doc(id) {
+        return createDocument(records, id);
+      },
+      where(condition) {
+        return createQuery(records, condition);
+      }
+    };
+  }
+
+  const database = {
+    collection,
+    serverDate() {
+      return new Date('2026-07-18T10:00:00.000Z');
+    },
+    async runTransaction(callback) {
+      return {
+        result: await callback({ collection })
+      };
+    }
+  };
+  const cloudMock = {
+    DYNAMIC_CURRENT_ENV: 'dynamic',
+    init() {},
+    database() {
+      return database;
+    },
+    getWXContext() {
+      return {
+        OPENID: currentOpenId,
+        APPID: 'test-app'
+      };
+    }
+  };
+
+  const baseProduct = {
+    title: '收藏测试商品',
+    description: '用于隔离测试',
+    price: 12,
+    categoryId: 'life',
+    categoryName: '生活',
+    condition: '九成新',
+    images: [],
+    coverImage: '',
+    coverLabel: '收藏',
+    coverTone: 'mint',
+    location: '图书馆',
+    campus: '示例大学',
+    distanceText: '校内面交',
+    sellerId: 'u_seller',
+    sellerName: '卖家',
+    sellerAvatar: '',
+    sellerVerified: false,
+    tags: [],
+    viewCount: 3,
+    createdAt: new Date('2026-07-18T08:00:00.000Z')
+  };
+  productRecords.set('product-available', {
+    _id: 'product-available',
+    ...baseProduct,
+    sellerOpenid: 'seller-openid',
+    status: 'available'
+  });
+  productRecords.set('product-own', {
+    _id: 'product-own',
+    ...baseProduct,
+    sellerOpenid: 'owner-openid',
+    status: 'available',
+    favoriteCount: 0
+  });
+  ['offline', 'sold', 'deleted'].forEach((status) => {
+    productRecords.set(`product-${status}`, {
+      _id: `product-${status}`,
+      ...baseProduct,
+      sellerOpenid: 'seller-openid',
+      status,
+      favoriteCount: 0
+    });
+  });
+
+  Module._load = function(request, parent, isMain) {
+    if (request === 'wx-server-sdk') {
+      return cloudMock;
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+  delete require.cache[require.resolve(functionPath)];
+
+  try {
+    const favoriteFunction = require(functionPath);
+    const initialStatus = await favoriteFunction.main({
+      action: 'getFavoriteStatus',
+      data: { productId: 'product-available' }
+    });
+    assert(
+      initialStatus.success === true && initialStatus.data.isFavorited === false,
+      'missing favorite relation was treated as a database error'
+    );
+
+    const added = await favoriteFunction.main({
+      action: 'addFavorite',
+      data: { productId: 'product-available', userOpenid: 'forged' }
+    });
+    assert(added.success === true && added.data.favoriteCount === 1, 'first favorite did not increment once');
+    assert(productRecords.get('product-available').favoriteCount === 1, 'favoriteCount was not persisted');
+    assert(favoriteRecords.size === 1, 'favorite relation was not created');
+    assert(
+      [...favoriteRecords.values()][0].userOpenid === currentOpenId,
+      'favorite relation trusted a forged identity'
+    );
+
+    const repeated = await favoriteFunction.main({
+      action: 'addFavorite',
+      data: { productId: 'product-available' }
+    });
+    assert(repeated.success === true && repeated.data.favoriteCount === 1, 'repeat favorite was not idempotent');
+    assert(productRecords.get('product-available').favoriteCount === 1, 'repeat favorite incremented the count');
+    assert(favoriteRecords.size === 1, 'repeat favorite created another relation');
+
+    const status = await favoriteFunction.main({
+      action: 'getFavoriteStatus',
+      data: { productId: 'product-available' }
+    });
+    assert(status.success === true && status.data.isFavorited === true, 'favorite status is incorrect');
+
+    const own = await favoriteFunction.main({
+      action: 'addFavorite',
+      data: { productId: 'product-own' }
+    });
+    assert(own.success === false && own.code === 'CANNOT_FAVORITE_OWN_PRODUCT', 'own product can be favorited');
+    for (const unavailableStatus of ['offline', 'sold']) {
+      const unavailable = await favoriteFunction.main({
+        action: 'addFavorite',
+        data: { productId: `product-${unavailableStatus}` }
+      });
+      assert(
+        unavailable.success === false && unavailable.code === 'PRODUCT_NOT_FAVORITABLE',
+        `${unavailableStatus} product can be newly favorited`
+      );
+    }
+    const deleted = await favoriteFunction.main({
+      action: 'addFavorite',
+      data: { productId: 'product-deleted' }
+    });
+    assert(deleted.success === false && deleted.code === 'PRODUCT_NOT_FOUND', 'deleted product can be favorited');
+    const missing = await favoriteFunction.main({
+      action: 'getFavoriteStatus',
+      data: { productId: 'product-missing' }
+    });
+    assert(missing.success === false && missing.code === 'PRODUCT_NOT_FOUND', 'missing product status leaks a database error');
+
+    const removed = await favoriteFunction.main({
+      action: 'removeFavorite',
+      data: { productId: 'product-available' }
+    });
+    assert(removed.success === true && removed.data.favoriteCount === 0, 'remove favorite did not decrement');
+    const repeatedRemove = await favoriteFunction.main({
+      action: 'removeFavorite',
+      data: { productId: 'product-available' }
+    });
+    assert(repeatedRemove.success === true && repeatedRemove.data.favoriteCount === 0, 'repeat remove was not idempotent');
+    assert(productRecords.get('product-available').favoriteCount === 0, 'favoriteCount became negative');
+
+    const databaseReadError = new Error('document.get:fail database request failed');
+    databaseReadError.errCode = -1;
+    databaseReadError.errMsg = databaseReadError.message;
+    forcedFavoriteReadError = databaseReadError;
+    const originalConsoleError = console.error;
+    let failureDiagnostic = null;
+    console.error = (label, diagnostic) => {
+      if (label === '[favoriteProduct] request failed') {
+        failureDiagnostic = diagnostic;
+      }
+    };
+    let failedRead;
+    try {
+      failedRead = await favoriteFunction.main({
+        action: 'addFavorite',
+        data: { productId: 'product-available' }
+      });
+    } finally {
+      console.error = originalConsoleError;
+      forcedFavoriteReadError = null;
+    }
+    assert(
+      failedRead.success === false && failedRead.code === 'DATABASE_ERROR',
+      'a real favorite relation read failure was swallowed'
+    );
+    assert(favoriteRecords.size === 0, 'failed relation read created a favorite');
+    assert(
+      productRecords.get('product-available').favoriteCount === 0,
+      'failed relation read changed favoriteCount'
+    );
+    assert(
+      failureDiagnostic
+      && failureDiagnostic.step === 'add.read_relation'
+      && failureDiagnostic.reason === 'database_read_failed',
+      'real relation read failure does not emit a safe diagnostic category'
+    );
+
+    const concurrent = await Promise.all([
+      favoriteFunction.main({
+        action: 'addFavorite',
+        data: { productId: 'product-available' }
+      }),
+      favoriteFunction.main({
+        action: 'addFavorite',
+        data: { productId: 'product-available' }
+      })
+    ]);
+    assert(concurrent.every((result) => result.success), 'concurrent favorite failed');
+    assert(productRecords.get('product-available').favoriteCount === 1, 'concurrent favorite incremented more than once');
+
+    favoriteRecords.set('manual-offline', {
+      _id: 'manual-offline',
+      userOpenid: currentOpenId,
+      productId: 'product-offline',
+      createdAt: new Date('2026-07-18T09:30:00.000Z')
+    });
+    favoriteRecords.set('manual-sold', {
+      _id: 'manual-sold',
+      userOpenid: currentOpenId,
+      productId: 'product-sold',
+      createdAt: new Date('2026-07-18T09:20:00.000Z')
+    });
+    favoriteRecords.set('manual-deleted', {
+      _id: 'manual-deleted',
+      userOpenid: currentOpenId,
+      productId: 'product-deleted',
+      createdAt: new Date('2026-07-18T09:10:00.000Z')
+    });
+    const list = await favoriteFunction.main({
+      action: 'listMyFavorites',
+      data: { page: 1, pageSize: 20 }
+    });
+    assert(list.success === true, 'favorite list failed');
+    assert(list.data.list.some((item) => item.status === 'offline'), 'offline favorite is not displayed');
+    assert(list.data.list.some((item) => item.status === 'sold'), 'sold favorite is not displayed');
+    assert(!list.data.list.some((item) => item.status === 'deleted'), 'deleted favorite is displayed');
+    assert(
+      list.data.list.every((item) => !Object.prototype.hasOwnProperty.call(item, 'sellerOpenid')),
+      'favorite list leaked sellerOpenid'
+    );
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[require.resolve(functionPath)];
+  }
+}
+
+async function verifyUserQueryFunctionFlow() {
+  const functionPath = path.join(root, 'cloudfunctions/userQuery/index.js');
+  const originalLoad = Module._load;
+  const userRecords = new Map();
+  const productRecords = new Map();
+
+  function matches(record, condition) {
+    return Object.entries(condition).every(([key, value]) => record[key] === value);
+  }
+
+  function createQuery(records, condition) {
+    let offset = 0;
+    let limit = 100;
+    const orders = [];
+    const query = {
+      orderBy(field, direction) {
+        orders.push({ field, direction });
+        return query;
+      },
+      skip(value) {
+        offset = value;
+        return query;
+      },
+      limit(value) {
+        limit = value;
+        return query;
+      },
+      async count() {
+        return { total: [...records.values()].filter((record) => matches(record, condition)).length };
+      },
+      async get() {
+        const data = [...records.values()]
+          .filter((record) => matches(record, condition))
+          .sort((left, right) => {
+            for (const order of orders) {
+              const leftValue = left[order.field] instanceof Date ? left[order.field].getTime() : left[order.field];
+              const rightValue = right[order.field] instanceof Date ? right[order.field].getTime() : right[order.field];
+              if (leftValue === rightValue) {
+                continue;
+              }
+              const compared = leftValue < rightValue ? -1 : 1;
+              return order.direction === 'desc' ? -compared : compared;
+            }
+            return 0;
+          })
+          .slice(offset, offset + limit)
+          .map((record) => ({ ...record }));
+        return { data };
+      }
+    };
+    return query;
+  }
+
+  const database = {
+    collection(name) {
+      const records = name === 'users' ? userRecords : productRecords;
+      return {
+        where(condition) {
+          return createQuery(records, condition);
+        }
+      };
+    }
+  };
+  const cloudMock = {
+    DYNAMIC_CURRENT_ENV: 'dynamic',
+    init() {},
+    database() {
+      return database;
+    }
+  };
+
+  const publicUserId = 'u_1234567890abcdef1234567890abcdef';
+  userRecords.set(publicUserId, {
+    _id: publicUserId,
+    openid: 'private-user-openid',
+    nickname: '',
+    avatarUrl: '',
+    campus: '',
+    bio: '',
+    role: 'admin',
+    status: 'active',
+    lastLoginAt: new Date(),
+    createdAt: new Date('2025-09-01T00:00:00.000Z')
+  });
+  ['available', 'offline', 'sold', 'deleted'].forEach((status, index) => {
+    productRecords.set(`public-${status}`, {
+      _id: `public-${status}`,
+      title: `${status} 商品`,
+      description: '公开商品测试',
+      price: index + 1,
+      categoryId: 'life',
+      categoryName: '生活',
+      condition: '九成新',
+      images: [],
+      coverImage: '',
+      coverLabel: '商品',
+      coverTone: 'mint',
+      location: '图书馆',
+      campus: '示例大学',
+      distanceText: '校内面交',
+      sellerId: publicUserId,
+      sellerOpenid: 'private-user-openid',
+      sellerName: '卖家',
+      sellerAvatar: '',
+      sellerVerified: false,
+      tags: [],
+      status,
+      favoriteCount: undefined,
+      viewCount: 0,
+      createdAt: new Date(`2026-07-${18 - index}T08:00:00.000Z`)
+    });
+  });
+
+  Module._load = function(request, parent, isMain) {
+    if (request === 'wx-server-sdk') {
+      return cloudMock;
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+  delete require.cache[require.resolve(functionPath)];
+
+  try {
+    const userQuery = require(functionPath);
+    const profile = await userQuery.main({
+      action: 'publicProfile',
+      data: { publicUserId }
+    });
+    assert(profile.success === true, 'public profile query failed');
+    assert(profile.data.profile.nickname === '即出用户', 'public profile default nickname is missing');
+    assert(profile.data.profile.activeProductCount === 1, 'public active product count is incorrect');
+    ['openid', 'role', 'status', 'lastLoginAt'].forEach((field) => {
+      assert(
+        !Object.prototype.hasOwnProperty.call(profile.data.profile, field),
+        `public profile leaked ${field}`
+      );
+    });
+
+    const productsResult = await userQuery.main({
+      action: 'publicProducts',
+      data: { publicUserId, page: 1, pageSize: 6 }
+    });
+    assert(productsResult.success === true, 'public products query failed');
+    assert(productsResult.data.list.length === 1, 'public products include a non-available status');
+    assert(productsResult.data.list[0].status === 'available', 'public products status is not available');
+    assert(productsResult.data.list[0].favoriteCount === 0, 'missing favoriteCount is not normalized');
+    assert(
+      !Object.prototype.hasOwnProperty.call(productsResult.data.list[0], 'sellerOpenid'),
+      'public products leaked sellerOpenid'
+    );
+
+    const missing = await userQuery.main({
+      action: 'publicProfile',
+      data: {
+        publicUserId: 'u_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      }
+    });
+    assert(missing.success === false && missing.code === 'USER_NOT_FOUND', 'missing public user leaks an internal error');
+    const invalid = await userQuery.main({
+      action: 'publicProfile',
+      data: { publicUserId: 'private-user-openid' }
+    });
+    assert(invalid.success === false && invalid.code === 'INVALID_PARAMS', 'unsafe public user id is accepted');
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[require.resolve(functionPath)];
+  }
+}
+
 async function verifyAuthStateFlow() {
   const AuthService = require(path.join(root, 'services/auth-service'));
   const AuthStore = require(path.join(root, 'store/auth-store'));
@@ -2909,6 +3530,10 @@ async function runAsyncChecks() {
   checks.push('PASS ProductPublishService validation, upload, idempotency and cleanup flow');
   await verifyCreateProductFunctionFlow();
   checks.push('PASS createProduct identity, protected fields, validation and idempotency flow');
+  await verifyFavoriteProductFunctionFlow();
+  checks.push('PASS favoriteProduct transactions, idempotency, status rules, pagination and privacy flow');
+  await verifyUserQueryFunctionFlow();
+  checks.push('PASS userQuery public profile whitelist, safe id and available-product pagination flow');
   await verifyAuthStateFlow();
   checks.push('PASS AuthStore bootstrap, login, cache, concurrency and logout flow');
 }

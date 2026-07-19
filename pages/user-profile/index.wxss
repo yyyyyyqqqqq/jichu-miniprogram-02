@@ -1,1 +1,208 @@
-/* 使用 app.wxss 中的公共占位页样式。 */
+.public-profile-page {
+  padding-bottom: calc(80rpx + env(safe-area-inset-bottom));
+}
+
+.profile-hero {
+  display: flex;
+  align-items: center;
+  padding: 28rpx;
+}
+
+.public-avatar {
+  width: 108rpx;
+  height: 108rpx;
+  flex: none;
+  overflow: hidden;
+  border-radius: 34rpx;
+}
+
+.public-avatar--text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #dff2e9;
+  color: #13865a;
+  font-size: 42rpx;
+  font-weight: 700;
+}
+
+.public-copy {
+  min-width: 0;
+  flex: 1;
+  margin-left: 22rpx;
+}
+
+.public-name {
+  overflow: hidden;
+  color: #26342d;
+  font-size: 33rpx;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.public-campus,
+.public-join {
+  margin-top: 8rpx;
+  color: #7e8983;
+  font-size: 22rpx;
+}
+
+.active-count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+  margin-left: 18rpx;
+  padding-left: 22rpx;
+  border-left: 1rpx solid #e8eeeb;
+}
+
+.active-count-value {
+  color: #159060;
+  font-size: 34rpx;
+  font-weight: 750;
+}
+
+.active-count-label {
+  margin-top: 4rpx;
+  color: #8d9792;
+  font-size: 20rpx;
+}
+
+.bio-card {
+  margin-top: 22rpx;
+  padding: 28rpx;
+}
+
+.section-title {
+  color: #2e3d35;
+  font-size: 29rpx;
+  font-weight: 700;
+}
+
+.bio-text {
+  margin-top: 16rpx;
+  color: #66736c;
+  font-size: 25rpx;
+  line-height: 1.75;
+  word-break: break-all;
+}
+
+.products-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin: 34rpx 4rpx 18rpx;
+}
+
+.products-note {
+  margin-top: 8rpx;
+  color: #929c97;
+  font-size: 21rpx;
+}
+
+.public-product-card {
+  display: flex;
+  margin-bottom: 18rpx;
+  padding: 20rpx;
+}
+
+.public-cover {
+  width: 170rpx;
+  height: 170rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  overflow: hidden;
+  border-radius: 20rpx;
+  background: #e8f6ef;
+}
+
+.public-cover--blue { background: #e7f0fb; }
+.public-cover--sand { background: #f4eee2; }
+.public-cover--rose { background: #f8e9eb; }
+.public-cover--lime { background: #edf5df; }
+.public-cover--orange { background: #faeddf; }
+
+.public-image {
+  width: 100%;
+  height: 100%;
+}
+
+.public-cover-label {
+  color: rgba(28, 74, 53, 0.55);
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.public-product-copy {
+  min-width: 0;
+  flex: 1;
+  margin-left: 22rpx;
+}
+
+.public-product-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #26342d;
+  font-size: 28rpx;
+  font-weight: 650;
+  line-height: 1.45;
+  word-break: break-all;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.public-product-price {
+  margin-top: 18rpx;
+  color: #ef5d42;
+  font-size: 31rpx;
+  font-weight: 750;
+}
+
+.public-product-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx 18rpx;
+  margin-top: 16rpx;
+  color: #8d9792;
+  font-size: 21rpx;
+}
+
+.load-more-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24rpx;
+  color: #87918c;
+  font-size: 23rpx;
+}
+
+.load-more-retry {
+  height: 58rpx;
+  margin-top: 14rpx;
+  padding: 0 26rpx;
+  border-radius: 999rpx;
+  background: #eaf7f1;
+  color: #13865a;
+  font-size: 22rpx;
+  line-height: 58rpx;
+}
+
+.list-end,
+.privacy-note {
+  color: #9aa39e;
+  font-size: 21rpx;
+  text-align: center;
+}
+
+.list-end {
+  padding: 28rpx 0;
+}
+
+.privacy-note {
+  margin-top: 30rpx;
+  line-height: 1.6;
+}

@@ -1,9 +1,91 @@
-<view class="page-shell--plain">
-  <view class="surface-card placeholder-page">
-    <view class="placeholder-mark">校</view>
-    <view class="placeholder-title">用户主页占位</view>
-    <view class="placeholder-description">
-      已进入对应卖家主页入口。资料与信用信息将在真实用户体系建立后展示。
+<view class="page-shell--plain public-profile-page">
+  <loading-state wx:if="{{viewState === 'loading'}}" text="正在加载用户主页" />
+
+  <empty-state
+    wx:elif="{{viewState === 'error'}}"
+    title="用户主页不可用"
+    description="{{errorMessage}}"
+    action-text="重新加载"
+    bind:action="onRetry"
+  />
+
+  <block wx:elif="{{viewState === 'success' && profile}}">
+    <view class="surface-card profile-hero">
+      <image
+        wx:if="{{profile.avatarUrl}}"
+        class="public-avatar"
+        src="{{profile.avatarUrl}}"
+        mode="aspectFill"
+      />
+      <view wx:else class="public-avatar public-avatar--text">
+        {{profile.avatarText}}
+      </view>
+      <view class="public-copy">
+        <view class="public-name">{{profile.nickname}}</view>
+        <view class="public-campus">{{profile.campus}}</view>
+        <view class="public-join">{{profile.joinDateText}}</view>
+      </view>
+      <view class="active-count">
+        <text class="active-count-value">{{profile.activeProductCount}}</text>
+        <text class="active-count-label">件在售</text>
+      </view>
     </view>
-  </view>
+
+    <view class="surface-card bio-card">
+      <view class="section-title">个人简介</view>
+      <view class="bio-text">{{profile.bio}}</view>
+    </view>
+
+    <view class="products-heading">
+      <view>
+        <view class="section-title">在售商品</view>
+        <view class="products-note">仅展示当前可交易的公开商品</view>
+      </view>
+    </view>
+
+    <empty-state
+      wx:if="{{products.length === 0}}"
+      title="暂无在售商品"
+      description="该用户当前没有公开在售的闲置"
+    />
+
+    <view wx:else class="public-product-list">
+      <view
+        wx:for="{{products}}"
+        wx:key="id"
+        class="public-product-card surface-card"
+        data-id="{{item.id}}"
+        bindtap="onProductTap"
+      >
+        <view class="public-cover public-cover--{{item.coverTone}}">
+          <image
+            wx:if="{{item.coverImage}}"
+            class="public-image"
+            src="{{item.coverImage}}"
+            mode="aspectFill"
+          />
+          <text wx:else class="public-cover-label">{{item.coverLabel}}</text>
+        </view>
+        <view class="public-product-copy">
+          <view class="public-product-title">{{item.title}}</view>
+          <view class="public-product-price">{{item.priceDisplay}}</view>
+          <view class="public-product-meta">
+            <text>{{item.locationName}}</text>
+            <text>{{item.favoriteCountText}} 收藏</text>
+          </view>
+        </view>
+      </view>
+
+      <loading-state wx:if="{{isLoadingMore}}" compact text="正在加载更多" />
+      <view wx:elif="{{loadMoreError}}" class="load-more-error">
+        <text>{{loadMoreError}}</text>
+        <button class="load-more-retry" bindtap="onLoadMoreRetry">点击重试</button>
+      </view>
+      <view wx:elif="{{!hasMore}}" class="list-end">已经到底啦</view>
+    </view>
+
+    <view class="privacy-note">
+      主页仅展示用户主动公开的校园资料与在售商品
+    </view>
+  </block>
 </view>

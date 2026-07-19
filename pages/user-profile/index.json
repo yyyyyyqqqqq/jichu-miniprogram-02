@@ -1,3 +1,10 @@
 {
-  "navigationBarTitleText": "用户主页"
+  "navigationBarTitleText": "用户主页",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark",
+  "onReachBottomDistance": 120,
+  "usingComponents": {
+    "empty-state": "/components/empty-state/index",
+    "loading-state": "/components/loading-state/index"
+  }
 }

@@ -190,17 +190,24 @@ function toPublicProduct(record) {
     location: record.location,
     campus: record.campus,
     distanceText: record.distanceText,
-    sellerId: record.sellerId,
+    sellerPublicUserId: record.sellerId,
     sellerName: record.sellerName,
     sellerAvatar: record.sellerAvatar,
     sellerVerified: record.sellerVerified === true,
     status: record.status,
     tags: record.tags,
     viewCount: record.viewCount,
-    favoriteCount: record.favoriteCount,
+    favoriteCount: normalizeNonNegativeInteger(record.favoriteCount),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt
   };
+}
+
+function normalizeNonNegativeInteger(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0
+    ? Math.floor(number)
+    : 0;
 }
 
 function toMyProduct(record) {

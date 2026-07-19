@@ -1,6 +1,10 @@
 const ProductService = require('../../services/product-service');
 const NavigationService = require('../../services/navigation-service');
 const AuthGuard = require('../../services/auth-guard');
+const AuthStore = require('../../store/auth-store');
+const AppStore = require('../../store/app-store');
+const FavoriteService = require('../../services/favorite-service');
+const { formatCount } = require('../../utils/format');
 const {
   ROUTES,
   AUTH_TARGETS
@@ -15,7 +19,11 @@ Page({
     canRetry: false,
     errorTitle: '',
     errorDescription: '',
-    errorActionText: ''
+    errorActionText: '',
+    isFavorited: false,
+    canFavorite: false,
+    isOwnProduct: false,
+    isFavoriteLoading: false
   },
 
   onLoad(options) {
@@ -31,6 +39,12 @@ Page({
     this.productId = id;
     this.setData({ productId: id });
     this.loadProduct();
+  },
+
+  onShow() {
+    if (this.data.viewState === 'success' && this.data.product) {
+      this.refreshFavoriteStatus();
+    }
   },
 
   onUnload() {
@@ -99,6 +113,7 @@ Page({
         showErrorState: false,
         canRetry: false
       });
+      this.refreshFavoriteStatus();
     } catch (error) {
       if (!this.isPageActive || requestVersion !== this.requestVersion) {
         return;
@@ -131,7 +146,8 @@ Page({
   },
 
   async onFavoriteTap() {
-    if (this.data.product && this.data.product.isSold) {
+    const { product } = this.data;
+    if (!product || this.data.isFavoriteLoading || this.data.isOwnProduct) {
       return;
     }
 
@@ -143,9 +159,105 @@ Page({
       return;
     }
 
-    wx.showToast({
-      title: '收藏功能将在后续阶段开放',
-      icon: 'none'
+    if (!this.data.isFavorited && !this.data.canFavorite) {
+      wx.showToast({
+        title: '当前商品暂不可收藏',
+        icon: 'none'
+      });
+      return;
+    }
+
+    this.setData({ isFavoriteLoading: true });
+    try {
+      const result = this.data.isFavorited
+        ? await FavoriteService.removeFavorite(this.data.productId)
+        : await FavoriteService.addFavorite(this.data.productId);
+      if (!this.isPageActive) {
+        return;
+      }
+      this.applyFavoriteState(result);
+      AppStore.markFavoritesChanged();
+      wx.showToast({
+        title: result.isFavorited ? '已收藏' : '已取消收藏',
+        icon: 'none'
+      });
+    } catch (error) {
+      if (this.isPageActive) {
+        wx.showToast({
+          title: error && error.message ? error.message : '收藏操作失败，请重试',
+          icon: 'none'
+        });
+      }
+    } finally {
+      if (this.isPageActive) {
+        this.setData({ isFavoriteLoading: false });
+      }
+    }
+  },
+
+  async refreshFavoriteStatus() {
+    const { product } = this.data;
+    if (!product) {
+      return;
+    }
+
+    const currentUser = AuthStore.getCurrentUser();
+    const isOwnProduct = Boolean(
+      currentUser
+      && product.seller
+      && product.seller.id
+      && currentUser.id === product.seller.id
+    );
+    if (!AuthStore.isLoggedIn()) {
+      this.setData({
+        isFavorited: false,
+        isOwnProduct: false,
+        canFavorite: product.status === 'available'
+      });
+      return;
+    }
+    if (isOwnProduct) {
+      this.setData({
+        isFavorited: false,
+        isOwnProduct: true,
+        canFavorite: false
+      });
+      return;
+    }
+
+    const requestVersion = this.requestVersion;
+    try {
+      const result = await FavoriteService.getFavoriteStatus(this.data.productId);
+      if (
+        !this.isPageActive
+        || requestVersion !== this.requestVersion
+        || !this.data.product
+      ) {
+        return;
+      }
+      this.applyFavoriteState(result);
+    } catch (error) {
+      if (this.isPageActive && requestVersion === this.requestVersion) {
+        this.setData({
+          isFavorited: false,
+          canFavorite: product.status === 'available',
+          isOwnProduct: false
+        });
+      }
+    }
+  },
+
+  applyFavoriteState(result) {
+    const favoriteCount = Number(result.favoriteCount);
+    const safeCount = Number.isFinite(favoriteCount) && favoriteCount >= 0
+      ? Math.floor(favoriteCount)
+      : 0;
+    this.setData({
+      isFavorited: result.isFavorited === true,
+      canFavorite: result.canFavorite === true,
+      isOwnProduct: result.isOwnProduct === true,
+      'product.favoriteCount': safeCount,
+      'product.favoriteCountText': formatCount(safeCount)
     });
   },
 
@@ -186,7 +298,7 @@ Page({
     }
 
     NavigationService.safeNavigateTo(
-      `${ROUTES.USER_PROFILE}?id=${encodeURIComponent(product.seller.id)}`
+      `${ROUTES.USER_PROFILE}?userId=${encodeURIComponent(product.seller.id)}`
     );
   },
 

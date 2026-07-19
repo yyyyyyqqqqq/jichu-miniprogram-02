@@ -1,6 +1,209 @@
-/* 使用 app.wxss 中的公共占位页样式。 */
+.favorites-page {
+  padding-bottom: calc(80rpx + env(safe-area-inset-bottom));
+}
 
-.protected-login-button {
+.favorites-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.total-badge {
+  min-width: 92rpx;
+  height: 54rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18rpx;
+  border-radius: 999rpx;
+  background: #eaf7f1;
+  color: #16865c;
+  font-size: 23rpx;
+  font-weight: 650;
+}
+
+.auth-tip,
+.favorites-note,
+.list-end {
+  color: #98a29d;
+  font-size: 22rpx;
+  text-align: center;
+}
+
+.auth-tip {
+  margin-top: 22rpx;
+}
+
+.favorite-list {
+  margin-top: 26rpx;
+}
+
+.favorite-card {
+  overflow: hidden;
+  margin-bottom: 20rpx;
+}
+
+.favorite-main {
+  display: flex;
+  padding: 22rpx;
+}
+
+.favorite-cover {
+  width: 176rpx;
+  height: 176rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  overflow: hidden;
+  border-radius: 20rpx;
+  background: #e8f6ef;
+}
+
+.favorite-cover--blue { background: #e7f0fb; }
+.favorite-cover--sand { background: #f4eee2; }
+.favorite-cover--rose { background: #f8e9eb; }
+.favorite-cover--lime { background: #edf5df; }
+.favorite-cover--orange { background: #faeddf; }
+
+.favorite-image {
+  width: 100%;
+  height: 100%;
+}
+
+.favorite-cover-label {
+  color: rgba(28, 74, 53, 0.55);
+  font-size: 34rpx;
+  font-weight: 700;
+}
+
+.favorite-content {
+  min-width: 0;
+  flex: 1;
+  margin-left: 22rpx;
+}
+
+.favorite-title-row {
+  display: flex;
+  align-items: flex-start;
+}
+
+.favorite-title {
+  min-width: 0;
+  display: -webkit-box;
+  flex: 1;
+  overflow: hidden;
+  color: #1f2a25;
+  font-size: 28rpx;
+  font-weight: 650;
+  line-height: 1.45;
+  word-break: break-all;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.favorite-status {
+  flex: none;
+  margin-left: 12rpx;
+  padding: 6rpx 11rpx;
+  border-radius: 999rpx;
+  background: #eaf7f1;
+  color: #13865a;
+  font-size: 20rpx;
+}
+
+.favorite-status--offline {
+  background: #f0f2f1;
+  color: #6d7772;
+}
+
+.favorite-status--sold {
+  background: #fff3e5;
+  color: #b26c12;
+}
+
+.favorite-price {
+  display: block;
+  margin-top: 14rpx;
+  color: #ef5d42;
+  font-size: 31rpx;
+  font-weight: 750;
+}
+
+.favorite-location {
+  display: block;
+  overflow: hidden;
+  margin-top: 10rpx;
+  color: #7d8983;
+  font-size: 22rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.favorite-meta {
+  display: flex;
+  gap: 18rpx;
+  margin-top: 12rpx;
+  color: #9aa39e;
+  font-size: 20rpx;
+}
+
+.remove-button {
+  height: 64rpx;
+  margin: 0 22rpx 22rpx auto;
+  padding: 0 26rpx;
+  border-radius: 16rpx;
+  background: #fff4e8;
+  color: #c8701d;
+  font-size: 23rpx;
+  line-height: 64rpx;
+}
+
+.remove-button[disabled] {
+  opacity: 0.55;
+}
+
+.load-more-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24rpx;
+  color: #87918c;
+  font-size: 23rpx;
+}
+
+.load-more-retry {
+  height: 58rpx;
+  margin-top: 14rpx;
+  padding: 0 26rpx;
+  border-radius: 999rpx;
+  background: #eaf7f1;
+  color: #13865a;
+  font-size: 22rpx;
+  line-height: 58rpx;
+}
+
+.list-end {
+  padding: 28rpx 0;
+}
+
+.login-card {
+  min-height: 560rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-top: 28rpx;
+  padding: 48rpx 36rpx;
+  text-align: center;
+}
+
+.login-button {
   width: 260rpx;
-  margin-top: 34rpx;
+  margin-top: 32rpx;
+}
+
+.favorites-note {
+  margin-top: 28rpx;
+  line-height: 1.6;
 }

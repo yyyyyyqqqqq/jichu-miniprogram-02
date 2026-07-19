@@ -157,7 +157,12 @@ function normalizeSeller(record) {
   );
 
   return {
-    id: normalizeString(record.sellerId || rawSeller.id),
+    id: normalizeString(
+      record.sellerPublicUserId
+      || record.publicUserId
+      || record.sellerId
+      || rawSeller.id
+    ),
     nickname,
     avatar: normalizeString(
       record.sellerAvatar || rawSeller.avatar || rawSeller.avatarUrl
@@ -225,6 +230,7 @@ function normalizeProduct(record) {
     statusClass: statusMeta.className,
     isReserved: status === PRODUCT_STATUS.RESERVED,
     isSold: status === PRODUCT_STATUS.SOLD,
+    isOffline: status === PRODUCT_STATUS.OFFLINE,
     viewCount: normalizeNumber(record.viewCount),
     favoriteCount: normalizeNumber(record.favoriteCount),
     viewCountText: formatCount(record.viewCount),

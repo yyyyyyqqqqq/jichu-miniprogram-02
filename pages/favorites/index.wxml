@@ -1,19 +1,96 @@
-<view class="page-shell--plain">
-  <view wx:if="{{isLoggedIn}}" class="surface-card placeholder-page">
-    <view class="placeholder-mark">藏</view>
-    <view class="placeholder-title">暂无收藏</view>
-    <view class="placeholder-description">
-      当前已完成身份登录，但收藏写入将在后续阶段接入。
+<view class="page-shell--plain favorites-page">
+  <view class="favorites-header">
+    <view>
+      <view class="page-title">我的收藏</view>
+      <view class="page-subtitle">收藏关系由云端身份安全管理</view>
     </view>
+    <view wx:if="{{isLoggedIn}}" class="total-badge">{{total}} 件</view>
   </view>
-  <view wx:else class="surface-card placeholder-page">
+
+  <view wx:if="{{isRestoring}}" class="auth-tip">正在校验登录状态</view>
+
+  <loading-state
+    wx:if="{{isLoggedIn && viewState === 'loading'}}"
+    text="正在加载收藏"
+  />
+
+  <empty-state
+    wx:elif="{{isLoggedIn && viewState === 'error'}}"
+    title="收藏加载失败"
+    description="{{errorMessage}}"
+    action-text="重新加载"
+    bind:action="onRetry"
+  />
+
+  <empty-state
+    wx:elif="{{isLoggedIn && viewState === 'empty'}}"
+    title="还没有收藏"
+    description="遇到喜欢的在售商品时，可以在详情页收藏"
+  />
+
+  <view wx:elif="{{isLoggedIn && viewState === 'success'}}" class="favorite-list">
+    <view wx:for="{{favorites}}" wx:key="id" class="favorite-card surface-card">
+      <view
+        class="favorite-main"
+        data-id="{{item.id}}"
+        data-status="{{item.status}}"
+        bindtap="onProductTap"
+      >
+        <view class="favorite-cover favorite-cover--{{item.coverTone}}">
+          <image
+            wx:if="{{item.coverImage}}"
+            class="favorite-image"
+            src="{{item.coverImage}}"
+            mode="aspectFill"
+          />
+          <text wx:else class="favorite-cover-label">{{item.coverLabel}}</text>
+        </view>
+        <view class="favorite-content">
+          <view class="favorite-title-row">
+            <text class="favorite-title">{{item.title}}</text>
+            <text class="favorite-status favorite-status--{{item.statusClass}}">
+              {{item.statusText}}
+            </text>
+          </view>
+          <text class="favorite-price">{{item.priceDisplay}}</text>
+          <text class="favorite-location">{{item.locationName}}</text>
+          <view class="favorite-meta">
+            <text>{{item.favoriteCountText}} 收藏</text>
+            <text>{{item.viewCountText}} 浏览</text>
+          </view>
+        </view>
+      </view>
+      <button
+        class="remove-button"
+        data-id="{{item.id}}"
+        disabled="{{removingProductId !== ''}}"
+        catchtap="onRemoveFavorite"
+      >
+        {{removingProductId === item.id ? '取消中' : '取消收藏'}}
+      </button>
+    </view>
+
+    <loading-state wx:if="{{isLoadingMore}}" compact text="正在加载更多" />
+    <view wx:elif="{{loadMoreError}}" class="load-more-error">
+      <text>{{loadMoreError}}</text>
+      <button class="load-more-retry" bindtap="onLoadMoreRetry">点击重试</button>
+    </view>
+    <view wx:elif="{{!hasMore}}" class="list-end">已经到底啦</view>
+  </view>
+
+  <view
+    wx:elif="{{!isLoggedIn && !isRestoring}}"
+    class="surface-card login-card"
+  >
     <view class="placeholder-mark">登</view>
     <view class="placeholder-title">登录后查看收藏</view>
     <view class="placeholder-description">
-      本阶段不会通过本地状态伪造收藏结果。
+      收藏关系只绑定云端确认的当前微信身份。
     </view>
-    <button class="primary-button protected-login-button" bindtap="goLogin">
-      微信登录
-    </button>
+    <button class="primary-button login-button" bindtap="goLogin">微信登录</button>
+  </view>
+
+  <view class="favorites-note">
+    已下架和已售商品会保留状态提示 · 已删除商品不会展示
   </view>
 </view>
