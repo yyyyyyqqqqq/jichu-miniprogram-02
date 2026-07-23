@@ -15,12 +15,14 @@ const state = {
   error: null,
   initialized: false,
   restoring: false,
-  loggingIn: false
+  loggingIn: false,
+  updatingProfile: false
 };
 
 const listeners = new Set();
 let bootstrapPromise = null;
 let loginPromise = null;
+let profilePromise = null;
 let operationVersion = 0;
 
 function cloneUser(user) {
@@ -69,11 +71,12 @@ function toCachedUser(value) {
   }
 
   const id = typeof value.id === 'string' ? value.id.trim() : '';
-  const nickname = typeof value.nickname === 'string'
+  const rawNickname = typeof value.nickname === 'string'
     ? value.nickname.trim()
     : '';
+  const nickname = rawNickname === '微信用户' ? '' : rawNickname;
 
-  if (!id || !nickname) {
+  if (!id) {
     return null;
   }
 
@@ -81,7 +84,7 @@ function toCachedUser(value) {
     id,
     nickname,
     avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl : '',
-    avatarText: nickname.slice(0, 1) || '微',
+    avatarText: nickname.slice(0, 1) || '即',
     campus: typeof value.campus === 'string' ? value.campus : '',
     bio: '',
     role: 'user',
@@ -194,10 +197,14 @@ function bootstrap(options = {}) {
       }
     } catch (error) {
       if (version === operationVersion) {
+        const normalizedError = normalizeError(error);
+        if (normalizedError.code === 'USER_DISABLED') {
+          clearCachedUser();
+        }
         setState({
           status: AUTH_STATUS.ERROR,
-          user: cachedUser,
-          error: normalizeError(error)
+          user: normalizedError.code === 'USER_DISABLED' ? null : cachedUser,
+          error: normalizedError
         });
       }
     } finally {
@@ -222,7 +229,7 @@ function bootstrap(options = {}) {
   return operation;
 }
 
-function login() {
+function login(profile) {
   if (loginPromise) {
     return loginPromise;
   }
@@ -237,7 +244,7 @@ function login() {
 
   const operation = (async () => {
     try {
-      const user = await AuthService.login();
+      const user = await AuthService.login(profile);
       if (version !== operationVersion) {
         return getState();
       }
@@ -252,6 +259,7 @@ function login() {
       return getState();
     } catch (error) {
       if (version === operationVersion) {
+        clearCachedUser();
         setState({
           status: AUTH_STATUS.ERROR,
           user: null,
@@ -277,6 +285,65 @@ function login() {
   return operation;
 }
 
+function updateProfile(profile) {
+  if (profilePromise) {
+    return profilePromise;
+  }
+
+  const version = operationVersion + 1;
+  operationVersion = version;
+  setState({
+    error: null,
+    updatingProfile: true
+  });
+
+  const operation = (async () => {
+    try {
+      const user = await AuthService.updateProfile(profile);
+      if (version !== operationVersion) {
+        return getState();
+      }
+      writeCachedUser(user);
+      setState({
+        status: AUTH_STATUS.AUTHENTICATED,
+        user,
+        error: null,
+        initialized: true
+      });
+      return getState();
+    } catch (error) {
+      if (version === operationVersion) {
+        const normalizedError = normalizeError(error);
+        if (normalizedError.code === 'USER_DISABLED') {
+          clearCachedUser();
+        }
+        setState({
+          status: normalizedError.code === 'USER_DISABLED'
+            ? AUTH_STATUS.ERROR
+            : state.status,
+          user: normalizedError.code === 'USER_DISABLED' ? null : state.user,
+          error: normalizedError,
+          initialized: true
+        });
+      }
+      throw error;
+    } finally {
+      if (version === operationVersion) {
+        setState({ updatingProfile: false });
+      }
+    }
+  })();
+
+  profilePromise = operation;
+  operation.finally(() => {
+    if (profilePromise === operation) {
+      profilePromise = null;
+    }
+  }).catch(() => {});
+
+  return operation;
+}
+
 function refreshCurrentUser() {
   return bootstrap({ force: true });
 }
@@ -290,7 +357,8 @@ function logout() {
     error: null,
     initialized: true,
     restoring: false,
-    loggingIn: false
+    loggingIn: false,
+    updatingProfile: false
   });
 }
 
@@ -300,13 +368,15 @@ function getCurrentUser() {
 
 function isLoggedIn() {
   return state.status === AUTH_STATUS.AUTHENTICATED
-    && Boolean(state.user);
+    && Boolean(state.user)
+    && state.user.profileCompleted === true;
 }
 
 module.exports = {
   AUTH_STATUS,
   bootstrap,
   login,
+  updateProfile,
   logout,
   refreshCurrentUser,
   getState,

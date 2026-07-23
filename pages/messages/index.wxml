@@ -2,19 +2,93 @@
   <view class="message-header">
     <view class="page-title">消息</view>
     <view class="page-subtitle">
-      {{isLoggedIn ? '后续可在这里查看私信与面交预约通知' : '登录后查看消息入口'}}
+      {{isLoggedIn ? '围绕具体商品沟通，约定安全的校园面交' : '登录后查看私信会话'}}
     </view>
   </view>
-  <view class="surface-card message-empty">
-    <empty-state
-      wx:if="{{isLoggedIn}}"
-      title="还没有消息"
-      description="本阶段不创建真实聊天数据，聊天与面交预约将在后续开放"
+
+  <loading-state
+    wx:if="{{viewState === 'loading'}}"
+    text="正在加载会话"
+  />
+
+  <view wx:elif="{{viewState === 'success'}}" class="conversation-list">
+    <view
+      wx:for="{{conversations}}"
+      wx:key="conversationId"
+      class="surface-card conversation-card"
+      data-conversation-id="{{item.conversationId}}"
+      bindtap="openConversation"
+    >
+      <view class="conversation-avatar">
+        <image
+          wx:if="{{item.otherUser.avatarUrl}}"
+          class="conversation-avatar-image"
+          src="{{item.otherUser.avatarUrl}}"
+          mode="aspectFill"
+        />
+        <text wx:else>{{item.otherUser.avatarText}}</text>
+      </view>
+
+      <view class="conversation-main">
+        <view class="conversation-title-row">
+          <text class="conversation-name">{{item.otherUser.nickname}}</text>
+          <text class="conversation-time">{{item.lastMessageAtText}}</text>
+        </view>
+        <view class="conversation-product-row">
+          <image
+            wx:if="{{item.product.coverImage}}"
+            class="conversation-product-image"
+            src="{{item.product.coverImage}}"
+            mode="aspectFill"
+          />
+          <text class="conversation-product-title">{{item.product.title}}</text>
+          <text class="product-status product-status--{{item.product.status}}">
+            {{item.product.statusText}}
+          </text>
+        </view>
+        <view class="conversation-summary-row">
+          <text class="conversation-summary">{{item.lastMessage}}</text>
+          <text wx:if="{{item.unreadCount > 0}}" class="unread-badge">
+            {{item.unreadCount > 99 ? '99+' : item.unreadCount}}
+          </text>
+        </view>
+      </view>
+    </view>
+
+    <loading-state
+      wx:if="{{isLoadingMore}}"
+      compact
+      text="正在加载更多会话"
     />
+    <view wx:elif="{{loadMoreError}}" class="load-more-error">
+      <text>{{loadMoreError}}</text>
+      <text class="retry-link" bindtap="retryLoadMore">重试</text>
+    </view>
+    <view wx:elif="{{!hasMore}}" class="list-end">没有更多会话了</view>
+  </view>
+
+  <view wx:elif="{{viewState === 'empty'}}" class="surface-card message-empty">
     <empty-state
-      wx:else
+      title="还没有消息"
+      description="在商品详情点击“联系卖家”，会话会出现在这里"
+      action-text="去逛逛"
+      bind:action="goHome"
+    />
+  </view>
+
+  <view wx:elif="{{viewState === 'error'}}" class="surface-card message-empty">
+    <empty-state
+      title="消息暂时无法加载"
+      description="{{errorMessage}}"
+      action-text="重新加载"
+      bind:action="retryLoad"
+    />
+  </view>
+
+  <view wx:else class="surface-card message-empty">
+    <empty-state
       title="登录后查看消息"
-      description="消息入口需要先确认微信身份，公开商品浏览不受影响"
+      description="消息只对会话参与双方可见"
       action-text="微信登录"
       bind:action="goLogin"
     />

@@ -4,11 +4,31 @@ const AuthGuard = require('../../services/auth-guard');
 const AuthStore = require('../../store/auth-store');
 const AppStore = require('../../store/app-store');
 const FavoriteService = require('../../services/favorite-service');
+const MessageService = require('../../services/message-service');
 const { formatCount } = require('../../utils/format');
 const {
   ROUTES,
   AUTH_TARGETS
 } = require('../../constants/routes');
+
+function isDevelopmentEnvironment() {
+  if (
+    typeof wx === 'undefined'
+    || typeof wx.getAccountInfoSync !== 'function'
+  ) {
+    return false;
+  }
+  try {
+    const account = wx.getAccountInfoSync();
+    return Boolean(
+      account
+      && account.miniProgram
+      && account.miniProgram.envVersion === 'develop'
+    );
+  } catch (error) {
+    return false;
+  }
+}
 
 Page({
   data: {
@@ -23,7 +43,8 @@ Page({
     isFavorited: false,
     canFavorite: false,
     isOwnProduct: false,
-    isFavoriteLoading: false
+    isFavoriteLoading: false,
+    isContactLoading: false
   },
 
   onLoad(options) {
@@ -263,13 +284,30 @@ Page({
 
   async onContactTap() {
     const { product } = this.data;
-    if (!product) {
+    if (!product || this.data.isContactLoading) {
+      return;
+    }
+    const productId = typeof product.id === 'string'
+      ? product.id.trim()
+      : '';
+    if (isDevelopmentEnvironment()) {
+      console.info('[product-detail] contact seller', {
+        productId,
+        hasProduct: Boolean(product),
+        productStatus: product.status || ''
+      });
+    }
+    if (!productId || productId !== this.data.productId) {
+      wx.showToast({
+        title: '商品数据已失效，请重新加载',
+        icon: 'none'
+      });
       return;
     }
 
-    if (product.isSold) {
+    if (this.data.isOwnProduct) {
       wx.showToast({
-        title: '商品已完成面交',
+        title: '不能给自己发送私信',
         icon: 'none'
       });
       return;
@@ -277,18 +315,46 @@ Page({
 
     const allowed = await AuthGuard.requireLogin({
       target: AUTH_TARGETS.PRODUCT_DETAIL,
-      productId: this.data.productId
+      productId
     });
     if (!allowed) {
       return;
     }
 
-    wx.showToast({
-      title: product.isReserved
-        ? '商品已预订，聊天功能将在后续开放'
-        : '聊天功能将在后续阶段开放',
-      icon: 'none'
-    });
+    this.setData({ isContactLoading: true });
+    try {
+      const result = await MessageService.createOrGetConversation(
+        productId
+      );
+      if (!this.isPageActive) {
+        return;
+      }
+      await NavigationService.safeNavigateTo(
+        `${ROUTES.CHAT}?conversationId=${encodeURIComponent(result.conversationId)}`
+      );
+    } catch (error) {
+      if (this.isPageActive) {
+        if (isDevelopmentEnvironment()) {
+          console.info('[product-detail] contact seller failed', {
+            code: error && error.code ? error.code : 'UNKNOWN_ERROR',
+            message: error && error.message
+              ? error.message
+              : '暂时无法联系卖家',
+            productId
+          });
+        }
+        wx.showToast({
+          title: error && error.message
+            ? error.message
+            : '暂时无法联系卖家',
+          icon: 'none'
+        });
+      }
+    } finally {
+      if (this.isPageActive) {
+        this.setData({ isContactLoading: false });
+      }
+    }
   },
 
   onSellerTap() {

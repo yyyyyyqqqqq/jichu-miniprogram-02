@@ -1,4 +1,5 @@
 const { CLOUD_CONFIG } = require('../config/cloud');
+const CloudService = require('./cloud-service');
 const ProductService = require('./product-service');
 
 const DEFAULT_PAGE_SIZE = 6;
@@ -82,13 +83,14 @@ function mapTransportError(error) {
   return createError('UNKNOWN_ERROR');
 }
 
-function callFavoriteFunction(action, data) {
-  if (
-    typeof wx === 'undefined'
-    || !wx.cloud
-    || typeof wx.cloud.callFunction !== 'function'
-  ) {
-    return Promise.reject(createError('CLOUD_NOT_READY'));
+async function callFavoriteFunction(action, data) {
+  try {
+    await CloudService.ensureCloudReady();
+  } catch (error) {
+    throw createError('CLOUD_NOT_READY');
+  }
+  if (typeof wx.cloud.callFunction !== 'function') {
+    throw createError('CLOUD_NOT_READY');
   }
 
   let timeoutId;

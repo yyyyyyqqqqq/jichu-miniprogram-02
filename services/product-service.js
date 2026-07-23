@@ -1,4 +1,5 @@
 const { CLOUD_CONFIG } = require('../config/cloud');
+const CloudService = require('./cloud-service');
 const {
   PRODUCT_STATUS,
   PRODUCT_STATUS_META,
@@ -276,13 +277,14 @@ function mapCloudFailure(error) {
   return createProductError('UNKNOWN_ERROR');
 }
 
-function callProductQuery(action, data) {
-  if (
-    typeof wx === 'undefined'
-    || !wx.cloud
-    || typeof wx.cloud.callFunction !== 'function'
-  ) {
-    return Promise.reject(createProductError('CLOUD_NOT_READY'));
+async function callProductQuery(action, data) {
+  try {
+    await CloudService.ensureCloudReady();
+  } catch (error) {
+    throw createProductError('CLOUD_NOT_READY');
+  }
+  if (typeof wx.cloud.callFunction !== 'function') {
+    throw createProductError('CLOUD_NOT_READY');
   }
 
   let timeoutId;
@@ -385,7 +387,11 @@ async function getProductDetail(productId) {
     throw createProductError(payload.code || 'UNKNOWN_ERROR', payload.message);
   }
 
-  return normalizeProduct(payload.data && payload.data.product);
+  const product = normalizeProduct(payload.data && payload.data.product);
+  if (product.id !== id) {
+    throw createProductError('INVALID_RESPONSE');
+  }
+  return product;
 }
 
 async function searchProducts(keyword) {

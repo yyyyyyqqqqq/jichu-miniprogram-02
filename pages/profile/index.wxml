@@ -1,6 +1,12 @@
 <view class="page-shell profile-page">
   <view class="surface-card profile-card">
-    <view class="avatar-placeholder">
+    <image
+      wx:if="{{user && user.avatarUrl}}"
+      class="avatar-placeholder avatar-image"
+      src="{{user.avatarUrl}}"
+      mode="aspectFill"
+    />
+    <view wx:else class="avatar-placeholder">
       {{user ? user.avatarText : '即'}}
     </view>
     <view class="profile-copy">
@@ -24,7 +30,7 @@
     >
       微信登录
     </button>
-    <view wx:else class="login-status">已登录</view>
+    <view wx:else class="login-status" bindtap="editProfile">编辑资料</view>
   </view>
 
   <view wx:if="{{isRestoring}}" class="auth-notice auth-notice--restoring">
@@ -78,7 +84,7 @@
     <view class="menu-item" bindtap="goMessages">
       <view class="menu-icon">信</view>
       <text class="menu-label">消息</text>
-      <text class="menu-state">{{isLoggedIn ? '暂无消息' : '需登录'}}</text>
+      <text class="menu-state">{{isLoggedIn ? '查看会话' : '需登录'}}</text>
       <text class="menu-arrow">›</text>
     </view>
     <view class="menu-item menu-item--last" bindtap="showAbout">
@@ -92,9 +98,12 @@
     <view class="account-row">
       <text class="account-label">资料状态</text>
       <text class="account-value">
-        {{user.profileCompleted ? '资料已完善' : '使用默认资料'}}
+        {{user.profileCompleted ? '资料已完善' : '资料待完善'}}
       </text>
     </view>
+    <button class="profile-edit-button" bindtap="editProfile">
+      {{user.profileCompleted ? '编辑头像与昵称' : '立即完善资料'}}
+    </button>
     <button class="logout-button" bindtap="logout">退出登录</button>
   </view>
 

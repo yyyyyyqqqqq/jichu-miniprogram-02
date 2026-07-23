@@ -139,11 +139,11 @@
         {{isFavoriteLoading ? '处理中' : (isFavorited ? '★ 已收藏' : '☆ 收藏')}}
       </button>
       <button
-        class="primary-button action-button action-button--main {{product.isSold ? 'action-button--disabled' : ''}}"
-        disabled="{{product.isSold}}"
+        class="primary-button action-button action-button--main {{isOwnProduct ? 'action-button--disabled' : ''}}"
+        disabled="{{isOwnProduct || isContactLoading}}"
         bindtap="onContactTap"
       >
-        {{product.isSold ? '商品已出' : '联系卖家'}}
+        {{isOwnProduct ? '这是我的商品' : (isContactLoading ? '正在进入会话' : '联系卖家')}}
       </button>
     </view>
   </block>

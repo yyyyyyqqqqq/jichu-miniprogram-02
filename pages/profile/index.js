@@ -24,7 +24,9 @@ Page({
       this.setData({
         authStatus: state.status,
         user: state.user,
-        isLoggedIn: state.status === 'authenticated' && Boolean(state.user),
+        isLoggedIn: state.status === 'authenticated'
+          && Boolean(state.user)
+          && state.user.profileCompleted === true,
         isRestoring: state.restoring,
         errorMessage: state.error ? state.error.message : ''
       });
@@ -50,6 +52,16 @@ Page({
     AuthGuard.requireLogin({
       target: AUTH_TARGETS.PROFILE
     });
+  },
+
+  editProfile() {
+    if (!AuthStore.isLoggedIn()) {
+      this.goLogin();
+      return;
+    }
+    NavigationService.safeNavigateTo(
+      `${ROUTES.LOGIN}?target=${AUTH_TARGETS.PROFILE}&mode=edit`
+    );
   },
 
   async goMyProducts() {

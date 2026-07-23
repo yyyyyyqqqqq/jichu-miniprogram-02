@@ -128,7 +128,7 @@ function normalizeImages(value, userId) {
 function createUserId(appId, openId) {
   const digest = crypto
     .createHash('sha256')
-    .update(`${appId || 'wechat-app'}:${openId}`)
+    .update(`${appId}:${openId}`)
     .digest('hex')
     .slice(0, 32);
   return `u_${digest}`;
@@ -145,12 +145,12 @@ function createProductId(userId, requestId) {
 
 function getIdentity() {
   const context = cloud.getWXContext();
-  if (!context || !context.OPENID) {
+  if (!context || !context.OPENID || !context.APPID) {
     return null;
   }
   return {
     openId: context.OPENID,
-    appId: context.APPID || ''
+    appId: context.APPID
   };
 }
 
@@ -215,10 +215,11 @@ function validateProduct(value, userId) {
 }
 
 function toSellerFields(user, identity, userId) {
+  const sellerName = normalizeText(user.nickname);
   return {
     sellerId: userId,
     sellerOpenid: identity.openId,
-    sellerName: normalizeText(user.nickname) || '微信用户',
+    sellerName: sellerName === '微信用户' ? '' : sellerName,
     sellerAvatar: typeof user.avatarUrl === 'string' ? user.avatarUrl : '',
     sellerVerified: false,
     campus: normalizeText(user.campus) || '校内'
@@ -245,7 +246,7 @@ exports.main = async (event = {}) => {
 
   try {
     const user = await findUser(userId);
-    if (!user) {
+    if (!user || user.openid !== identity.openId) {
       return failure(ERROR_CODES.USER_NOT_FOUND, '用户记录不存在，请重新登录');
     }
     if (user.status !== 'active') {

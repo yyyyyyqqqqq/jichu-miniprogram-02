@@ -1,34 +1,74 @@
 <view class="page-shell--plain login-page">
   <view class="login-hero">
     <view class="login-logo">即</view>
-    <view class="page-title">登录即出</view>
-    <view class="page-subtitle">登录后可以发布闲置、收藏商品并联系卖家</view>
+    <view class="page-title">{{isEditing ? '编辑个人资料' : '登录即出'}}</view>
+    <view class="page-subtitle">
+      {{isEditing ? '更新你在校园交易中的展示资料' : '使用真实微信身份，完善你主动提供的资料'}}
+    </view>
   </view>
 
   <view class="surface-card login-card">
-    <view wx:if="{{authStatus === 'authenticated' && user}}" class="logged-in-panel">
-      <view class="logged-avatar">{{user.avatarText}}</view>
+    <view wx:if="{{!showProfileForm && user}}" class="logged-in-panel">
+      <image
+        wx:if="{{user.avatarUrl}}"
+        class="logged-avatar logged-avatar--image"
+        src="{{user.avatarUrl}}"
+        mode="aspectFill"
+      />
+      <view wx:else class="logged-avatar">{{user.avatarText}}</view>
       <view class="logged-copy">
         <text class="logged-title">当前已登录</text>
         <text class="logged-name">{{user.nickname}}</text>
       </view>
     </view>
 
-    <view wx:else>
-      <view class="login-purpose-title">使用微信身份安全登录</view>
-      <view class="purpose-list">
-        <view class="purpose-item">
-          <view class="purpose-mark">1</view>
-          <text>云端识别当前微信身份，不在页面展示身份标识</text>
+    <view wx:else class="profile-form">
+      <view class="field-label">头像</view>
+      <button
+        class="avatar-picker"
+        open-type="chooseAvatar"
+        disabled="{{isSubmitting || isReturning}}"
+        bindchooseavatar="onChooseAvatar"
+      >
+        <image
+          wx:if="{{avatarPreviewUrl}}"
+          class="avatar-preview"
+          src="{{avatarPreviewUrl}}"
+          mode="aspectFill"
+        />
+        <view wx:else class="avatar-empty">
+          <text class="avatar-empty-icon">＋</text>
+          <text>选择头像</text>
         </view>
-        <view class="purpose-item">
-          <view class="purpose-mark">2</view>
-          <text>首次登录创建最小用户记录，再次进入恢复同一用户</text>
-        </view>
-        <view class="purpose-item">
-          <view class="purpose-mark">3</view>
-          <text>不会自动获取你的微信昵称、头像、手机号或学校信息</text>
-        </view>
+      </button>
+      <text class="field-hint">由你主动选择，仅用于商品、主页和聊天展示</text>
+
+      <view class="field-label field-label--spaced">昵称</view>
+      <input
+        class="profile-input"
+        type="nickname"
+        maxlength="20"
+        value="{{nickname}}"
+        placeholder="请输入 1～20 个字符"
+        disabled="{{isSubmitting || isReturning}}"
+        bindinput="onNicknameInput"
+      />
+
+      <view class="field-label field-label--spaced">
+        校园信息
+        <text class="optional-mark">选填</text>
+      </view>
+      <input
+        class="profile-input"
+        maxlength="40"
+        value="{{campus}}"
+        placeholder="例如：XX大学"
+        disabled="{{isSubmitting || isReturning}}"
+        bindinput="onCampusInput"
+      />
+
+      <view class="identity-note">
+        微信身份由云端安全确认，昵称和头像不会被自动获取或伪造。
       </view>
     </view>
 
@@ -44,13 +84,13 @@
     </view>
 
     <button
-      wx:if="{{authStatus !== 'authenticated'}}"
+      wx:if="{{showProfileForm}}"
       class="wechat-login-button"
-      loading="{{isLoggingIn}}"
-      disabled="{{isLoggingIn || isReturning}}"
+      loading="{{isSubmitting || isLoggingIn || isUpdatingProfile}}"
+      disabled="{{isSubmitting || isLoggingIn || isUpdatingProfile || isReturning}}"
       bindtap="onLoginTap"
     >
-      {{isLoggingIn ? '正在登录' : '微信身份登录'}}
+      {{isSubmitting || isLoggingIn || isUpdatingProfile ? '正在保存' : (isEditing ? '保存资料' : '确认并登录')}}
     </button>
 
     <button
@@ -62,10 +102,10 @@
       {{isReturning ? '正在返回' : '继续'}}
     </button>
 
-    <button class="back-button" bindtap="onBackTap">暂不登录，返回浏览</button>
+    <button class="back-button" bindtap="onBackTap">暂不操作，返回浏览</button>
   </view>
 
   <view class="privacy-note">
-    登录仅用于确认账号身份和恢复本地会话摘要。项目不会缓存微信身份标识、访问令牌或微信密钥。
+    头像、昵称和选填的校园信息仅用于校园二手交易中的展示与沟通。本页不申请手机号、通讯录或位置权限。
   </view>
 </view>

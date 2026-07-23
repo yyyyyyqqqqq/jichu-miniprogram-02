@@ -88,7 +88,9 @@ Page({
         return;
       }
 
-      const isLoggedIn = state.status === 'authenticated' && Boolean(state.user);
+      const isLoggedIn = state.status === 'authenticated'
+        && Boolean(state.user)
+        && state.user.profileCompleted === true;
       this.setData({
         authStatus: state.status,
         isLoggedIn,

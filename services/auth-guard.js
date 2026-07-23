@@ -37,14 +37,24 @@ function buildLoginUrl(options = {}) {
 }
 
 async function requireLogin(options = {}) {
-  if (AuthStore.isLoggedIn()) {
+  const currentUser = AuthStore.getCurrentUser();
+  if (
+    AuthStore.isLoggedIn()
+    && currentUser
+    && currentUser.profileCompleted === true
+  ) {
     return true;
   }
 
   const state = AuthStore.getState();
   if (state.status === 'idle' || state.restoring) {
     await AuthStore.bootstrap();
-    if (AuthStore.isLoggedIn()) {
+    const restoredUser = AuthStore.getCurrentUser();
+    if (
+      AuthStore.isLoggedIn()
+      && restoredUser
+      && restoredUser.profileCompleted === true
+    ) {
       return true;
     }
   }

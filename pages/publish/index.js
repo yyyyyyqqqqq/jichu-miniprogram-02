@@ -42,7 +42,9 @@ Page({
         return;
       }
       this.setData({
-        isLoggedIn: state.status === 'authenticated' && Boolean(state.user)
+        isLoggedIn: state.status === 'authenticated'
+          && Boolean(state.user)
+          && state.user.profileCompleted === true
       });
     });
   },

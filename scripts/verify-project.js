@@ -137,23 +137,74 @@ record('JavaScript syntax is valid', () => {
   }
 });
 
-record('WXML tags are balanced', () => {
+record('WXML attributes and tags are valid', () => {
   const voidTags = new Set(['input', 'image', 'icon', 'progress', 'slider', 'switch']);
   const wxmlFiles = files.filter((file) => path.extname(file) === '.wxml');
   for (const wxmlFile of wxmlFiles) {
     const source = readText(wxmlFile).replace(/<!--[\s\S]*?-->/g, '');
     const stack = [];
-    const tagPattern = /<\/?([a-zA-Z][\w-]*)\b[^>]*>/g;
-    let match;
-    while ((match = tagPattern.exec(source))) {
-      const fullTag = match[0];
-      const tagName = match[1];
+    for (let index = 0; index < source.length; index += 1) {
+      if (source[index] !== '<') {
+        continue;
+      }
+
+      const tagStart = source.slice(index).match(/^<\/?([a-zA-Z][\w-]*)\b/);
+      if (!tagStart) {
+        continue;
+      }
+
+      let quote = '';
+      let tagEnd = -1;
+      for (let cursor = index + 1; cursor < source.length; cursor += 1) {
+        const character = source[cursor];
+        if (quote) {
+          if (character === quote && source[cursor - 1] !== '\\') {
+            quote = '';
+          }
+          continue;
+        }
+        if (character === '"' || character === "'") {
+          quote = character;
+          continue;
+        }
+        if (character === '>') {
+          tagEnd = cursor;
+          break;
+        }
+      }
+
+      assert(!quote, `${relative(wxmlFile)} has an unterminated attribute quote near offset ${index}`);
+      assert(tagEnd >= 0, `${relative(wxmlFile)} has an unterminated tag near offset ${index}`);
+
+      const fullTag = source.slice(index, tagEnd + 1);
+      const tagName = tagStart[1];
+      const conditionalNames = fullTag.match(/\bwx:(?:if|elif)\b/g) || [];
+      const conditionalValues = [
+        ...fullTag.matchAll(/\bwx:(?:if|elif)\s*=\s*(["'])(.*?)\1/gs)
+      ];
+      assert(
+        conditionalNames.length === conditionalValues.length,
+        `${relative(wxmlFile)} has an unquoted wx:if or wx:elif on ${tagName}`
+      );
+      conditionalValues.forEach((conditional) => {
+        const value = conditional[2].trim();
+        assert(
+          value.startsWith('{{') && value.endsWith('}}'),
+          `${relative(wxmlFile)} has a malformed wx:if or wx:elif value on ${tagName}`
+        );
+      });
+      assert(
+        !/\bwx:else\s*=/.test(fullTag),
+        `${relative(wxmlFile)} uses wx:else with an expression on ${tagName}`
+      );
+
       if (fullTag.startsWith('</')) {
         const openTag = stack.pop();
         assert(openTag === tagName, `${relative(wxmlFile)} closes ${tagName} after ${openTag || 'nothing'}`);
-      } else if (!fullTag.endsWith('/>') && !voidTags.has(tagName)) {
+      } else if (!/\/\s*>$/.test(fullTag) && !voidTags.has(tagName)) {
         stack.push(tagName);
       }
+      index = tagEnd;
     }
     assert(stack.length === 0, `${relative(wxmlFile)} has unclosed ${stack.join(', ')}`);
     assert(!/{{[^}]*\.\w+\s*\(/.test(source), `${relative(wxmlFile)} calls a JavaScript method inside WXML`);
@@ -356,7 +407,9 @@ record('cloud function project structure is complete', () => {
     'createProduct',
     'manageProduct',
     'favoriteProduct',
-    'userQuery'
+    'userQuery',
+    'messageQuery',
+    'messageAction'
   ].forEach((functionName) => {
     const functionDirectory = path.join(root, functionRoot, functionName);
     ['index.js', 'package.json', 'package-lock.json'].forEach((name) => {
@@ -391,7 +444,13 @@ record('cloud function project structure is complete', () => {
 });
 
 record('cloud functions with runtime evidence lock the Node websocket dependency', () => {
-  ['favoriteProduct', 'userQuery', 'productQuery'].forEach((functionName) => {
+  [
+    'favoriteProduct',
+    'userQuery',
+    'productQuery',
+    'messageQuery',
+    'messageAction'
+  ].forEach((functionName) => {
     const functionDirectory = path.join(root, 'cloudfunctions', functionName);
     const functionPackage = readJson(path.join(functionDirectory, 'package.json'));
     const functionLock = readJson(path.join(functionDirectory, 'package-lock.json'));
@@ -418,15 +477,44 @@ record('cloud functions with runtime evidence lock the Node websocket dependency
 
 record('authUser obtains identity securely and returns a safe envelope', () => {
   const source = readText(path.join(root, 'cloudfunctions/authUser/index.js'));
+  const serviceSource = readText(path.join(root, 'services/auth-service.js'));
+  const loginSource = readText(path.join(root, 'pages/login/index.js'));
+  const loginTemplate = readText(path.join(root, 'pages/login/index.wxml'));
+  const avatarSource = readText(path.join(root, 'services/avatar-service.js'));
   assert(/cloud\.getWXContext\s*\(\s*\)/.test(source), 'authUser does not use getWXContext');
   assert(/cloud\.DYNAMIC_CURRENT_ENV/.test(source), 'authUser does not use the current cloud environment');
   assert(/createHash\(\s*['"]sha256['"]\s*\)/.test(source), 'authUser does not derive a deterministic user id');
   assert(!/event\.(?:openid|openId|OPENID)/.test(source), 'authUser trusts a client identity field');
   assert(/users\.doc\(userId\)\.set/.test(source), 'authUser does not use an idempotent user document id');
-  assert(/['"]login['"]/.test(source) && /['"]current['"]/.test(source), 'authUser actions are incomplete');
+  assert(
+    /['"]login['"]/.test(source)
+    && /['"]current['"]/.test(source)
+    && /['"]updateProfile['"]/.test(source),
+    'authUser actions are incomplete'
+  );
   assert(/success:\s*true/.test(source) && /success:\s*false/.test(source), 'authUser response envelope is inconsistent');
   assert(/code/.test(source) && /message/.test(source) && /data/.test(source), 'authUser response fields are incomplete');
   assert(!/console\.(?:log|info|warn|error)/.test(source), 'authUser writes identity information to logs');
+  assert(!/nickname:\s*['"]微信用户['"]/.test(source), 'authUser still writes a fixed virtual nickname');
+  assert(!/user-001|DEFAULT_USER|mock user|test user/i.test(source), 'authUser contains a fixed virtual user');
+  assert(/profileCompleted:\s*Boolean/.test(source), 'authUser does not derive profile completion from submitted profile');
+  assert(/isOwnedAvatar\(avatarUrl,\s*userId\)/.test(source), 'authUser does not constrain avatars to the current user path');
+  assert(/type="nickname"/.test(loginTemplate), 'login page does not use the nickname input capability');
+  assert(/open-type="chooseAvatar"/.test(loginTemplate), 'login page does not use the avatar selection capability');
+  assert(/bindchooseavatar="onChooseAvatar"/.test(loginTemplate), 'login page does not handle the selected avatar');
+  assert(/AvatarService\.uploadAvatar/.test(loginSource), 'login page does not upload the selected avatar');
+  assert(/finally[\s\S]*isSubmitting:\s*false/.test(loginSource), 'login failure can leave the submit loading state active');
+  assert(!/微信用户|user-001|DEFAULT_USER/i.test(loginSource + loginTemplate), 'login page contains fixed virtual profile data');
+  assert(/avatars/.test(avatarSource) && /wx\.getImageInfo/.test(avatarSource), 'avatar upload does not validate image content');
+  assert(
+    /MAX_AVATAR_SIZE/.test(avatarSource)
+    && /getFileSystemManager\(\)/.test(avatarSource)
+    && /fileSystemManager\.getFileInfo/.test(avatarSource)
+    && !/wx\.getFileInfo/.test(avatarSource),
+    'avatar upload does not enforce file size through the current filesystem API'
+  );
+  assert(/wx\.cloud\.uploadFile/.test(avatarSource), 'avatar service does not upload to cloud storage');
+  assert(!/\b(?:openid|sellerOpenid|senderOpenid)\b/i.test(serviceSource), 'AuthService accepts an internal identity field');
 
   const safeUserStart = source.indexOf('function toSafeUser');
   const safeUserEnd = source.indexOf('function createUserId');
@@ -500,16 +588,112 @@ record('public user profiles use a safe id and strict response whitelist', () =>
   assert(/\?userId=/.test(detailSource) && !/\?openid=/.test(detailSource), 'detail seller link does not use publicUserId');
 });
 
+record('messaging uses guarded services, deterministic ids and safe response fields', () => {
+  const appConfig = readJson(path.join(root, 'app.json'));
+  const actionSource = readText(path.join(root, 'cloudfunctions/messageAction/index.js'));
+  const querySource = readText(path.join(root, 'cloudfunctions/messageQuery/index.js'));
+  const serviceSource = readText(path.join(root, 'services/message-service.js'));
+  const cloudServiceSource = readText(path.join(root, 'services/cloud-service.js'));
+  const messagesSource = readText(path.join(root, 'pages/messages/index.js'));
+  const messagesTemplate = readText(path.join(root, 'pages/messages/index.wxml'));
+  const chatSource = readText(path.join(root, 'pages/chat/index.js'));
+  const chatTemplate = readText(path.join(root, 'pages/chat/index.wxml'));
+  const detailSource = readText(path.join(root, 'pages/product-detail/index.js'));
+  const productServiceSource = readText(path.join(root, 'services/product-service.js'));
+  const cloudConfigSource = readText(path.join(root, 'config/cloud.js'));
+
+  assert(appConfig.pages.includes('pages/messages/index'), 'messages page is not registered');
+  assert(appConfig.pages.includes('pages/chat/index'), 'chat page is not registered');
+  assert(/MessageService\.listConversations/.test(messagesSource), 'messages page does not load real conversations');
+  assert(/onPullDownRefresh/.test(messagesSource) && /onReachBottom/.test(messagesSource), 'messages refresh or pagination is missing');
+  assert(/requestVersion/.test(messagesSource) && /isPageActive/.test(messagesSource), 'messages stale-response protection is missing');
+  assert(!/\bmock\b|后续阶段开放|尚未开放/i.test(messagesSource + messagesTemplate), 'messages page retains a Mock or placeholder production path');
+  assert(/MessageService\.getConversation/.test(chatSource), 'chat page does not load conversation data');
+  assert(/MessageService\.listMessages/.test(chatSource), 'chat page does not load message history');
+  assert(/MessageService\.sendTextMessage/.test(chatSource), 'chat page does not send through MessageService');
+  assert(/MessageService\.markConversationRead/.test(chatSource), 'chat page does not mark conversations read');
+  assert(/setInterval/.test(chatSource) && /clearInterval/.test(chatSource), 'chat polling lifecycle is incomplete');
+  assert(/sendStatus/.test(chatSource) && /retryMessage/.test(chatSource), 'chat send failure retry is missing');
+  assert(/maxlength=/.test(chatTemplate) && !/rich-text/.test(chatTemplate), 'chat text safety boundary is incomplete');
+  assert(!/wx\.cloud\.(?:database|callFunction)/.test(messagesSource + chatSource), 'message pages access cloud data directly');
+
+  assert(/MessageService\.createOrGetConversation/.test(detailSource), 'detail contact action is not connected to real chat');
+  assert(/const productId = typeof product\.id/.test(detailSource), 'detail contact action does not derive productId from the displayed product');
+  assert(/createOrGetConversation\(\s*productId\s*\)/.test(detailSource), 'detail contact action does not submit the displayed product id');
+  assert(!/createOrGetConversation\(\s*this\.data\.productId\s*\)/.test(detailSource), 'detail contact action submits stale route state');
+  assert(!/product\.(?:_id|productId)/.test(detailSource), 'detail page mixes raw _id or productId with its normalized product model');
+  assert(!/(?:sellerOpenid|sellerOpenId|OPENID)/.test(detailSource), 'detail contact action references a seller identity');
+  assert(/isContactLoading/.test(detailSource), 'detail contact duplicate-click protection is missing');
+  assert(/product\.id !== id/.test(productServiceSource), 'product detail does not verify response id consistency');
+  assert(!/require\([^)]*mock/i.test(productServiceSource + detailSource), 'real product detail retains a Mock data source');
+
+  assert(/messageQueryFunctionName/.test(cloudConfigSource), 'messageQuery config is missing');
+  assert(/messageActionFunctionName/.test(cloudConfigSource), 'messageAction config is missing');
+  assert(/CloudService\.callFunction/.test(serviceSource), 'MessageService does not use the centralized cloud caller');
+  assert(/wx\.cloud\.callFunction/.test(cloudServiceSource), 'centralized cloud service does not call cloud functions');
+  assert(/Promise\.race/.test(cloudServiceSource), 'centralized cloud timeout handling is missing');
+  assert(!/CLOUD_NOT_READY/.test(serviceSource), 'MessageService still collapses failures into CLOUD_NOT_READY');
+  assert(/FUNCTION_NOT_FOUND/.test(serviceSource) && /NETWORK_ERROR/.test(serviceSource) && /CLOUD_TIMEOUT/.test(serviceSource), 'MessageService transport errors are not distinct');
+  assert(!/AuthStore/.test(serviceSource), 'MessageService incorrectly uses auth state as cloud readiness');
+  assert(
+    /Object\.assign\(\{\s*action\s*\},\s*data\)/.test(serviceSource),
+    'messageAction payload is not flat'
+  );
+  assert(!/wx\.cloud\.database/.test(serviceSource), 'MessageService accesses the client database');
+  assert(!/\b(?:senderOpenid|sellerOpenid|participantOpenids|OPENID)\b/.test(serviceSource), 'MessageService references an internal identity');
+
+  assert(/cloud\.getWXContext\s*\(\s*\)/.test(actionSource), 'messageAction does not use cloud identity');
+  assert(/cloud\.getWXContext\s*\(\s*\)/.test(querySource), 'messageQuery does not use cloud identity');
+  assert(/createConversationId\(\s*productId,\s*participantAOpenid,\s*participantBOpenid\s*\)/.test(actionSource), 'conversation id is not deterministic');
+  assert(/createMessageId\(\s*conversationId,\s*openId,\s*clientMessageId\s*\)/.test(actionSource), 'message id is not deterministic');
+  assert(/db\.runTransaction/.test(actionSource), 'message writes are not transactional');
+  assert(/transaction\.collection\(['"]messages['"]\)\.doc\(messageId\)/.test(actionSource), 'message transaction does not use deterministic document operations');
+  const sendStart = actionSource.indexOf('async function sendTextMessage');
+  const markReadStart = actionSource.indexOf('async function markConversationRead');
+  assert(sendStart >= 0 && markReadStart > sendStart, 'message send implementation is missing');
+  assert(!/\.where\s*\(/.test(actionSource.slice(sendStart, markReadStart)), 'message transaction assumes where queries are supported');
+  assert(/product\.sellerOpenid/.test(actionSource) && !/data\.sellerOpenid/.test(actionSource), 'conversation creation trusts a client seller identity');
+  assert(/sellerOpenid\s*===\s*identity\.openId/.test(actionSource), 'self-conversation rejection is missing');
+  assert(/product\.status\s*===\s*['"]deleted['"][\s\S]*?ERROR_CODES\.PRODUCT_UNAVAILABLE/.test(actionSource), 'deleted product does not use the unavailable error');
+  assert(/if\s*\(\s*!product\s*\)[\s\S]*?ERROR_CODES\.PRODUCT_NOT_FOUND/.test(actionSource), 'missing product does not use PRODUCT_NOT_FOUND');
+  const productNotFoundReturns = actionSource.match(
+    /return failure\(\s*ERROR_CODES\.PRODUCT_NOT_FOUND/g
+  ) || [];
+  assert(productNotFoundReturns.length === 1, 'PRODUCT_NOT_FOUND is used for a condition other than a missing document');
+  assert(/PRODUCT_SELLER_UNAVAILABLE/.test(actionSource), 'missing seller identity is conflated with a missing product');
+  assert(/productIdPresent[\s\S]*productIdLength[\s\S]*productFound[\s\S]*code/.test(actionSource), 'safe product lookup diagnostics are incomplete');
+  assert(!/productId\s*:\s*productId/.test(
+    actionSource.slice(
+      actionSource.indexOf('function logProductLookupDiagnostic'),
+      actionSource.indexOf('function createDigest')
+    )
+  ), 'cloud product diagnostics log the full product id');
+  assert(/MESSAGE_MAX_LENGTH\s*=\s*500/.test(actionSource), 'message length limit is missing');
+  assert(/participantBUnreadCount[\s\S]*\+\s*1/.test(actionSource) && /participantAUnreadCount[\s\S]*\+\s*1/.test(actionSource), 'recipient unread increments are incomplete');
+  assert(/\[unreadField\]:\s*0/.test(actionSource), 'markRead does not clear only the caller slot');
+
+  const safeMessageStart = querySource.indexOf('function toSafeMessage');
+  const safeMessageEnd = querySource.indexOf('async function listMessages');
+  const safeMessageSource = querySource.slice(safeMessageStart, safeMessageEnd);
+  assert(safeMessageStart >= 0 && safeMessageEnd > safeMessageStart, 'safe message mapper is missing');
+  assert(!/senderOpenid\s*:|participantAOpenid\s*:|participantBOpenid\s*:/.test(safeMessageSource), 'safe message response exposes an internal identity');
+  assert(/isMine:\s*record\.senderOpenid\s*===\s*openId/.test(safeMessageSource), 'message ownership is not derived server-side');
+  assert(/orderBy\(\s*['"]createdAt['"]\s*,\s*['"]desc['"]\s*\)[\s\S]*orderBy\(\s*['"]_id['"]\s*,\s*['"]desc['"]\s*\)/.test(querySource), 'message cursor ordering is unstable');
+  assert(/orderBy\(\s*['"]lastMessageAt['"]\s*,\s*['"]desc['"]\s*\)[\s\S]*orderBy\(\s*['"]_id['"]\s*,\s*['"]desc['"]\s*\)/.test(querySource), 'conversation cursor ordering is unstable');
+});
+
 record('AuthService and AuthStore expose the required boundaries', () => {
   const AuthService = require(path.join(root, 'services/auth-service'));
   const AuthStore = require(path.join(root, 'store/auth-store'));
+  const storeSource = readText(path.join(root, 'store/auth-store.js'));
 
-  ['login', 'getCurrentUser', 'isLoggedIn', 'clearLocalSession'].forEach((name) => {
+  ['login', 'updateProfile', 'getCurrentUser', 'isLoggedIn', 'clearLocalSession'].forEach((name) => {
     assert(typeof AuthService[name] === 'function', `AuthService.${name} is missing`);
   });
   [
     'bootstrap',
     'login',
+    'updateProfile',
     'logout',
     'refreshCurrentUser',
     'getState',
@@ -524,6 +708,10 @@ record('AuthService and AuthStore expose the required boundaries', () => {
   ['idle', 'restoring', 'anonymous', 'authenticated', 'error'].forEach((status) => {
     assert(statusValues.includes(status), `AuthStore status ${status} is missing`);
   });
+  assert(
+    /function isLoggedIn[\s\S]*profileCompleted\s*===\s*true/.test(storeSource),
+    'incomplete virtual profile is treated as a completed login'
+  );
 });
 
 record('productQuery enforces public reads, real pagination and safe errors', () => {
@@ -744,11 +932,33 @@ record('createProduct trusts cloud identity and writes safe product fields', () 
 record('App bootstrap is non-blocking and cloud initialization is centralized', () => {
   const appSource = readText(path.join(root, 'app.js'));
   const cloudConfigSource = readText(path.join(root, 'config/cloud.js'));
+  const cloudServiceSource = readText(path.join(root, 'services/cloud-service.js'));
+  const clientJavaScript = files.filter((filePath) => (
+    filePath.endsWith('.js')
+    && !filePath.includes(`${path.sep}cloudfunctions${path.sep}`)
+    && !filePath.includes(`${path.sep}scripts${path.sep}`)
+  )).map((filePath) => readText(filePath)).join('\n');
 
-  assert(/wx\.cloud\.init/.test(appSource), 'App does not initialize cloud development');
-  assert(/AuthStore\.bootstrap\(\)\.catch/.test(appSource), 'App does not start bootstrap safely');
+  assert(/CloudService\.ensureCloudReady\(\)/.test(appSource), 'App does not start centralized cloud initialization');
+  assert(/then\(\(\)\s*=>\s*AuthStore\.bootstrap\(\)\)/.test(appSource), 'App bootstrap does not wait for cloud initialization');
   assert(!/async\s+onLaunch/.test(appSource), 'App.onLaunch is async');
   assert(!/await\s+AuthStore\.bootstrap/.test(appSource), 'App.onLaunch blocks on bootstrap');
+  assert(
+    /wx\.cloud\.init\(\s*{\s*env:\s*CLOUD_CONFIG\.environmentId,\s*traceUser:\s*true/s.test(cloudServiceSource),
+    'centralized cloud initialization does not use the fixed environment'
+  );
+  assert(
+    (clientJavaScript.match(/wx\.cloud\.init\s*\(/g) || []).length === 1,
+    'client has more than one cloud initialization entry'
+  );
+  assert(/cloudInitPromise/.test(cloudServiceSource) && /cloudReady/.test(cloudServiceSource), 'cloud initialization is not a singleton promise');
+  assert(/cloudInitPromise\s*=\s*null/.test(cloudServiceSource), 'failed cloud initialization cannot be retried');
+  assert(!/setTimeout/.test(
+    cloudServiceSource.slice(
+      cloudServiceSource.indexOf('function ensureCloudReady'),
+      cloudServiceSource.indexOf('function isCloudReady')
+    )
+  ), 'cloud initialization uses a timer to guess readiness');
   assert(/environmentId/.test(cloudConfigSource), 'cloud environment configuration is missing');
   assert(/auth:user-summary/.test(cloudConfigSource), 'auth cache key is not centralized');
 });
@@ -789,7 +999,8 @@ record('all protected entrances use AuthGuard', () => {
     'pages/my-products/index.js',
     'pages/profile/index.js',
     'pages/product-detail/index.js',
-    'pages/product-edit/index.js'
+    'pages/product-edit/index.js',
+    'pages/chat/index.js'
   ];
 
   requiredGuardFiles.forEach((name) => {
@@ -810,12 +1021,12 @@ record('login and profile pages implement auth state UI', () => {
   assert(/navigateAfterLogin/.test(loginSource), 'login page does not return to a safe target');
   assert(/AuthStore\.subscribe/.test(profileSource), 'profile page does not subscribe to auth state');
   assert(/AuthStore\.logout/.test(profileSource), 'profile page does not implement logout');
-  ['restoring', 'authenticated', 'error'].forEach((status) => {
-    assert(
-      loginTemplate.includes(status) || profileTemplate.includes(status),
-      `auth UI does not cover ${status}`
-    );
-  });
+  assert(
+    /authStatus/.test(loginSource)
+    && /isLoggedIn/.test(profileSource)
+    && loginTemplate.includes('error'),
+    'auth UI does not cover restoring, authenticated and error states'
+  );
 });
 
 record('core page cleanup and navigation failure recovery are present', () => {
@@ -858,7 +1069,9 @@ record('cloud function dependencies are ignored and not tracked', () => {
     'createProduct',
     'manageProduct',
     'favoriteProduct',
-    'userQuery'
+    'userQuery',
+    'messageQuery',
+    'messageAction'
   ].forEach((functionName) => {
     const modulePath = `cloudfunctions/${functionName}/node_modules`;
     const ignored = spawnSync(
@@ -937,6 +1150,7 @@ async function verifyServiceFlow() {
 
   global.wx = {
     cloud: {
+      init() {},
       callFunction({ name, data, success, fail }) {
         if (name !== 'productQuery') {
           fail({ errMsg: 'cloud function not found' });
@@ -1476,6 +1690,7 @@ async function verifyMyProductsServiceFlow() {
 
   global.wx = {
     cloud: {
+      init() {},
       callFunction({ name, data, success }) {
         requests.push({ name, data });
         if (name === 'productQuery') {
@@ -1595,6 +1810,7 @@ async function verifyProductEditServiceFlow() {
       });
     },
     cloud: {
+      init() {},
       uploadFile({ cloudPath, success }) {
         const fileID = `cloud://test-env.bucket/${cloudPath}`;
         uploadedFileIDs.push(fileID);
@@ -2492,6 +2708,7 @@ async function verifyPublishServiceFlow() {
       });
     },
     cloud: {
+      init() {},
       uploadFile({ cloudPath, success }) {
         uploadedPaths.push(cloudPath);
         success({
@@ -2697,6 +2914,7 @@ async function verifyCreateProductFunctionFlow() {
     .slice(0, 32)}`;
   users.set(userId, {
     _id: userId,
+    openid: openId,
     nickname: '验收同学',
     avatarUrl: 'cloud://test-env.bucket/avatars/user.jpg',
     campus: '示例大学',
@@ -2863,6 +3081,7 @@ async function verifyCreateProductFunctionFlow() {
 
     users.set(userId, {
       _id: userId,
+      openid: openId,
       nickname: '停用用户',
       avatarUrl: '',
       campus: '示例大学',
@@ -3395,12 +3614,1299 @@ async function verifyUserQueryFunctionFlow() {
   }
 }
 
+async function verifyCloudServiceFlow() {
+  const servicePath = path.join(root, 'services/cloud-service.js');
+  const originalWx = global.wx;
+  let initCalls = 0;
+  let initOptions = null;
+  let shouldFailInit = true;
+  let callMode = 'success';
+
+  global.wx = {
+    cloud: {
+      init(options) {
+        initCalls += 1;
+        initOptions = options;
+        if (shouldFailInit) {
+          shouldFailInit = false;
+          throw {
+            errCode: 'INIT_FAILURE',
+            errMsg: 'init failed'
+          };
+        }
+      },
+      callFunction(options) {
+        if (callMode === 'functionNotFound') {
+          options.fail({
+            errCode: -501000,
+            errMsg: 'cloud.callFunction:fail function not found'
+          });
+          return;
+        }
+        if (callMode === 'network') {
+          options.fail({
+            errCode: 'NETWORK',
+            errMsg: 'request:fail network error'
+          });
+          return;
+        }
+        if (callMode === 'timeout') {
+          return;
+        }
+        options.success({
+          result: {
+            success: true
+          }
+        });
+      }
+    }
+  };
+  delete require.cache[require.resolve(servicePath)];
+
+  try {
+    const CloudService = require(servicePath);
+    let initError;
+    try {
+      await CloudService.ensureCloudReady();
+    } catch (error) {
+      initError = error;
+    }
+    assert(
+      initError && initError.code === 'CLOUD_INIT_FAILED',
+      'cloud init failure is not classified separately'
+    );
+
+    const firstRetry = CloudService.ensureCloudReady();
+    const concurrentRetry = CloudService.ensureCloudReady();
+    assert(
+      firstRetry === concurrentRetry,
+      'concurrent cloud initialization does not share one promise'
+    );
+    await firstRetry;
+    assert(initCalls === 2, 'failed cloud initialization cannot be retried safely');
+    assert(
+      initOptions
+      && initOptions.env === 'cloud1-d9gpdpv6p2db56d8e'
+      && initOptions.traceUser === true,
+      'cloud initialization uses the wrong environment'
+    );
+    await CloudService.ensureCloudReady();
+    assert(initCalls === 2, 'ready cloud state initializes more than once');
+
+    callMode = 'functionNotFound';
+    let functionError;
+    try {
+      await CloudService.callFunction({
+        name: 'missingFunction',
+        data: {},
+        timeoutMs: 20
+      });
+    } catch (error) {
+      functionError = error;
+    }
+    assert(
+      functionError && functionError.code === 'FUNCTION_NOT_FOUND',
+      'function-not-found is not classified separately'
+    );
+
+    callMode = 'network';
+    let networkError;
+    try {
+      await CloudService.callFunction({
+        name: 'messageAction',
+        data: {},
+        timeoutMs: 20
+      });
+    } catch (error) {
+      networkError = error;
+    }
+    assert(
+      networkError && networkError.code === 'NETWORK_ERROR',
+      'network failure is not classified separately'
+    );
+
+    callMode = 'timeout';
+    let timeoutError;
+    try {
+      await CloudService.callFunction({
+        name: 'messageAction',
+        data: {},
+        timeoutMs: 5
+      });
+    } catch (error) {
+      timeoutError = error;
+    }
+    assert(
+      timeoutError && timeoutError.code === 'CLOUD_TIMEOUT',
+      'cloud timeout is not classified separately'
+    );
+  } finally {
+    delete require.cache[require.resolve(servicePath)];
+    if (originalWx === undefined) {
+      delete global.wx;
+    } else {
+      global.wx = originalWx;
+    }
+  }
+}
+
+async function verifyMessageServiceFlow() {
+  const servicePath = path.join(root, 'services/message-service');
+  const cloudServicePath = path.join(root, 'services/cloud-service');
+  const originalWx = global.wx;
+  const requests = [];
+  let responseFailureCode = '';
+  const conversationId = `c_${'a'.repeat(64)}`;
+  const messageId = `m_${'b'.repeat(64)}`;
+  const publicUserId = `u_${'c'.repeat(32)}`;
+  const now = '2026-07-19T10:00:00.000Z';
+  const safeConversation = {
+    conversationId,
+    otherUser: {
+      publicUserId,
+      nickname: '卖家',
+      avatarUrl: '',
+      campus: '即出大学'
+    },
+    product: {
+      productId: 'product-message',
+      title: '测试商品',
+      coverImage: '',
+      price: 12,
+      status: 'available'
+    },
+    lastMessage: '你好',
+    lastMessageType: 'text',
+    lastMessageAt: now,
+    unreadCount: 1,
+    canSend: true
+  };
+  const safeMessage = {
+    messageId,
+    senderPublicUserId: publicUserId,
+    isMine: true,
+    type: 'text',
+    content: '你好',
+    createdAt: now
+  };
+
+  global.wx = {
+    cloud: {
+      init() {},
+      callFunction(options) {
+        requests.push({
+          name: options.name,
+          data: JSON.parse(JSON.stringify(options.data))
+        });
+        const action = options.data.action;
+        let data;
+        if (action === 'createOrGetConversation') {
+          data = { conversationId, reused: false };
+        } else if (action === 'listConversations') {
+          data = {
+            list: [safeConversation],
+            hasMore: false,
+            nextCursor: null
+          };
+        } else if (action === 'getConversation') {
+          data = { conversation: safeConversation };
+        } else if (action === 'listMessages') {
+          data = {
+            list: [safeMessage],
+            hasMore: false,
+            nextCursor: null
+          };
+        } else if (action === 'sendTextMessage') {
+          data = { message: safeMessage, reused: false };
+        } else {
+          data = { conversationId, unreadCount: 0 };
+        }
+        options.success({
+          result: {
+            success: !responseFailureCode,
+            code: responseFailureCode || 'OK',
+            message: responseFailureCode
+              ? '业务状态不允许'
+              : '',
+            data: responseFailureCode ? null : data
+          }
+        });
+      }
+    }
+  };
+
+  try {
+    delete require.cache[require.resolve(cloudServicePath)];
+    delete require.cache[require.resolve(servicePath)];
+    const MessageService = require(servicePath);
+    const created = await MessageService.createOrGetConversation(
+      'product-message'
+    );
+    assert(created.conversationId === conversationId, 'MessageService rejected a safe conversation id');
+    assert(
+      Object.keys(requests[0].data).join(',') === 'action,productId',
+      'createOrGetConversation sends fields other than action and productId'
+    );
+    assert(
+      requests[0].name === 'messageAction'
+      && requests[0].data.action === 'createOrGetConversation',
+      'createOrGetConversation does not call messageAction'
+    );
+
+    const conversationsResult = await MessageService.listConversations();
+    assert(conversationsResult.list.length === 1, 'MessageService did not normalize the conversation list');
+    assert(conversationsResult.list[0].unreadCount === 1, 'MessageService lost the unread count');
+    const conversation = await MessageService.getConversation(conversationId);
+    assert(conversation.otherUser.publicUserId === publicUserId, 'MessageService lost the safe other-user id');
+    const messagesResult = await MessageService.listMessages(conversationId);
+    assert(messagesResult.list[0].messageId === messageId, 'MessageService did not normalize message history');
+
+    const clientMessageId = 'msg_verification_0001';
+    const sent = await MessageService.sendTextMessage({
+      conversationId,
+      content: '  你好  ',
+      clientMessageId
+    });
+    assert(sent.message.content === '你好', 'MessageService did not trim outgoing text');
+    const sendRequest = requests.find((request) => (
+      request.data.action === 'sendTextMessage'
+    ));
+    assert(
+      sendRequest.data.clientMessageId === clientMessageId,
+      'MessageService dropped the message idempotency key'
+    );
+    assert(
+      !/openid|seller/i.test(JSON.stringify(requests)),
+      'MessageService sent an internal identity field'
+    );
+
+    const requestCount = requests.length;
+    let emptyError = null;
+    try {
+      await MessageService.sendTextMessage({
+        conversationId,
+        content: '   ',
+        clientMessageId: 'msg_verification_0002'
+      });
+    } catch (error) {
+      emptyError = error;
+    }
+    assert(emptyError && emptyError.code === 'MESSAGE_EMPTY', 'MessageService accepts empty text');
+    assert(requests.length === requestCount, 'MessageService sent an invalid empty message request');
+    await MessageService.markConversationRead(conversationId);
+
+    responseFailureCode = 'PRODUCT_UNAVAILABLE';
+    let businessError;
+    try {
+      await MessageService.createOrGetConversation('product-message');
+    } catch (error) {
+      businessError = error;
+    }
+    assert(
+      businessError && businessError.code === 'PRODUCT_UNAVAILABLE',
+      'MessageService does not preserve cloud business error codes'
+    );
+  } finally {
+    delete require.cache[require.resolve(servicePath)];
+    delete require.cache[require.resolve(cloudServicePath)];
+    if (originalWx === undefined) {
+      delete global.wx;
+    } else {
+      global.wx = originalWx;
+    }
+  }
+}
+
+async function verifyMessagingFunctionFlow() {
+  const crypto = require('crypto');
+  const actionPath = path.join(root, 'cloudfunctions/messageAction/index.js');
+  const queryPath = path.join(root, 'cloudfunctions/messageQuery/index.js');
+  const originalLoad = Module._load;
+  const stores = {
+    users: new Map(),
+    products: new Map(),
+    conversations: new Map(),
+    messages: new Map()
+  };
+  let currentOpenId = 'verification-buyer-openid';
+  const appId = 'verification-appid';
+  let serverTick = 0;
+
+  function userId(openId) {
+    return `u_${crypto
+      .createHash('sha256')
+      .update(`${appId}:${openId}`)
+      .digest('hex')
+      .slice(0, 32)}`;
+  }
+
+  function missingDocumentError(id) {
+    const error = new Error(
+      `document.get:fail document with _id ${id} does not exist`
+    );
+    error.code = -1;
+    return error;
+  }
+
+  function cloneRecord(record) {
+    return record ? { ...record } : record;
+  }
+
+  function createDocument(store, id) {
+    return {
+      async get() {
+        if (!store.has(id)) {
+          throw missingDocumentError(id);
+        }
+        return { data: cloneRecord(store.get(id)) };
+      },
+      async set({ data }) {
+        store.set(id, {
+          _id: id,
+          ...data
+        });
+        return { _id: id };
+      },
+      async update({ data }) {
+        if (!store.has(id)) {
+          throw missingDocumentError(id);
+        }
+        store.set(id, {
+          ...store.get(id),
+          ...data,
+          _id: id
+        });
+        return { updated: 1 };
+      }
+    };
+  }
+
+  function comparable(value) {
+    return value instanceof Date ? value.getTime() : value;
+  }
+
+  function matches(record, condition) {
+    if (!condition || typeof condition !== 'object') {
+      return true;
+    }
+    if (Array.isArray(condition.$or)) {
+      return condition.$or.some((item) => matches(record, item));
+    }
+    return Object.entries(condition).every(([key, expected]) => {
+      if (key === '$or') {
+        return expected.some((item) => matches(record, item));
+      }
+      const actual = record[key];
+      if (expected && typeof expected === 'object' && expected.__op) {
+        if (expected.__op === 'lt') {
+          return comparable(actual) < comparable(expected.value);
+        }
+        if (expected.__op === 'eq') {
+          return comparable(actual) === comparable(expected.value);
+        }
+      }
+      return comparable(actual) === comparable(expected);
+    });
+  }
+
+  function createQuery(store, condition = null) {
+    const orders = [];
+    let limitValue = Number.MAX_SAFE_INTEGER;
+    return {
+      where(nextCondition) {
+        return createQuery(store, nextCondition);
+      },
+      orderBy(field, direction) {
+        orders.push({ field, direction });
+        return this;
+      },
+      limit(value) {
+        limitValue = value;
+        return this;
+      },
+      async get() {
+        const data = [...store.values()]
+          .filter((record) => matches(record, condition))
+          .sort((left, right) => {
+            for (const order of orders) {
+              const leftValue = comparable(left[order.field]);
+              const rightValue = comparable(right[order.field]);
+              if (leftValue === rightValue) {
+                continue;
+              }
+              const compared = leftValue < rightValue ? -1 : 1;
+              return order.direction === 'desc' ? -compared : compared;
+            }
+            return 0;
+          })
+          .slice(0, limitValue)
+          .map(cloneRecord);
+        return { data };
+      }
+    };
+  }
+
+  function createCollection(name) {
+    const store = stores[name];
+    assert(store, `unexpected messaging collection ${name}`);
+    const query = createQuery(store);
+    return {
+      doc(id) {
+        return createDocument(store, id);
+      },
+      where: query.where.bind(query),
+      orderBy: query.orderBy.bind(query),
+      limit: query.limit.bind(query),
+      get: query.get.bind(query)
+    };
+  }
+
+  const database = {
+    command: {
+      or(conditions) {
+        return { $or: conditions };
+      },
+      lt(value) {
+        return { __op: 'lt', value };
+      },
+      eq(value) {
+        return { __op: 'eq', value };
+      }
+    },
+    collection: createCollection,
+    serverDate() {
+      serverTick += 1;
+      return new Date(Date.UTC(2026, 6, 19, 10, 0, serverTick));
+    },
+    async runTransaction(callback) {
+      return {
+        result: await callback({
+          collection: createCollection
+        })
+      };
+    }
+  };
+  const cloudMock = {
+    DYNAMIC_CURRENT_ENV: 'verification',
+    init() {},
+    database() {
+      return database;
+    },
+    getWXContext() {
+      return {
+        OPENID: currentOpenId,
+        APPID: appId
+      };
+    }
+  };
+
+  const buyerOpenId = currentOpenId;
+  const sellerOpenId = 'verification-seller-openid';
+  const attackerOpenId = 'verification-attacker-openid';
+  const buyerUserId = userId(buyerOpenId);
+  const sellerUserId = userId(sellerOpenId);
+  const attackerUserId = userId(attackerOpenId);
+  [
+    [buyerUserId, buyerOpenId, '买家'],
+    [sellerUserId, sellerOpenId, '卖家'],
+    [attackerUserId, attackerOpenId, '其他用户']
+  ].forEach(([id, openid, nickname]) => {
+    stores.users.set(id, {
+      _id: id,
+      openid,
+      nickname,
+      avatarUrl: '',
+      campus: '即出大学',
+      status: 'active'
+    });
+  });
+
+  function addProduct(
+    id,
+    ownerOpenId,
+    ownerUserId,
+    status = 'available',
+    options = {}
+  ) {
+    const product = {
+      _id: id,
+      title: `商品 ${id}`,
+      coverImage: '',
+      price: 12,
+      status,
+      sellerId: ownerUserId,
+      sellerName: '卖家',
+      sellerAvatar: ''
+    };
+    if (options.includeSellerOpenid !== false) {
+      product.sellerOpenid = ownerOpenId;
+    }
+    stores.products.set(id, product);
+  }
+  addProduct('product-message-1', sellerOpenId, sellerUserId);
+  addProduct('product-message-2', sellerOpenId, sellerUserId);
+  addProduct('product-message-concurrent', sellerOpenId, sellerUserId);
+  addProduct(
+    'product-message-legacy',
+    sellerOpenId,
+    sellerUserId,
+    'available',
+    { includeSellerOpenid: false }
+  );
+  addProduct(
+    'product-message-no-seller',
+    '',
+    '',
+    'available',
+    { includeSellerOpenid: false }
+  );
+  addProduct('product-own', buyerOpenId, buyerUserId);
+  addProduct('product-deleted', sellerOpenId, sellerUserId, 'deleted');
+  addProduct('product-offline', sellerOpenId, sellerUserId, 'offline');
+
+  Module._load = function loadWithCloudMock(request, parent, isMain) {
+    if (request === 'wx-server-sdk') {
+      return cloudMock;
+    }
+    return originalLoad(request, parent, isMain);
+  };
+
+  try {
+    delete require.cache[require.resolve(actionPath)];
+    delete require.cache[require.resolve(queryPath)];
+    const messageAction = require(actionPath);
+    const messageQuery = require(queryPath);
+
+    currentOpenId = '';
+    const loginRequired = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: { productId: 'product-message-1' }
+    });
+    assert(loginRequired.code === 'LOGIN_REQUIRED', 'unauthenticated conversation creation is allowed');
+    const queryLoginRequired = await messageQuery.main({
+      action: 'listConversations',
+      data: {}
+    });
+    assert(queryLoginRequired.code === 'LOGIN_REQUIRED', 'unauthenticated conversation query is allowed');
+
+    currentOpenId = buyerOpenId;
+    const missing = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: { productId: 'product-missing' }
+    });
+    assert(missing.code === 'PRODUCT_NOT_FOUND', 'missing product can create a conversation');
+    const own = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: { productId: 'product-own' }
+    });
+    assert(own.code === 'SELF_CONVERSATION_FORBIDDEN', 'own product can create a conversation');
+    const deleted = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: { productId: 'product-deleted' }
+    });
+    assert(
+      deleted.code === 'PRODUCT_UNAVAILABLE',
+      'deleted product is conflated with a missing product'
+    );
+    const offline = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: { productId: 'product-offline' }
+    });
+    assert(offline.code === 'PRODUCT_UNAVAILABLE', 'offline product can create a new conversation');
+
+    const created = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: {
+        productId: 'product-message-1',
+        sellerOpenid: attackerOpenId
+      }
+    });
+    assert(created.success === true, 'valid conversation creation failed');
+    const conversationId = created.data.conversationId;
+    assert(stores.conversations.size === 1, 'conversation was not persisted once');
+    const repeated = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: { productId: 'product-message-1' }
+    });
+    assert(
+      repeated.success === true
+      && repeated.data.conversationId === conversationId
+      && repeated.data.reused === true,
+      'repeat conversation creation is not idempotent'
+    );
+
+    const concurrentResults = await Promise.all([
+      messageAction.main({
+        action: 'createOrGetConversation',
+        data: { productId: 'product-message-concurrent' }
+      }),
+      messageAction.main({
+        action: 'createOrGetConversation',
+        data: { productId: 'product-message-concurrent' }
+      })
+    ]);
+    assert(
+      concurrentResults.every((result) => result.success)
+      && concurrentResults[0].data.conversationId
+        === concurrentResults[1].data.conversationId,
+      'concurrent conversation creation does not converge on one id'
+    );
+    assert(stores.conversations.size === 2, 'concurrent creation produced duplicate conversations');
+
+    const legacySeller = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: { productId: 'product-message-legacy' }
+    });
+    assert(
+      legacySeller.success === true
+      && legacySeller.code === 'OK',
+      'available product cannot resolve its trusted seller user'
+    );
+    const unavailableSeller = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: { productId: 'product-message-no-seller' }
+    });
+    assert(
+      unavailableSeller.code === 'PRODUCT_SELLER_UNAVAILABLE',
+      'missing seller identity is reported as a missing product'
+    );
+
+    const empty = await messageAction.main({
+      action: 'sendTextMessage',
+      data: {
+        conversationId,
+        content: '   ',
+        clientMessageId: 'msg_verification_empty'
+      }
+    });
+    assert(empty.code === 'MESSAGE_EMPTY', 'empty message is accepted');
+    const tooLong = await messageAction.main({
+      action: 'sendTextMessage',
+      data: {
+        conversationId,
+        content: '长'.repeat(501),
+        clientMessageId: 'msg_verification_long'
+      }
+    });
+    assert(tooLong.code === 'MESSAGE_TOO_LONG', 'overlong message is accepted');
+
+    const firstSend = await messageAction.main({
+      action: 'sendTextMessage',
+      data: {
+        conversationId,
+        content: '  你好  ',
+        clientMessageId: 'msg_verification_0001',
+        senderPublicUserId: attackerUserId
+      }
+    });
+    assert(firstSend.success === true, 'valid text message failed');
+    assert(firstSend.data.message.content === '你好', 'message content was not trimmed');
+    const repeatedSend = await messageAction.main({
+      action: 'sendTextMessage',
+      data: {
+        conversationId,
+        content: '你好',
+        clientMessageId: 'msg_verification_0001'
+      }
+    });
+    assert(
+      repeatedSend.success === true
+      && repeatedSend.data.reused === true
+      && stores.messages.size === 1,
+      'repeated clientMessageId duplicated a message'
+    );
+
+    let conversation = stores.conversations.get(conversationId);
+    const buyerSlot = conversation.participantAOpenid === buyerOpenId ? 'A' : 'B';
+    const sellerSlot = buyerSlot === 'A' ? 'B' : 'A';
+    assert(
+      conversation[`participant${sellerSlot}UnreadCount`] === 1
+      && conversation[`participant${buyerSlot}UnreadCount`] === 0,
+      'send did not increment only the recipient unread slot'
+    );
+    assert(
+      firstSend.data.message.senderPublicUserId === buyerUserId,
+      'message sender public id trusted a client field'
+    );
+
+    currentOpenId = attackerOpenId;
+    const forbiddenSend = await messageAction.main({
+      action: 'sendTextMessage',
+      data: {
+        conversationId,
+        content: '越权',
+        clientMessageId: 'msg_verification_attack'
+      }
+    });
+    assert(forbiddenSend.code === 'FORBIDDEN', 'non-participant can send messages');
+    const forbiddenConversation = await messageQuery.main({
+      action: 'getConversation',
+      data: { conversationId }
+    });
+    assert(forbiddenConversation.code === 'FORBIDDEN', 'non-participant can read a conversation');
+    const forbiddenMessages = await messageQuery.main({
+      action: 'listMessages',
+      data: { conversationId }
+    });
+    assert(forbiddenMessages.code === 'FORBIDDEN', 'non-participant can read messages');
+    const attackerList = await messageQuery.main({
+      action: 'listConversations',
+      data: {}
+    });
+    assert(
+      attackerList.success === true && attackerList.data.list.length === 0,
+      'conversation list leaked another user conversation'
+    );
+
+    currentOpenId = sellerOpenId;
+    const sellerSend = await messageAction.main({
+      action: 'sendTextMessage',
+      data: {
+        conversationId,
+        content: '还在的',
+        clientMessageId: 'msg_verification_0002'
+      }
+    });
+    assert(sellerSend.success === true && stores.messages.size === 2, 'second participant could not send');
+    conversation = stores.conversations.get(conversationId);
+    assert(
+      conversation[`participant${buyerSlot}UnreadCount`] === 1,
+      'second message did not increment buyer unread'
+    );
+    const marked = await messageAction.main({
+      action: 'markConversationRead',
+      data: { conversationId }
+    });
+    assert(marked.success === true, 'markRead failed');
+    conversation = stores.conversations.get(conversationId);
+    assert(
+      conversation[`participant${sellerSlot}UnreadCount`] === 0
+      && conversation[`participant${buyerSlot}UnreadCount`] === 1,
+      'markRead changed the other participant unread slot'
+    );
+    const repeatedMark = await messageAction.main({
+      action: 'markConversationRead',
+      data: { conversationId }
+    });
+    assert(repeatedMark.success === true, 'repeat markRead is not idempotent');
+
+    currentOpenId = buyerOpenId;
+    const secondConversation = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: { productId: 'product-message-2' }
+    });
+    assert(secondConversation.success === true, 'second conversation creation failed');
+    const firstConversationPage = await messageQuery.main({
+      action: 'listConversations',
+      data: { pageSize: 1 }
+    });
+    assert(
+      firstConversationPage.success === true
+      && firstConversationPage.data.list.length === 1
+      && firstConversationPage.data.hasMore === true
+      && firstConversationPage.data.nextCursor,
+      'conversation cursor first page is invalid'
+    );
+    const secondConversationPage = await messageQuery.main({
+      action: 'listConversations',
+      data: {
+        pageSize: 1,
+        cursor: firstConversationPage.data.nextCursor
+      }
+    });
+    assert(
+      secondConversationPage.success === true
+      && secondConversationPage.data.list.length === 1
+      && secondConversationPage.data.list[0].conversationId
+        !== firstConversationPage.data.list[0].conversationId,
+      'conversation cursor pagination duplicated an item'
+    );
+
+    const safeConversationResult = await messageQuery.main({
+      action: 'getConversation',
+      data: { conversationId }
+    });
+    assert(safeConversationResult.success === true, 'participant cannot read conversation');
+    const messagePageOne = await messageQuery.main({
+      action: 'listMessages',
+      data: {
+        conversationId,
+        pageSize: 1
+      }
+    });
+    const messagePageTwo = await messageQuery.main({
+      action: 'listMessages',
+      data: {
+        conversationId,
+        pageSize: 1,
+        cursor: messagePageOne.data.nextCursor
+      }
+    });
+    assert(
+      messagePageOne.data.list.length === 1
+      && messagePageTwo.data.list.length === 1
+      && messagePageOne.data.list[0].messageId
+        !== messagePageTwo.data.list[0].messageId,
+      'message cursor pagination duplicated an item'
+    );
+    const safePayload = JSON.stringify({
+      conversation: safeConversationResult,
+      messages: messagePageOne
+    });
+    assert(
+      !safePayload.includes(buyerOpenId)
+      && !safePayload.includes(sellerOpenId)
+      && !/"senderOpenid"|"participantAOpenid"|"participantBOpenid"/.test(safePayload),
+      'messaging response leaked an internal identity'
+    );
+
+    stores.products.get('product-message-1').status = 'sold';
+    const soldConversationSend = await messageAction.main({
+      action: 'sendTextMessage',
+      data: {
+        conversationId,
+        content: '已售会话继续',
+        clientMessageId: 'msg_verification_0003'
+      }
+    });
+    assert(soldConversationSend.success === true, 'existing sold-product conversation cannot continue');
+    stores.products.get('product-message-1').status = 'deleted';
+    const deletedConversationSend = await messageAction.main({
+      action: 'sendTextMessage',
+      data: {
+        conversationId,
+        content: '删除后发送',
+        clientMessageId: 'msg_verification_0004'
+      }
+    });
+    assert(
+      deletedConversationSend.code === 'PRODUCT_UNAVAILABLE',
+      'deleted-product conversation still accepts new messages'
+    );
+
+    const invalidAction = await messageAction.main({
+      action: 'invalidAction',
+      data: {}
+    });
+    const invalidQuery = await messageQuery.main({
+      action: 'invalidAction',
+      data: {}
+    });
+    assert(
+      invalidAction.code === 'INVALID_ACTION'
+      && invalidQuery.code === 'INVALID_ACTION',
+      'messaging cloud functions accept an invalid action'
+    );
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[require.resolve(actionPath)];
+    delete require.cache[require.resolve(queryPath)];
+  }
+}
+
+async function verifyAuthUserFunctionFlow() {
+  const functionPath = path.join(root, 'cloudfunctions/authUser/index.js');
+  const originalLoad = Module._load;
+  const users = new Map();
+  let activeIdentity = {
+    OPENID: 'openid-user-a',
+    APPID: 'app-verification'
+  };
+  const database = {
+    collection(name) {
+      assert(name === 'users', 'authUser accessed an unexpected collection');
+      return {
+        where(condition) {
+          return {
+            limit() {
+              return {
+                async get() {
+                  const record = users.get(condition._id);
+                  return {
+                    data: record ? [{ ...record }] : []
+                  };
+                }
+              };
+            }
+          };
+        },
+        doc(id) {
+          return {
+            async set({ data }) {
+              users.set(id, {
+                ...data,
+                _id: id
+              });
+            },
+            async update({ data }) {
+              const existing = users.get(id);
+              if (!existing) {
+                throw new Error('document does not exist');
+              }
+              users.set(id, {
+                ...existing,
+                ...data,
+                _id: id
+              });
+            }
+          };
+        }
+      };
+    },
+    serverDate() {
+      return new Date('2026-07-23T08:00:00.000Z');
+    }
+  };
+  const cloudMock = {
+    DYNAMIC_CURRENT_ENV: 'dynamic',
+    init() {},
+    database() {
+      return database;
+    },
+    getWXContext() {
+      return { ...activeIdentity };
+    }
+  };
+
+  Module._load = function loadWithCloudMock(request, parent, isMain) {
+    if (request === 'wx-server-sdk') {
+      return cloudMock;
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+  delete require.cache[require.resolve(functionPath)];
+
+  try {
+    const authUser = require(functionPath);
+    const beforeLogin = await authUser.main({
+      action: 'current'
+    });
+    assert(
+      beforeLogin.success === false
+      && beforeLogin.code === 'USER_NOT_FOUND',
+      'unregistered identity received a virtual user'
+    );
+
+    const invalidNickname = await authUser.main({
+      action: 'login',
+      data: {
+        profile: {
+          nickname: '   '
+        }
+      }
+    });
+    assert(
+      invalidNickname.code === 'INVALID_NICKNAME'
+      && users.size === 0,
+      'empty nickname created a user'
+    );
+
+    const firstLogin = await authUser.main({
+      action: 'login',
+      OPENID: 'forged-root-openid',
+      data: {
+        profile: {
+          nickname: '用户甲',
+          campus: '第一大学',
+          openid: 'forged-profile-openid',
+          publicUserId: 'u_forged'
+        }
+      }
+    });
+    assert(firstLogin.success === true, 'first real identity login failed');
+    assert(users.size === 1, 'first login did not create exactly one user');
+    const userAId = firstLogin.data.user.publicUserId;
+    const storedUserA = users.get(userAId);
+    assert(
+      storedUserA
+      && storedUserA.openid === activeIdentity.OPENID,
+      'authUser trusted a client identity instead of getWXContext'
+    );
+    assert(
+      firstLogin.data.user.id === userAId
+      && firstLogin.data.user.profileCompleted === false,
+      'first login safe user or profile state is incorrect'
+    );
+
+    const repeatedLogin = await authUser.main({
+      action: 'login',
+      data: {
+        profile: {
+          nickname: '用户甲',
+          campus: '第一大学'
+        }
+      }
+    });
+    assert(
+      repeatedLogin.success === true
+      && repeatedLogin.data.user.publicUserId === userAId
+      && users.size === 1,
+      'repeated login created a second user or changed publicUserId'
+    );
+
+    activeIdentity = {
+      OPENID: 'openid-user-b',
+      APPID: 'app-verification'
+    };
+    const userBLogin = await authUser.main({
+      action: 'login',
+      data: {
+        profile: {
+          nickname: '用户乙',
+          campus: ''
+        }
+      }
+    });
+    const userBId = userBLogin.data.user.publicUserId;
+    assert(
+      userBLogin.success === true
+      && users.size === 2
+      && userBId !== userAId
+      && users.get(userBId).openid !== users.get(userAId).openid,
+      'different real identities did not create distinct public users'
+    );
+
+    activeIdentity = {
+      OPENID: 'openid-user-concurrent',
+      APPID: 'app-verification'
+    };
+    const concurrentResults = await Promise.all([
+      authUser.main({
+        action: 'login',
+        data: {
+          profile: {
+            nickname: '并发用户',
+            campus: ''
+          }
+        }
+      }),
+      authUser.main({
+        action: 'login',
+        data: {
+          profile: {
+            nickname: '并发用户',
+            campus: ''
+          }
+        }
+      })
+    ]);
+    assert(
+      concurrentResults.every((result) => result.success)
+      && concurrentResults[0].data.user.publicUserId
+        === concurrentResults[1].data.user.publicUserId
+      && users.size === 3,
+      'concurrent first login created duplicate users'
+    );
+
+    activeIdentity = {
+      OPENID: 'openid-user-a',
+      APPID: 'app-verification'
+    };
+    const invalidAvatar = await authUser.main({
+      action: 'updateProfile',
+      data: {
+        profile: {
+          nickname: '用户甲',
+          campus: '第一大学',
+          avatarUrl: `cloud://test.bucket/avatars/${userBId}/20260723/avatar.jpg`
+        }
+      }
+    });
+    assert(
+      invalidAvatar.code === 'INVALID_AVATAR',
+      'profile update accepted another user avatar path'
+    );
+
+    const overlongNickname = await authUser.main({
+      action: 'updateProfile',
+      data: {
+        profile: {
+          nickname: '超'.repeat(21),
+          campus: '',
+          avatarUrl: `cloud://test.bucket/avatars/${userAId}/20260723/avatar.jpg`
+        }
+      }
+    });
+    assert(
+      overlongNickname.code === 'INVALID_NICKNAME',
+      'profile update accepted an overlong nickname'
+    );
+
+    const updateA = await authUser.main({
+      action: 'updateProfile',
+      data: {
+        profile: {
+          nickname: '真实用户甲',
+          campus: '第一大学',
+          avatarUrl: `cloud://test.bucket/avatars/${userAId}/20260723/avatar.jpg`,
+          publicUserId: userBId,
+          openid: 'forged-openid'
+        }
+      }
+    });
+    assert(
+      updateA.success === true
+      && updateA.data.user.publicUserId === userAId
+      && updateA.data.user.profileCompleted === true
+      && users.get(userAId).nickname === '真实用户甲',
+      'updateProfile did not update the current real user'
+    );
+
+    activeIdentity = {
+      OPENID: 'openid-user-b',
+      APPID: 'app-verification'
+    };
+    const victimNickname = users.get(userAId).nickname;
+    const updateB = await authUser.main({
+      action: 'updateProfile',
+      data: {
+        profile: {
+          nickname: '真实用户乙',
+          campus: '',
+          avatarUrl: `cloud://test.bucket/avatars/${userBId}/20260723/avatar.png`,
+          publicUserId: userAId
+        }
+      }
+    });
+    assert(
+      updateB.success === true
+      && updateB.data.user.publicUserId === userBId
+      && users.get(userAId).nickname === victimNickname,
+      'updateProfile modified a client-selected public user'
+    );
+
+    const currentB = await authUser.main({
+      action: 'current'
+    });
+    assert(
+      currentB.success === true
+      && currentB.data.user.publicUserId === userBId,
+      'current did not restore the existing real user'
+    );
+    const safePayload = JSON.stringify({
+      firstLogin,
+      updateA,
+      currentB
+    });
+    assert(
+      !safePayload.includes('openid-user-a')
+      && !safePayload.includes('openid-user-b')
+      && !/"(?:openid|OPENID|_openid|sellerOpenid|senderOpenid|participantAOpenid|participantBOpenid)"/.test(safePayload),
+      'authUser response leaked an internal identity'
+    );
+
+    const invalidAction = await authUser.main({
+      action: 'invalidAction'
+    });
+    assert(
+      invalidAction.code === 'INVALID_ACTION',
+      'authUser accepted an invalid action'
+    );
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[require.resolve(functionPath)];
+  }
+}
+
+async function verifyAvatarServiceFlow() {
+  const servicePath = path.join(root, 'services/avatar-service.js');
+  const originalWx = global.wx;
+  const uploadedPaths = [];
+  let fileSize = 1024;
+  let imageType = 'jpeg';
+
+  global.wx = {
+    getFileSystemManager() {
+      return {
+        getFileInfo({ success }) {
+          success({
+            size: fileSize
+          });
+        }
+      };
+    },
+    getImageInfo({ success }) {
+      success({
+        type: imageType,
+        width: 200,
+        height: 200
+      });
+    },
+    cloud: {
+      init() {},
+      uploadFile({ cloudPath, success }) {
+        uploadedPaths.push(cloudPath);
+        success({
+          fileID: `cloud://test.bucket/${cloudPath}`
+        });
+        return {
+          abort() {}
+        };
+      }
+    }
+  };
+  delete require.cache[require.resolve(servicePath)];
+
+  try {
+    const AvatarService = require(servicePath);
+    const userId = `u_${'a'.repeat(32)}`;
+    const fileID = await AvatarService.uploadAvatar({
+      tempFilePath: 'wxfile://chosen-avatar',
+      userId
+    });
+    assert(
+      fileID.startsWith(`cloud://test.bucket/avatars/${userId}/`)
+      && uploadedPaths.length === 1,
+      'avatar was not uploaded to the current user path'
+    );
+
+    fileSize = 6 * 1024 * 1024;
+    let oversizeError;
+    try {
+      await AvatarService.uploadAvatar({
+        tempFilePath: 'wxfile://oversize-avatar',
+        userId
+      });
+    } catch (error) {
+      oversizeError = error;
+    }
+    assert(
+      oversizeError && oversizeError.code === 'AVATAR_TOO_LARGE',
+      'oversized avatar was accepted'
+    );
+
+    fileSize = 1024;
+    imageType = 'svg';
+    let typeError;
+    try {
+      await AvatarService.uploadAvatar({
+        tempFilePath: 'wxfile://unsafe-avatar',
+        userId
+      });
+    } catch (error) {
+      typeError = error;
+    }
+    assert(
+      typeError && typeError.code === 'INVALID_AVATAR',
+      'unsupported avatar type was accepted'
+    );
+  } finally {
+    delete require.cache[require.resolve(servicePath)];
+    if (originalWx === undefined) {
+      delete global.wx;
+    } else {
+      global.wx = originalWx;
+    }
+  }
+}
+
 async function verifyAuthStateFlow() {
   const AuthService = require(path.join(root, 'services/auth-service'));
   const AuthStore = require(path.join(root, 'store/auth-store'));
   const originalWx = global.wx;
   const originalGetCurrentUser = AuthService.getCurrentUser;
   const originalLogin = AuthService.login;
+  const originalUpdateProfile = AuthService.updateProfile;
   const storage = new Map();
 
   global.wx = {
@@ -3417,14 +4923,14 @@ async function verifyAuthStateFlow() {
 
   const restoredUser = {
     id: 'u_restored',
-    nickname: '微信用户',
-    avatarUrl: '',
-    avatarText: '微',
+    nickname: '恢复用户',
+    avatarUrl: 'cloud://test.bucket/avatars/u_restored/20260723/avatar.jpg',
+    avatarText: '恢',
     campus: '',
     bio: '',
     role: 'user',
     status: 'active',
-    profileCompleted: false,
+    profileCompleted: true,
     createdAt: '',
     updatedAt: '',
     lastLoginAt: ''
@@ -3433,7 +4939,9 @@ async function verifyAuthStateFlow() {
     ...restoredUser,
     id: 'u_login',
     nickname: '登录用户',
-    avatarText: '登'
+    avatarText: '登',
+    avatarUrl: 'cloud://test.bucket/avatars/u_login/20260723/avatar.jpg',
+    profileCompleted: true
   };
 
   try {
@@ -3459,17 +4967,51 @@ async function verifyAuthStateFlow() {
 
     AuthStore.logout();
     let loginCalls = 0;
-    AuthService.login = async () => {
+    AuthService.login = async (profile) => {
       loginCalls += 1;
+      assert(profile.nickname === '登录用户', 'AuthStore dropped the submitted profile');
       return loginUser;
     };
-    const firstLogin = AuthStore.login();
-    const secondLogin = AuthStore.login();
+    const loginProfile = {
+      nickname: '登录用户',
+      campus: ''
+    };
+    const firstLogin = AuthStore.login(loginProfile);
+    const secondLogin = AuthStore.login(loginProfile);
     assert(firstLogin === secondLogin, 'login does not reuse the active promise');
     await firstLogin;
     await Promise.resolve();
     assert(loginCalls === 1, 'duplicate login triggered multiple service calls');
     assert(AuthStore.getCurrentUser().id === loginUser.id, 'login user was not stored');
+
+    const updatedUser = {
+      ...loginUser,
+      nickname: '更新用户',
+      avatarText: '更'
+    };
+    let updateCalls = 0;
+    AuthService.updateProfile = async () => {
+      updateCalls += 1;
+      return updatedUser;
+    };
+    const firstUpdate = AuthStore.updateProfile({
+      nickname: '更新用户',
+      avatarUrl: updatedUser.avatarUrl,
+      campus: ''
+    });
+    const secondUpdate = AuthStore.updateProfile({
+      nickname: '更新用户',
+      avatarUrl: updatedUser.avatarUrl,
+      campus: ''
+    });
+    assert(firstUpdate === secondUpdate, 'profile update does not reuse the active promise');
+    await firstUpdate;
+    await Promise.resolve();
+    assert(
+      updateCalls === 1
+      && AuthStore.getCurrentUser().nickname === '更新用户',
+      'profile update did not refresh AuthStore'
+    );
 
     AuthStore.logout();
     let resolveStaleCurrent;
@@ -3478,7 +5020,7 @@ async function verifyAuthStateFlow() {
     });
     const staleBootstrap = AuthStore.bootstrap({ force: true });
     AuthService.login = async () => loginUser;
-    await AuthStore.login();
+    await AuthStore.login(loginProfile);
     resolveStaleCurrent(restoredUser);
     await staleBootstrap;
     assert(
@@ -3492,6 +5034,7 @@ async function verifyAuthStateFlow() {
   } finally {
     AuthService.getCurrentUser = originalGetCurrentUser;
     AuthService.login = originalLogin;
+    AuthService.updateProfile = originalUpdateProfile;
     AuthStore.logout();
     if (originalWx === undefined) {
       delete global.wx;
@@ -3534,8 +5077,18 @@ async function runAsyncChecks() {
   checks.push('PASS favoriteProduct transactions, idempotency, status rules, pagination and privacy flow');
   await verifyUserQueryFunctionFlow();
   checks.push('PASS userQuery public profile whitelist, safe id and available-product pagination flow');
+  await verifyCloudServiceFlow();
+  checks.push('PASS centralized cloud initialization, retry, concurrency and transport error classification');
+  await verifyMessageServiceFlow();
+  checks.push('PASS MessageService payload, normalization, validation and identity boundaries');
+  await verifyMessagingFunctionFlow();
+  checks.push('PASS messaging identity, permissions, idempotency, unread counts, cursors and privacy flow');
+  await verifyAuthUserFunctionFlow();
+  checks.push('PASS authUser real identities, unique users, profile validation, updates and privacy flow');
+  await verifyAvatarServiceFlow();
+  checks.push('PASS AvatarService decoding, size, type and user-scoped upload flow');
   await verifyAuthStateFlow();
-  checks.push('PASS AuthStore bootstrap, login, cache, concurrency and logout flow');
+  checks.push('PASS AuthStore bootstrap, login, profile update, cache, concurrency and logout flow');
 }
 
 runAsyncChecks()

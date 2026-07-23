@@ -22,6 +22,10 @@
   font-weight: 700;
 }
 
+.avatar-image {
+  display: block;
+}
+
 .profile-copy {
   min-width: 0;
   display: flex;
@@ -238,14 +242,24 @@
   font-size: 22rpx;
 }
 
+.profile-edit-button,
 .logout-button {
   height: 72rpx;
   margin-top: 24rpx;
   border-radius: 18rpx;
-  background: #fff1ee;
-  color: #c05442;
   font-size: 25rpx;
   line-height: 72rpx;
+}
+
+.profile-edit-button {
+  background: #eaf7f1;
+  color: #13865a;
+}
+
+.logout-button {
+  margin-top: 14rpx;
+  background: #fff1ee;
+  color: #c05442;
 }
 
 .safety-note {

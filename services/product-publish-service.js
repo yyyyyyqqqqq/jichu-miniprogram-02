@@ -1,4 +1,5 @@
 const { CLOUD_CONFIG } = require('../config/cloud');
+const CloudService = require('./cloud-service');
 const {
   PRODUCT_PUBLISH_LIMITS,
   PRODUCT_CONDITIONS,
@@ -340,13 +341,14 @@ function mapTransportError(error, fallbackCode) {
   return createError(fallbackCode || 'UNKNOWN_ERROR');
 }
 
-function uploadSingleImage(tempFilePath, cloudPath) {
-  if (
-    typeof wx === 'undefined'
-    || !wx.cloud
-    || typeof wx.cloud.uploadFile !== 'function'
-  ) {
-    return Promise.reject(createError('CLOUD_NOT_READY'));
+async function uploadSingleImage(tempFilePath, cloudPath) {
+  try {
+    await CloudService.ensureCloudReady();
+  } catch (error) {
+    throw createError('CLOUD_NOT_READY');
+  }
+  if (typeof wx.cloud.uploadFile !== 'function') {
+    throw createError('CLOUD_NOT_READY');
   }
 
   let timeoutId;
@@ -458,10 +460,13 @@ function normalizeCloudFileIds(value, userId) {
 
 async function deleteCloudFiles(fileIDs, userId) {
   const safeFileIDs = normalizeCloudFileIds(fileIDs, userId);
+  try {
+    await CloudService.ensureCloudReady();
+  } catch (error) {
+    return false;
+  }
   if (
     safeFileIDs.length === 0
-    || typeof wx === 'undefined'
-    || !wx.cloud
     || typeof wx.cloud.deleteFile !== 'function'
   ) {
     return false;
@@ -501,13 +506,14 @@ async function deleteCloudFiles(fileIDs, userId) {
   }
 }
 
-function callCreateProduct(data) {
-  if (
-    typeof wx === 'undefined'
-    || !wx.cloud
-    || typeof wx.cloud.callFunction !== 'function'
-  ) {
-    return Promise.reject(createError('CLOUD_NOT_READY'));
+async function callCreateProduct(data) {
+  try {
+    await CloudService.ensureCloudReady();
+  } catch (error) {
+    throw createError('CLOUD_NOT_READY');
+  }
+  if (typeof wx.cloud.callFunction !== 'function') {
+    throw createError('CLOUD_NOT_READY');
   }
 
   let timeoutId;
