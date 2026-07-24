@@ -4,7 +4,7 @@
 
 项目：即出——校园闲置物品线下面交微信小程序
 
-云环境：`cloud1-d9gpdpv6p2db56d8e`
+云环境：`YOUR_CLOUDBASE_ENV_ID`
 
 ## 1. 功能范围
 

@@ -47,7 +47,7 @@
     "disableUseStrict": false,
     "useCompilerPlugins": false
   },
-  "appid": "wx5e54edaf5c80418c",
+  "appid": "YOUR_WECHAT_APP_ID",
   "projectname": "jichu-miniprogram-02",
   "libVersion": "3.7.3",
   "cloudfunctionRoot": "cloudfunctions/",

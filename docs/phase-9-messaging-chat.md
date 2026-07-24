@@ -439,7 +439,7 @@ Verification succeeded: 51 checks passed.
 - 当时 `npm run verify`：`Verification succeeded: 48 checks passed.`；阶段 9 最终收尾已扩展为 51 项并全部通过。
 - 覆盖真实可用商品、本人商品、缺失商品、删除商品、下架/售出商品、旧商品卖家身份补齐、卖家身份不可用、重复及并发创建等路径。
 - 全部 50 个 JavaScript 文件通过语法解析。
-- `messageAction` 已于 2026-07-19 20:29:05 更新至 `cloud1-d9gpdpv6p2db56d8e`，云端状态为“部署完成”。
+- `messageAction` 已于阶段 9 修复时更新至配置的云环境，云端状态为“部署完成”。
 - `productQuery/detail(product-009)` 只读实测返回 `success: true`、`status: available`。
 - 本节描述的是 `27.md` 修复当时尚未创建正式会话的历史状态；后续 `29.md` 和最终联合验收已经完成真实会话创建、复用与双向消息验证。
 

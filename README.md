@@ -101,19 +101,32 @@
 ## 使用微信开发者工具导入
 
 1. 打开微信开发者工具，选择“导入项目”。
-2. 项目目录选择 `D:\codex\jichu mini program02`。
-3. 工具会读取 `project.config.json` 中现有 AppID：`wx5e54edaf5c80418c`。
-4. 确认当前账号有该 AppID 权限；如无权限，请在开发者工具导入界面选择本人有权限的 AppID，不要把私有配置提交到仓库。
+2. 项目目录选择本地克隆目录 `<PROJECT_ROOT>`。
+3. 将 `project.config.json` 中的 `YOUR_WECHAT_APP_ID` 替换为开发者自己的小程序 AppID，或使用不提交到仓库的本地私有配置。
+4. 确认当前账号有该 AppID 权限；不要把私有配置、真实凭据或本机路径提交到仓库。
 5. 按下方说明准备 `products` 集合并部署 `productQuery` 与 `createProduct`。
 6. 点击“编译”，首页应显示来自云数据库的商品列表。
 
 ## 云开发配置
 
-当前项目使用云环境：
+部署前，将以下占位符替换为开发者自己的云环境 ID：
 
 ```text
-cloud1-d9gpdpv6p2db56d8e
+YOUR_CLOUDBASE_ENV_ID
 ```
+
+### 本地配置与隐私
+
+公开仓库只保留可复用占位符：
+
+```text
+YOUR_WECHAT_APP_ID
+YOUR_CLOUDBASE_ENV_ID
+<PROJECT_ROOT>
+<WECHAT_DEVTOOLS_CLI_PATH>
+```
+
+真实 AppID、云环境 ID、本机路径和私有配置只应保存在本地。`project.private.config.json`、`.env*`、依赖目录、临时部署产物、数据库导出、诊断日志、私有截图、用户数据目录和编号内部交接文档均由 `.gitignore` 排除。不要提交 AppSecret、SecretId、SecretKey、访问令牌、私钥、完整 OPENID 或生产用户数据。
 
 认证云函数（`login`、`current`、`updateProfile`）：
 
@@ -137,34 +150,38 @@ cloudfunctions/createProduct
 
 首次登录前，请在云开发控制台创建 `users` 集合。建议关闭客户端直接读写，仅允许云函数访问。
 
-部署云函数：
+以下 PowerShell 模板不绑定任何生产环境或本机路径：
 
 ```powershell
-& "D:\program\微信web开发者工具\cli.bat" cloud functions deploy `
-  --env "cloud1-d9gpdpv6p2db56d8e" `
-  --paths "D:\codex\jichu mini program02\cloudfunctions\authUser" `
+$PROJECT_ROOT = "<PROJECT_ROOT>"
+$WECHAT_DEVTOOLS_CLI_PATH = "<WECHAT_DEVTOOLS_CLI_PATH>"
+$CLOUDBASE_ENV_ID = "YOUR_CLOUDBASE_ENV_ID"
+
+& $WECHAT_DEVTOOLS_CLI_PATH cloud functions deploy `
+  --env $CLOUDBASE_ENV_ID `
+  --paths "$PROJECT_ROOT\cloudfunctions\authUser" `
   --remote-npm-install `
-  --project "D:\codex\jichu mini program02"
+  --project $PROJECT_ROOT
 ```
 
 部署商品查询云函数：
 
 ```powershell
-& "D:\program\微信web开发者工具\cli.bat" cloud functions deploy `
-  --env "cloud1-d9gpdpv6p2db56d8e" `
-  --paths "D:\codex\jichu mini program02\cloudfunctions\productQuery" `
+& $WECHAT_DEVTOOLS_CLI_PATH cloud functions deploy `
+  --env $CLOUDBASE_ENV_ID `
+  --paths "$PROJECT_ROOT\cloudfunctions\productQuery" `
   --remote-npm-install `
-  --project "D:\codex\jichu mini program02"
+  --project $PROJECT_ROOT
 ```
 
 部署商品发布云函数：
 
 ```powershell
-& "D:\program\微信web开发者工具\cli.bat" cloud functions deploy `
-  --env "cloud1-d9gpdpv6p2db56d8e" `
-  --paths "D:\codex\jichu mini program02\cloudfunctions\createProduct" `
+& $WECHAT_DEVTOOLS_CLI_PATH cloud functions deploy `
+  --env $CLOUDBASE_ENV_ID `
+  --paths "$PROJECT_ROOT\cloudfunctions\createProduct" `
   --remote-npm-install `
-  --project "D:\codex\jichu mini program02"
+  --project $PROJECT_ROOT
 ```
 
 集合创建、权限、索引、测试数据初始化与验证步骤见：

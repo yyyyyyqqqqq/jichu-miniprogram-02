@@ -1,5 +1,5 @@
 const CLOUD_CONFIG = {
-  environmentId: 'cloud1-d9gpdpv6p2db56d8e',
+  environmentId: 'YOUR_CLOUDBASE_ENV_ID',
   authFunctionName: 'authUser',
   authTimeoutMs: 15000,
   avatarImageValidationTimeoutMs: 5000,

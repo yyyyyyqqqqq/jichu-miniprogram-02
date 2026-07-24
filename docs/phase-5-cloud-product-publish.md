@@ -6,7 +6,7 @@
 2. 确认当前环境为：
 
 ```text
-cloud1-d9gpdpv6p2db56d8e
+YOUR_CLOUDBASE_ENV_ID
 ```
 
 3. 确认 `users`、`products` 集合仍存在。
@@ -22,17 +22,17 @@ cloud1-d9gpdpv6p2db56d8e
 1. 在文件树中找到 `cloudfunctions/createProduct`。
 2. 右键目录。
 3. 选择“上传并部署：云端安装依赖”。
-4. 环境选择 `cloud1-d9gpdpv6p2db56d8e`。
+4. 环境选择 `YOUR_CLOUDBASE_ENV_ID`。
 5. 等待云函数状态变为 `Active`。
 
 ### CLI
 
 ```powershell
-& "D:\program\微信web开发者工具\cli.bat" cloud functions deploy `
-  --env "cloud1-d9gpdpv6p2db56d8e" `
-  --paths "D:\codex\jichu mini program02\cloudfunctions\createProduct" `
+& "<WECHAT_DEVTOOLS_CLI_PATH>" cloud functions deploy `
+  --env "YOUR_CLOUDBASE_ENV_ID" `
+  --paths "<PROJECT_ROOT>\cloudfunctions\createProduct" `
   --remote-npm-install `
-  --project "D:\codex\jichu mini program02"
+  --project "<PROJECT_ROOT>"
 ```
 
 正常结果：云函数列表出现 `createProduct`，状态为 `Active`。

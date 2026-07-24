@@ -4,7 +4,7 @@
 
 项目：即出——校园闲置物品线下面交微信小程序
 
-云环境：`cloud1-d9gpdpv6p2db56d8e`
+云环境：`YOUR_CLOUDBASE_ENV_ID`
 
 ## 1. 使用边界
 
@@ -50,7 +50,7 @@
 - 触发条件：云端误将 `PRODUCT_SEED_ENABLED` 设置为 `true`，调用者提交固定确认字符串。
 - 影响：任意调用者可能覆盖固定测试商品文档。
 - 修复：生产云函数仅保留 `list` 和 `detail`；删除 `seed` action 和随函数部署的种子文件。
-- 状态：源码已修复并部署到 `cloud1-d9gpdpv6p2db56d8e`，云函数状态为 `Active`。
+- 状态：源码已修复并部署到配置的云环境，云函数状态为 `Active`。
 - 验证：自动测试和真实云端调用均确认 `seed` 返回 `INVALID_ACTION`；云端下载包与本地源码哈希一致，且不包含 `seed-products.js`。
 
 #### 数据库和云存储权限
@@ -152,7 +152,7 @@ publishRequestId
 - 孤儿文件清理失败数量；
 - 不包含完整异常对象、请求对象、用户对象、商品对象、OPENID、临时图片路径或完整 fileID。
 
-仓库中未发现 AppSecret、Access Token、密码、测试账号或硬编码 OPENID。AppID 和云环境 ID 属于项目公开配置，不是 AppSecret。
+仓库中未发现 AppSecret、Access Token、密码、测试账号或硬编码真实 OPENID。AppID 和云环境 ID 虽不属于凭据，公开仓库仍统一使用 `YOUR_WECHAT_APP_ID` 与 `YOUR_CLOUDBASE_ENV_ID` 占位符，真实值只保留在不提交的本地配置中。
 
 ## 5. 数据库权限
 
@@ -256,7 +256,7 @@ cloudfunctions/createProduct
 `productQuery` 和 `createProduct` 的第六阶段源码已部署到：
 
 ```text
-cloud1-d9gpdpv6p2db56d8e
+YOUR_CLOUDBASE_ENV_ID
 ```
 
 当前最终只读查询结果：
@@ -439,7 +439,7 @@ phase6-profile.png
 
 ### A. 云端安全
 
-1. 确认环境为 `cloud1-d9gpdpv6p2db56d8e`。
+1. 确认环境为 `YOUR_CLOUDBASE_ENV_ID`。
 2. 确认四个云函数均 `Active`。
 3. 确认 `productQuery` 和 `createProduct` 已部署本阶段源码。
 4. 调用 `productQuery` 的 `seed` action，确认返回 `INVALID_ACTION`，且数据库没有变化。

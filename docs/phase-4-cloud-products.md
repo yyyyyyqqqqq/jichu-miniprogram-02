@@ -6,7 +6,7 @@
 2. 在云开发控制台左上角确认当前环境为：
 
 ```text
-cloud1-d9gpdpv6p2db56d8e
+YOUR_CLOUDBASE_ENV_ID
 ```
 
 3. 如果环境不一致，先切换环境，不要在其他环境创建集合或部署函数。
@@ -59,17 +59,17 @@ products
 1. 在项目文件树中找到 `cloudfunctions/productQuery`。
 2. 右键该目录。
 3. 选择“上传并部署：云端安装依赖”。
-4. 环境选择 `cloud1-d9gpdpv6p2db56d8e`。
+4. 环境选择 `YOUR_CLOUDBASE_ENV_ID`。
 5. 等待部署完成。
 
 ### CLI
 
 ```powershell
-& "D:\program\微信web开发者工具\cli.bat" cloud functions deploy `
-  --env "cloud1-d9gpdpv6p2db56d8e" `
-  --paths "D:\codex\jichu mini program02\cloudfunctions\productQuery" `
+& "<WECHAT_DEVTOOLS_CLI_PATH>" cloud functions deploy `
+  --env "YOUR_CLOUDBASE_ENV_ID" `
+  --paths "<PROJECT_ROOT>\cloudfunctions\productQuery" `
   --remote-npm-install `
-  --project "D:\codex\jichu mini program02"
+  --project "<PROJECT_ROOT>"
 ```
 
 正常结果：云函数列表出现 `productQuery`，状态为 `Active`。

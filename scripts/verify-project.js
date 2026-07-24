@@ -274,8 +274,12 @@ record('forbidden client APIs, secrets and dependencies are absent', () => {
 
   for (const file of sourceFiles) {
     const source = readText(file);
+    const auditableSource = source.replace(/YOUR_CLOUDBASE_ENV_ID/g, '');
     for (const forbidden of forbiddenPatterns) {
-      assert(!forbidden.pattern.test(source), `${relative(file)} contains ${forbidden.label}`);
+      assert(
+        !forbidden.pattern.test(auditableSource),
+        `${relative(file)} contains ${forbidden.label}`
+      );
     }
   }
 
@@ -1927,7 +1931,7 @@ async function verifyProductEditServiceFlow() {
       location: '实验楼大厅'
     };
     const localImage = {
-      tempFilePath: 'C:\\temp\\edit-new.jpg',
+      tempFilePath: '<TEMP_ROOT>\\edit-new.jpg',
       size: 1024,
       fileType: 'image'
     };
@@ -2765,12 +2769,12 @@ async function verifyPublishServiceFlow() {
   };
   const localImages = [
     {
-      tempFilePath: 'C:\\temp\\lamp-one.jpg',
+      tempFilePath: '<TEMP_ROOT>\\lamp-one.jpg',
       size: 1024,
       fileType: 'image'
     },
     {
-      tempFilePath: 'C:\\temp\\lamp-two.png',
+      tempFilePath: '<TEMP_ROOT>\\lamp-two.png',
       size: 2048,
       fileType: 'image'
     }
@@ -2799,7 +2803,7 @@ async function verifyPublishServiceFlow() {
     let invalidImageTypeError;
     try {
       ProductPublishService.validateProductDraft(draft, [{
-        tempFilePath: 'C:\\temp\\payload.exe',
+        tempFilePath: '<TEMP_ROOT>\\payload.exe',
         size: 1024,
         fileType: 'image'
       }]);
@@ -2814,7 +2818,7 @@ async function verifyPublishServiceFlow() {
     let invalidImageSizeError;
     try {
       ProductPublishService.validateProductDraft(draft, [{
-        tempFilePath: 'C:\\temp\\empty.jpg',
+        tempFilePath: '<TEMP_ROOT>\\empty.jpg',
         size: 0,
         fileType: 'image'
       }]);
@@ -3686,7 +3690,7 @@ async function verifyCloudServiceFlow() {
     assert(initCalls === 2, 'failed cloud initialization cannot be retried safely');
     assert(
       initOptions
-      && initOptions.env === 'cloud1-d9gpdpv6p2db56d8e'
+      && initOptions.env === 'YOUR_CLOUDBASE_ENV_ID'
       && initOptions.traceUser === true,
       'cloud initialization uses the wrong environment'
     );
