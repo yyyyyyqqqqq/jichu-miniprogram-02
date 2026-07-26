@@ -10,6 +10,7 @@
     "pages/favorites/index",
     "pages/my-products/index",
     "pages/chat/index",
+    "pages/chat-product-picker/index",
     "pages/user-profile/index",
     "pages/location-picker/index",
     "pages/appointment-create/index",
@@ -23,6 +24,17 @@
     "backgroundColor": "#f5f7f6",
     "backgroundTextStyle": "dark"
   },
+  "permission": {
+    "scope.record": {
+      "desc": "用于在聊天中录制并发送语音消息"
+    },
+    "scope.userLocation": {
+      "desc": "用于在聊天中选择并发送位置消息"
+    }
+  },
+  "requiredPrivateInfos": [
+    "chooseLocation"
+  ],
   "tabBar": {
     "custom": true,
     "color": "#7b8580",

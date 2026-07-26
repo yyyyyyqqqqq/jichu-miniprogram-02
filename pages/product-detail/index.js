@@ -54,8 +54,8 @@ Page({
   onLoad(options) {
     this.isPageActive = true;
     this.requestVersion = 0;
-    this.hasShown = false;
     this.hasRecordedViewAttempt = false;
+    this.observedProductsVersion = AppStore.getProductsVersion();
 
     const id = this.normalizeProductId(options && options.id);
     if (!id) {
@@ -69,10 +69,11 @@ Page({
   },
 
   onShow() {
-    if (!this.hasShown) {
-      this.hasShown = true;
+    const productsVersion = AppStore.getProductsVersion();
+    if (productsVersion === this.observedProductsVersion) {
       return;
     }
+    this.observedProductsVersion = productsVersion;
     if (this.data.viewState === 'success' && this.data.product) {
       this.loadProduct();
     }
@@ -316,6 +317,7 @@ Page({
       }
       this.applyFavoriteState(result);
       AppStore.markFavoritesChanged();
+      this.observedProductsVersion = AppStore.getProductsVersion();
       wx.showToast({
         title: result.isFavorited ? '已收藏' : '已取消收藏',
         icon: 'none'

@@ -54,6 +54,8 @@ const CLOUD_CONFIG = {
   messageQueryTimeoutMs: 15000,
   messageActionFunctionName: 'messageAction',
   messageActionTimeoutMs: 15000,
+  chatMediaValidationTimeoutMs: 5000,
+  chatMediaUploadTimeoutMs: 60000,
   appointmentQueryFunctionName: 'appointmentQuery',
   appointmentQueryTimeoutMs: 15000,
   appointmentActionFunctionName: 'appointmentAction',

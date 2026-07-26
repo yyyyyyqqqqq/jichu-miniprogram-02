@@ -697,6 +697,365 @@ record('messaging uses guarded services, deterministic ids and safe response fie
   assert(/orderBy\(\s*['"]lastMessageAt['"]\s*,\s*['"]desc['"]\s*\)[\s\S]*orderBy\(\s*['"]_id['"]\s*,\s*['"]desc['"]\s*\)/.test(querySource), 'conversation cursor ordering is unstable');
 });
 
+record('rich chat media, location, product and permission boundaries are wired', () => {
+  const appConfig = readJson(path.join(root, 'app.json'));
+  const pageSource = readText(path.join(root, 'pages/chat/index.js'));
+  const pageTemplate = readText(path.join(root, 'pages/chat/index.wxml'));
+  const pageStyle = readText(path.join(root, 'pages/chat/index.wxss'));
+  const mediaSource = readText(path.join(root, 'services/chat-media-service.js'));
+  const serviceSource = readText(path.join(root, 'services/message-service.js'));
+  const actionSource = readText(
+    path.join(root, 'cloudfunctions/messageAction/index.js')
+  );
+  const querySource = readText(
+    path.join(root, 'cloudfunctions/messageQuery/index.js')
+  );
+
+  assert(
+    appConfig.permission
+      && appConfig.permission['scope.record']
+      && appConfig.permission['scope.userLocation'],
+    'microphone or location permission descriptions are missing'
+  );
+  assert(
+    Array.isArray(appConfig.requiredPrivateInfos)
+      && appConfig.requiredPrivateInfos.includes('chooseLocation'),
+    'chooseLocation private API declaration is missing'
+  );
+  [
+    'voice-switch.svg',
+    'keyboard.svg',
+    'gallery.svg',
+    'camera.svg',
+    'location.svg',
+    'product.svg',
+    'voice-play.svg'
+  ].forEach((icon) => {
+    assert(
+      fs.existsSync(path.join(root, 'assets/icons/chat', icon)),
+      `chat icon ${icon} is missing`
+    );
+  });
+  assert(
+    /wx\.getRecorderManager/.test(pageSource)
+      && /touchstart="onVoiceTouchStart"/.test(pageTemplate)
+      && /touchmove="onVoiceTouchMove"/.test(pageTemplate)
+      && /touchend="onVoiceTouchEnd"/.test(pageTemplate)
+      && /touchcancel="onVoiceTouchCancel"/.test(pageTemplate),
+    'press-to-talk recording lifecycle is incomplete'
+  );
+  assert(
+    /onShow\(\)[\s\S]{0,200}bindRecorderListeners\(\)/.test(pageSource)
+      && /onHide\(\)[\s\S]{0,400}cancelActiveRecording\(\)[\s\S]{0,200}unbindRecorderListeners\(\)/.test(pageSource)
+      && /offStart\(this\.onRecorderStartHandler\)/.test(pageSource)
+      && /offStop\(this\.onRecorderStopHandler\)/.test(pageSource)
+      && /offError\(this\.onRecorderErrorHandler\)/.test(pageSource)
+      && /recorderStartRequested/.test(pageSource)
+      && /\(this\.data\.isRecording \|\| this\.recorderStartRequested\)/.test(
+        pageSource
+      ),
+    'global recorder listeners or start-request race are not scoped to the visible chat page'
+  );
+  assert(
+    /wx\.createInnerAudioContext/.test(pageSource)
+      && /stopVoicePlayback/.test(pageSource)
+      && /destroyAudioPlayer/.test(pageSource)
+      && /onCanplay/.test(pageSource)
+      && /audioPlaybackSequence/.test(pageSource)
+      && /this\.audioContext === audio/.test(pageSource)
+      && /tempUrlResolved/.test(pageSource)
+      && /AUDIO_READY_TIMEOUT/.test(pageSource),
+    'single voice playback lifecycle is incomplete'
+  );
+  [
+    'onVoiceMessageTap',
+    'onImageMessageTap',
+    'openLocationMessage',
+    'openProductMessage'
+  ].forEach((handler) => {
+    assert(
+      pageTemplate.includes(`catchtap="${handler}"`)
+      && !pageTemplate.includes(`bindtap="${handler}"`),
+      `chat message handler ${handler} does not stop tap propagation`
+    );
+  });
+  assert(
+    /if\s*\(\s*!message\s*\|\|\s*message\.type\s*!==\s*['"]voice['"]\s*\)\s*\{\s*return;?\s*\}/.test(
+      pageSource
+    ),
+    'voice playback lacks a non-voice defensive return'
+  );
+  const voiceLabelStyle = pageStyle.slice(
+    pageStyle.indexOf('.voice-record-button__label'),
+    pageStyle.indexOf('.voice-record-button--active')
+  );
+  assert(
+    /width:\s*100%/.test(voiceLabelStyle)
+      && /height:\s*100%/.test(voiceLabelStyle)
+      && /display:\s*flex/.test(voiceLabelStyle)
+      && /align-items:\s*center/.test(voiceLabelStyle)
+      && /justify-content:\s*center/.test(voiceLabelStyle)
+      && /margin:\s*0/.test(voiceLabelStyle)
+      && /padding:\s*0/.test(voiceLabelStyle)
+      && /line-height:\s*normal/.test(voiceLabelStyle)
+      && /white-space:\s*nowrap/.test(voiceLabelStyle),
+    'voice record labels do not use full-height flex centering'
+  );
+  assert(
+    /<view\s+class="voice-record-button__label">/.test(pageTemplate)
+      && !/height:\s*32rpx|line-height:\s*32rpx/.test(voiceLabelStyle),
+    'voice record label still depends on a fixed text line box'
+  );
+  const textMessageTemplate = pageTemplate.slice(
+    pageTemplate.indexOf('item.type === \'text\''),
+    pageTemplate.indexOf('item.type === \'voice\'')
+  );
+  const textBubbleStyle = pageStyle.slice(
+    pageStyle.indexOf('.message-bubble--text'),
+    pageStyle.indexOf('.message-bubble--voice')
+  );
+  assert(
+    />\{\{item\.content\}\}<\/text>/.test(textMessageTemplate)
+      && /height:\s*auto/.test(textBubbleStyle)
+      && /min-height:\s*0/.test(textBubbleStyle)
+      && /display:\s*inline-flex/.test(textBubbleStyle)
+      && /flex:\s*0\s+1\s+auto/.test(textBubbleStyle)
+      && /flex-direction:\s*column/.test(textBubbleStyle)
+      && !/margin-top:\s*auto/.test(textBubbleStyle),
+    'short text messages preserve template indentation or inherit rich-media sizing'
+  );
+  const inputStyle = pageStyle.slice(
+    pageStyle.indexOf('.chat-composer__input {'),
+    pageStyle.indexOf('.voice-record-button {')
+  );
+  const inputWrapStyle = pageStyle.slice(
+    pageStyle.indexOf('.chat-composer__input-wrap {'),
+    pageStyle.indexOf('.chat-composer__input {')
+  );
+  assert(
+    /padding:\s*20rpx\s+20rpx\s+12rpx/.test(inputStyle)
+      && /line-height:\s*40rpx/.test(inputStyle)
+      && /min-height:\s*72rpx/.test(inputStyle)
+      && /max-height:\s*176rpx/.test(inputStyle)
+      && /transform:\s*translateY\((?:1|2)rpx\)/.test(inputStyle)
+      && (inputStyle.match(/transform\s*:/g) || []).length === 1
+      && !/padding-top\s*:|transform\s*:/.test(inputWrapStyle)
+      && /\bauto-height\b/.test(pageTemplate)
+      && /maxlength="\{\{maxLength\}\}"/.test(pageTemplate)
+      && !/\bplaceholder(?:-class)?=/.test(pageTemplate)
+      && !/输入消息/.test(pageTemplate)
+      && !/chat-composer__input-placeholder/.test(pageStyle),
+    'chat textarea lacks the native line-box optical alignment or growth limit'
+  );
+  const composerMainStyle = pageStyle.slice(
+    pageStyle.indexOf('.chat-composer__main {'),
+    pageStyle.indexOf('.chat-composer__input-wrap {')
+  );
+  const composerRightStyle = pageStyle.slice(
+    pageStyle.indexOf('.chat-composer__right {'),
+    pageStyle.indexOf('.chat-composer__plus {')
+  );
+  const composerSendStyle = pageStyle.slice(
+    pageStyle.indexOf('.chat-composer__send {'),
+    pageStyle.indexOf('.chat-composer__send::after')
+  );
+  assert(
+    /width:\s*0/.test(composerMainStyle)
+      && /min-width:\s*0/.test(composerMainStyle)
+      && /flex:\s*1\s+1\s+auto/.test(composerMainStyle)
+      && /width:\s*auto/.test(composerRightStyle)
+      && /min-width:\s*72rpx/.test(composerRightStyle)
+      && /max-width:\s*108rpx/.test(composerRightStyle)
+      && /flex:\s*0\s+0\s+auto/.test(composerRightStyle)
+      && !/width:\s*100%|flex:\s*1(?:\s|;)/.test(composerRightStyle)
+      && /width:\s*auto/.test(composerSendStyle)
+      && /min-width:\s*92rpx/.test(composerSendStyle)
+      && /max-width:\s*108rpx/.test(composerSendStyle)
+      && /flex:\s*0\s+0\s+auto/.test(composerSendStyle)
+      && /padding:\s*0\s+14rpx/.test(composerSendStyle)
+      && /margin:\s*0\s+0\s+2rpx/.test(composerSendStyle)
+      && /white-space:\s*nowrap/.test(composerSendStyle)
+      && !/width:\s*100%|flex:\s*1(?:\s|;)/.test(composerSendStyle)
+      && /wx:if="\{\{inputMode === 'voice' \|\| !hasInputContent\}\}"/.test(
+        pageTemplate
+      )
+      && /wx:else[\s\S]{0,100}class="chat-composer__send"/.test(pageTemplate),
+    'chat composer does not preserve a flexible input with compact actions'
+  );
+  assert(
+    /!\^https:\\\/\\\//.test(mediaSource)
+      || /\^https:\\\/\\\//.test(mediaSource),
+    'cloud media temporary URLs are not restricted to HTTPS'
+  );
+  assert(
+    /chooseAndSendImages\('album'\)/.test(pageSource)
+      && /chooseAndSendImages\('camera'\)/.test(pageSource)
+      && /mediaType:\s*\[['"]image['"]\]/.test(mediaSource)
+      && /sourceType:\s*\[sourceType\]/.test(mediaSource),
+    'album and camera do not share an image-only send pipeline'
+  );
+  const extensionLabels = [
+    '相册',
+    '拍摄',
+    '位置',
+    '发送商品'
+  ];
+  extensionLabels.forEach((label) => {
+    assert(pageTemplate.includes(`>${label}<`), `extension item ${label} is missing`);
+  });
+  assert(
+    !/收藏|个人名片|文件|音乐|表情/.test(
+      pageTemplate.slice(
+        pageTemplate.indexOf('class="extension-panel"'),
+        pageTemplate.indexOf('wx:if="{{isPreparingRecording')
+      )
+    ),
+    'extension panel includes an out-of-scope item'
+  );
+  assert(
+    /wx\.chooseLocation/.test(pageSource)
+      && /wx\.openLocation/.test(pageSource),
+    'location confirmation or map opening is missing'
+  );
+  assert(
+    /listConversationProducts/.test(pageSource + serviceSource + querySource)
+      && /ownerScope/.test(querySource)
+      && /getParticipantSlot/.test(querySource)
+      && /conversation\.productId/.test(querySource),
+    'controlled participant product picker is incomplete'
+  );
+  assert(
+    /sendVoiceMessage/.test(serviceSource)
+      && /sendImageMessage/.test(serviceSource)
+      && /sendLocationMessage/.test(serviceSource)
+      && /sendProductMessage/.test(serviceSource),
+    'rich message service methods are incomplete'
+  );
+  assert(
+    /SELECTABLE_PRODUCT_STATUSES/.test(actionSource)
+      && /send\.read_shared_product/.test(actionSource)
+      && /ownerPublicUserId/.test(actionSource),
+    'product snapshot is not reconstructed and checked server-side'
+  );
+  assert(
+    /chat-media/.test(mediaSource)
+      && /conversationId/.test(mediaSource)
+      && /clientMessageId/.test(mediaSource)
+      && /validateChatMediaPath/.test(actionSource),
+    'chat media paths are not scoped or checked server-side'
+  );
+  assert(
+    /deleteUploadedFile/.test(pageSource + mediaSource)
+      && /shouldRetainUploadedFile/.test(pageSource + mediaSource),
+    'orphan upload cleanup does not distinguish deterministic and ambiguous failures'
+  );
+  assert(
+    !/localTempPath\s*:/.test(actionSource)
+      && !/wx\.cloud\.database/.test(pageSource + serviceSource),
+    'rich chat persists local paths or directly accesses the client database'
+  );
+  assert(
+    /:\s*['"]unsupported['"]/.test(serviceSource)
+      && /当前版本暂不支持此消息类型/.test(serviceSource + querySource),
+    'unknown message types do not have a safe downgrade'
+  );
+});
+
+record('chat product picker is a protected standalone paginated page', () => {
+  const appConfig = readJson(path.join(root, 'app.json'));
+  const routeSource = readText(path.join(root, 'constants/routes.js'));
+  const chatSource = readText(path.join(root, 'pages/chat/index.js'));
+  const chatTemplate = readText(path.join(root, 'pages/chat/index.wxml'));
+  const chatStyle = readText(path.join(root, 'pages/chat/index.wxss'));
+  const pickerSource = readText(
+    path.join(root, 'pages/chat-product-picker/index.js')
+  );
+  const pickerTemplate = readText(
+    path.join(root, 'pages/chat-product-picker/index.wxml')
+  );
+  const pickerStyle = readText(
+    path.join(root, 'pages/chat-product-picker/index.wxss')
+  );
+  const pickerConfig = readJson(
+    path.join(root, 'pages/chat-product-picker/index.json')
+  );
+  const querySource = readText(
+    path.join(root, 'cloudfunctions/messageQuery/index.js')
+  );
+
+  assert(
+    appConfig.pages.includes('pages/chat-product-picker/index')
+      && /CHAT_PRODUCT_PICKER:\s*['"]\/pages\/chat-product-picker\/index['"]/.test(
+        routeSource
+      )
+      && pickerConfig.navigationBarTitleText === '选择商品',
+    'standalone chat product picker route is not fully registered'
+  );
+  assert(
+    /ROUTES\.CHAT_PRODUCT_PICKER\}\?conversationId=/.test(chatSource)
+      && /safeNavigateTo/.test(chatSource)
+      && /isExtensionPanelOpen:\s*false/.test(
+        chatSource.slice(
+          chatSource.indexOf('async openProductPicker'),
+          chatSource.indexOf('async openProductMessage')
+        )
+      ),
+    'chat product entrance does not close the extension panel and navigate safely'
+  );
+  assert(
+    !/isProductPickerOpen|productOwnerScope|productList|productCursor|productHasMore|isLoadingProducts|productError|productRequestVersion/.test(
+      chatSource
+    )
+      && !/product-picker|switchProductOwner|selectConversationProduct|loadConversationProducts/.test(
+        chatTemplate + chatStyle
+      ),
+    'legacy inline chat product picker state, template or style remains'
+  );
+  assert(
+    /AuthGuard\.requireLogin/.test(pickerSource)
+      && /CONVERSATION_ID_PATTERN\.test\(conversationId\)/.test(pickerSource)
+      && /MessageService\.listConversationProducts/.test(pickerSource)
+      && /ownerScope/.test(pickerSource)
+      && /onReachBottom\(\)/.test(pickerSource)
+      && /PRODUCT_PAGE_SIZE/.test(pickerSource)
+      && /scopeStates/.test(pickerSource),
+    'standalone picker lacks login, parameter, owner cache or pagination handling'
+  );
+  assert(
+    /MessageService\.createClientMessageId/.test(pickerSource)
+      && /MessageService\.sendProductMessage/.test(pickerSource)
+      && /isSending/.test(pickerSource)
+      && /pendingClientMessageId/.test(pickerSource)
+      && /NavigationService\.safeNavigateBack/.test(pickerSource),
+    'standalone picker lacks locked idempotent send and safe return'
+  );
+  assert(
+    /我的商品/.test(pickerTemplate)
+      && /对方商品/.test(pickerTemplate)
+      && /product-card/.test(pickerTemplate + pickerStyle)
+      && /viewState === 'loading'/.test(pickerTemplate)
+      && /viewState === 'error'/.test(pickerTemplate)
+      && /productList\.length === 0/.test(pickerTemplate)
+      && /hasMore/.test(pickerTemplate),
+    'standalone picker UI lacks tabs, larger cards, or complete list states'
+  );
+  assert(
+    !/options\.(?:productId|ownerScope|openid|openId)|wx\.cloud\.database/.test(
+      pickerSource
+    )
+      && /getParticipantSlot/.test(querySource)
+      && /conversation\.productId/.test(querySource),
+    'picker trusts client ownership/current-product data or accesses the database directly'
+  );
+  assert(
+    /onShow\(\)[\s\S]{0,300}refreshLatestMessages\(\)/.test(chatSource)
+      && /refreshLatestMessages[\s\S]{0,1800}renderMessages\(true\)/.test(
+        chatSource
+      ),
+    'chat does not refresh and scroll after returning from product selection'
+  );
+});
+
 record('AuthService and AuthStore expose the required boundaries', () => {
   const AuthService = require(path.join(root, 'services/auth-service'));
   const AuthStore = require(path.join(root, 'store/auth-store'));
@@ -4164,8 +4523,54 @@ async function verifyMessageServiceFlow() {
             hasMore: false,
             nextCursor: null
           };
+        } else if (action === 'listConversationProducts') {
+          const queryData = options.data.data || {};
+          data = {
+            ownerScope: queryData.ownerScope,
+            owner: safeConversation.otherUser,
+            list: [{
+              productId: 'product-shared',
+              title: '可分享商品',
+              coverImage: '',
+              price: 23,
+              status: 'available',
+              ownerPublicUserId: publicUserId,
+              ownerScope: queryData.ownerScope
+            }],
+            hasMore: false,
+            nextCursor: null
+          };
         } else if (action === 'sendTextMessage') {
           data = { message: safeMessage, reused: false };
+        } else if (action === 'sendMessage') {
+          const type = options.data.type;
+          const richMessage = {
+            messageId: `m_${({
+              voice: 'd',
+              image: 'e',
+              location: 'f',
+              product: '1'
+            })[type].repeat(64)}`,
+            senderPublicUserId: publicUserId,
+            isMine: true,
+            type,
+            createdAt: now
+          };
+          if (type === 'voice' || type === 'image') {
+            richMessage.media = options.data.media;
+          } else if (type === 'location') {
+            richMessage.location = options.data.location;
+          } else {
+            richMessage.product = {
+              productId: options.data.productId,
+              title: '可分享商品',
+              coverImage: '',
+              price: 23,
+              status: 'available',
+              ownerPublicUserId: publicUserId
+            };
+          }
+          data = { message: richMessage, reused: false };
         } else {
           data = { conversationId, unreadCount: 0 };
         }
@@ -4223,6 +4628,136 @@ async function verifyMessageServiceFlow() {
       sendRequest.data.clientMessageId === clientMessageId,
       'MessageService dropped the message idempotency key'
     );
+
+    const selectableProducts = await MessageService.listConversationProducts(
+      conversationId,
+      {
+        ownerScope: 'other',
+        pageSize: 8
+      }
+    );
+    assert(
+      selectableProducts.list.length === 1
+      && selectableProducts.list[0].ownerScope === 'other'
+      && selectableProducts.list[0].ownerPublicUserId === publicUserId,
+      'MessageService did not normalize controlled conversation products'
+    );
+    const voiceFileId = 'cloud://verification-env/chat-media/voice/file.mp3';
+    const voiceSent = await MessageService.sendVoiceMessage({
+      conversationId,
+      clientMessageId: 'msg_service_voice_0001',
+      media: {
+        fileId: voiceFileId,
+        durationMs: 2500,
+        size: 12000,
+        format: 'mp3'
+      }
+    });
+    assert(
+      voiceSent.message.type === 'voice'
+      && voiceSent.message.media.durationText === '3″',
+      'MessageService did not normalize a voice message'
+    );
+    const imageSent = await MessageService.sendImageMessage({
+      conversationId,
+      clientMessageId: 'msg_service_image_0001',
+      media: {
+        fileId: 'cloud://verification-env/chat-media/image/file.jpg',
+        width: 1200,
+        height: 800,
+        size: 230000
+      }
+    });
+    assert(
+      imageSent.message.type === 'image'
+      && imageSent.message.media.displayMode === 'landscape',
+      'MessageService did not normalize an image message'
+    );
+    const locationSent = await MessageService.sendLocationMessage({
+      conversationId,
+      clientMessageId: 'msg_service_location_0001',
+      location: {
+        name: '教学楼',
+        address: '即出大学一号教学楼',
+        latitude: 31.2,
+        longitude: 121.4
+      }
+    });
+    assert(
+      locationSent.message.location.name === '教学楼',
+      'MessageService did not normalize a location message'
+    );
+    const productSent = await MessageService.sendProductMessage({
+      conversationId,
+      clientMessageId: 'msg_service_product_0001',
+      productId: 'product-shared',
+      title: '客户端伪造标题'
+    });
+    assert(
+      productSent.message.product.title === '可分享商品',
+      'MessageService did not preserve the server product snapshot'
+    );
+    const richRequests = requests.filter(
+      (request) => request.data.action === 'sendMessage'
+    );
+    assert(
+      richRequests.length === 4
+      && richRequests.every(
+        (request) => !('senderPublicUserId' in request.data)
+          && !('createdAt' in request.data)
+          && !('product' in request.data)
+      ),
+      'MessageService sends protected identity, time, or product snapshot fields'
+    );
+    const unsupported = MessageService.normalizeMessage({
+      messageId: `m_${'9'.repeat(64)}`,
+      senderPublicUserId: publicUserId,
+      isMine: false,
+      type: 'future-message',
+      createdAt: now
+    });
+    assert(
+      unsupported.type === 'unsupported'
+      && /不支持/.test(unsupported.content),
+      'MessageService does not safely downgrade unknown message types'
+    );
+    const corruptRichMessage = MessageService.normalizeMessage({
+      messageId: `m_${'8'.repeat(64)}`,
+      senderPublicUserId: publicUserId,
+      isMine: false,
+      type: 'voice',
+      media: {
+        fileId: ''
+      },
+      createdAt: now
+    });
+    assert(
+      corruptRichMessage.type === 'unsupported'
+      && /不支持/.test(corruptRichMessage.content),
+      'a corrupt rich message breaks the whole message page'
+    );
+    const richRequestCount = requests.length;
+    let invalidLocationError;
+    try {
+      await MessageService.sendLocationMessage({
+        conversationId,
+        clientMessageId: 'msg_service_location_bad',
+        location: {
+          name: '错误地点',
+          address: '错误坐标',
+          latitude: 91,
+          longitude: 181
+        }
+      });
+    } catch (error) {
+      invalidLocationError = error;
+    }
+    assert(
+      invalidLocationError
+      && invalidLocationError.code === 'INVALID_LOCATION'
+      && requests.length === richRequestCount,
+      'invalid location is sent to the cloud or uses an unstable error code'
+    );
     assert(
       !/openid|seller/i.test(JSON.stringify(requests)),
       'MessageService sent an internal identity field'
@@ -4257,6 +4792,523 @@ async function verifyMessageServiceFlow() {
   } finally {
     delete require.cache[require.resolve(servicePath)];
     delete require.cache[require.resolve(cloudServicePath)];
+    if (originalWx === undefined) {
+      delete global.wx;
+    } else {
+      global.wx = originalWx;
+    }
+  }
+}
+
+async function verifyChatMediaServiceFlow() {
+  const mediaServicePath = path.join(root, 'services/chat-media-service');
+  const cloudServicePath = path.join(root, 'services/cloud-service');
+  const { CLOUD_CONFIG } = require(path.join(root, 'config/cloud'));
+  const originalWx = global.wx;
+  const originalEnvironmentId = CLOUD_CONFIG.environmentId;
+  const originalEnvironmentSource = CLOUD_CONFIG.environmentSource;
+  const conversationId = `c_${'7'.repeat(64)}`;
+  const userId = `u_${'8'.repeat(32)}`;
+  const clientMessageId = 'msg_media_service_0001';
+  const selectedOptions = [];
+  const uploads = [];
+  const deletedFiles = [];
+
+  CLOUD_CONFIG.environmentId = 'verification-env';
+  CLOUD_CONFIG.environmentSource = 'verification';
+  global.wx = {
+    getFileSystemManager() {
+      return {
+        getFileInfo(options) {
+          setImmediate(() => options.success({ size: 32000 }));
+        }
+      };
+    },
+    getImageInfo(options) {
+      setImmediate(() => options.success({
+        width: 1200,
+        height: 800
+      }));
+    },
+    chooseMedia(options) {
+      selectedOptions.push({
+        mediaType: options.mediaType,
+        sourceType: options.sourceType,
+        count: options.count
+      });
+      setImmediate(() => options.success({
+        tempFiles: [{
+          tempFilePath: 'temp/verification.jpg'
+        }]
+      }));
+    },
+    cloud: {
+      init() {},
+      uploadFile(options) {
+        uploads.push({
+          cloudPath: options.cloudPath,
+          filePath: options.filePath
+        });
+        setImmediate(() => options.success({
+          fileID: `cloud://verification-env/${options.cloudPath}`
+        }));
+        return {
+          onProgressUpdate(callback) {
+            setImmediate(() => callback({ progress: 73 }));
+          },
+          abort() {}
+        };
+      },
+      deleteFile(options) {
+        deletedFiles.push(...options.fileList);
+        setImmediate(() => options.success({ fileList: [] }));
+      },
+      getTempFileURL(options) {
+        setImmediate(() => options.success({
+          fileList: [{
+            fileID: options.fileList[0],
+            status: 0,
+            tempFileURL: 'https://verification.invalid/chat-media'
+          }]
+        }));
+      }
+    }
+  };
+
+  try {
+    delete require.cache[require.resolve(mediaServicePath)];
+    delete require.cache[require.resolve(cloudServicePath)];
+    const ChatMediaService = require(mediaServicePath);
+    const selected = await ChatMediaService.chooseImages({
+      sourceType: 'album',
+      count: 9
+    });
+    assert(
+      selected.length === 1
+      && selectedOptions[0].mediaType.length === 1
+      && selectedOptions[0].mediaType[0] === 'image'
+      && selectedOptions[0].sourceType[0] === 'album',
+      'chat media chooser is not restricted to album images'
+    );
+    const prepared = await ChatMediaService.prepareImages(selected);
+    assert(
+      prepared[0].width === 1200
+      && prepared[0].height === 800
+      && prepared[0].size === 32000,
+      'chat media image metadata validation failed'
+    );
+    const progressValues = [];
+    const fileId = await ChatMediaService.uploadFile({
+      type: 'image',
+      conversationId,
+      userId,
+      clientMessageId,
+      localTempPath: prepared[0].localTempPath,
+      onProgress(progress) {
+        progressValues.push(progress);
+      }
+    });
+    const expectedPath = [
+      'chat-media',
+      'image',
+      conversationId,
+      userId
+    ].join('/');
+    assert(
+      uploads.length === 1
+      && uploads[0].cloudPath.startsWith(`${expectedPath}/`)
+      && uploads[0].cloudPath.endsWith(`/${clientMessageId}.jpg`)
+      && fileId === `cloud://verification-env/${uploads[0].cloudPath}`,
+      'chat media upload path is not conversation/user/message scoped'
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert(progressValues.includes(73), 'chat media upload progress is not forwarded');
+    const temporaryUrl = await ChatMediaService.resolveTemporaryUrl(fileId);
+    assert(
+      temporaryUrl === 'https://verification.invalid/chat-media',
+      'chat media temporary URL resolution failed'
+    );
+    global.wx.cloud.getTempFileURL = (options) => {
+      setImmediate(() => options.success({
+        fileList: [{
+          fileID: options.fileList[0],
+          status: 0,
+          tempFileURL: 'http://verification.invalid/insecure-media'
+        }]
+      }));
+    };
+    let insecureTemporaryUrlError;
+    try {
+      await ChatMediaService.resolveTemporaryUrl(fileId);
+    } catch (error) {
+      insecureTemporaryUrlError = error;
+    }
+    assert(
+      insecureTemporaryUrlError
+      && insecureTemporaryUrlError.code === 'UNKNOWN_ERROR',
+      'chat media accepts a non-HTTPS temporary URL'
+    );
+    const deleted = await ChatMediaService.deleteUploadedFile(fileId);
+    assert(
+      deleted === true && deletedFiles[0] === fileId,
+      'chat media orphan cleanup did not target the uploaded file'
+    );
+    const cleanupWarnings = [];
+    const originalConsoleWarn = console.warn;
+    global.wx.getAccountInfoSync = () => ({
+      miniProgram: {
+        envVersion: 'develop'
+      }
+    });
+    global.wx.cloud.deleteFile = (options) => {
+      setImmediate(() => options.fail({
+        code: 'DELETE_FAILED',
+        errMsg: `must-not-log ${fileId}`
+      }));
+    };
+    console.warn = (...args) => cleanupWarnings.push(args);
+    let failedCleanup;
+    try {
+      failedCleanup = await ChatMediaService.deleteUploadedFile(fileId);
+    } finally {
+      console.warn = originalConsoleWarn;
+    }
+    const cleanupLog = JSON.stringify(cleanupWarnings);
+    assert(
+      failedCleanup === false
+      && cleanupLog.includes('DELETE_FAILED')
+      && !cleanupLog.includes(fileId)
+      && !cleanupLog.includes('must-not-log'),
+      'orphan cleanup failure is silent or logs a sensitive file id'
+    );
+
+    global.wx.chooseMedia = (options) => {
+      setImmediate(() => options.fail({ errMsg: 'chooseMedia:fail cancel' }));
+    };
+    const cancelled = await ChatMediaService.chooseImages({
+      sourceType: 'camera',
+      count: 1
+    });
+    assert(cancelled.length === 0, 'media picker cancellation is treated as an error');
+
+    let invalidPathError;
+    try {
+      await ChatMediaService.uploadFile({
+        type: 'voice',
+        conversationId,
+        userId: 'forged-user',
+        clientMessageId,
+        localTempPath: 'temp/verification.mp3'
+      });
+    } catch (error) {
+      invalidPathError = error;
+    }
+    assert(
+      invalidPathError && invalidPathError.code === 'INVALID_ARGUMENT',
+      'chat media accepts an invalid user-scoped path'
+    );
+    assert(
+      ChatMediaService.shouldRetainUploadedFile({
+        code: 'CLOUD_TIMEOUT'
+      })
+      && !ChatMediaService.shouldRetainUploadedFile({
+        code: 'INVALID_MEDIA'
+      }),
+      'chat media cleanup cannot distinguish ambiguous send outcomes'
+    );
+  } finally {
+    CLOUD_CONFIG.environmentId = originalEnvironmentId;
+    CLOUD_CONFIG.environmentSource = originalEnvironmentSource;
+    delete require.cache[require.resolve(mediaServicePath)];
+    delete require.cache[require.resolve(cloudServicePath)];
+    if (originalWx === undefined) {
+      delete global.wx;
+    } else {
+      global.wx = originalWx;
+    }
+  }
+}
+
+async function verifyChatAudioPageFlow() {
+  const pagePath = path.join(root, 'pages/chat/index.js');
+  const mediaServicePath = path.join(root, 'services/chat-media-service');
+  const originalWx = global.wx;
+  const originalPage = global.Page;
+  const ChatMediaService = require(mediaServicePath);
+  const originalResolveTemporaryUrl = ChatMediaService.resolveTemporaryUrl;
+  const audioInstances = [];
+  const toasts = [];
+  let pageDefinition;
+  let resolveAttempts = 0;
+
+  function createAudioInstance() {
+    const handlers = {};
+    const instance = {
+      autoplay: true,
+      obeyMuteSwitch: true,
+      playCalls: 0,
+      stopCalls: 0,
+      destroyCalls: 0,
+      source: '',
+      set src(value) {
+        this.source = value;
+      },
+      get src() {
+        return this.source;
+      },
+      onCanplay(callback) {
+        handlers.canplay = callback;
+      },
+      onPlay(callback) {
+        handlers.play = callback;
+      },
+      onEnded(callback) {
+        handlers.ended = callback;
+      },
+      onStop(callback) {
+        handlers.stop = callback;
+      },
+      onError(callback) {
+        handlers.error = callback;
+      },
+      play() {
+        this.playCalls += 1;
+        if (handlers.play) {
+          handlers.play();
+        }
+      },
+      stop() {
+        this.stopCalls += 1;
+        if (handlers.stop) {
+          handlers.stop();
+        }
+      },
+      destroy() {
+        this.destroyCalls += 1;
+      },
+      triggerCanplay() {
+        if (handlers.canplay) {
+          handlers.canplay();
+        }
+      },
+      triggerEnded() {
+        if (handlers.ended) {
+          handlers.ended();
+        }
+      },
+      triggerError(error) {
+        if (handlers.error) {
+          handlers.error(error);
+        }
+      }
+    };
+    audioInstances.push(instance);
+    return instance;
+  }
+
+  global.wx = {
+    createInnerAudioContext: createAudioInstance,
+    showToast(options) {
+      toasts.push(options && options.title);
+    },
+    getAccountInfoSync() {
+      return {
+        miniProgram: {
+          envVersion: 'release'
+        }
+      };
+    },
+    getDeviceInfo() {
+      return {
+        platform: 'ios'
+      };
+    }
+  };
+  global.Page = (definition) => {
+    pageDefinition = definition;
+  };
+  ChatMediaService.resolveTemporaryUrl = async () => {
+    resolveAttempts += 1;
+    if (resolveAttempts === 1) {
+      const error = new Error('temporary URL unavailable');
+      error.code = 'NETWORK_ERROR';
+      throw error;
+    }
+    return 'https://verification.invalid/voice.mp3';
+  };
+
+  try {
+    delete require.cache[require.resolve(pagePath)];
+    require(pagePath);
+    assert(pageDefinition, 'chat page definition was not captured');
+    const messages = [
+      {
+        messageId: 'voice-message-1',
+        clientMessageId: 'voice-client-1',
+        type: 'voice',
+        media: {
+          fileId: 'cloud://verification-env/chat-media/voice/one.mp3'
+        }
+      },
+      {
+        messageId: 'voice-message-2',
+        clientMessageId: 'voice-client-2',
+        type: 'voice',
+        media: {
+          fileId: 'cloud://verification-env/chat-media/voice/two.mp3'
+        }
+      },
+      { messageId: 'image-message', type: 'image' },
+      { messageId: 'location-message', type: 'location' },
+      { messageId: 'product-message', type: 'product' },
+      { messageId: 'text-message', type: 'text' },
+      { messageId: 'unknown-message', type: 'unsupported' }
+    ];
+    const page = {
+      ...pageDefinition,
+      data: {
+        ...pageDefinition.data,
+        messages,
+        isRecording: false,
+        isPreparingRecording: false,
+        playingVoiceMessageId: ''
+      },
+      isPageActive: true,
+      setData(changes) {
+        Object.assign(this.data, changes);
+      }
+    };
+    const tapEvent = (messageId) => ({
+      currentTarget: {
+        dataset: {
+          messageId
+        }
+      }
+    });
+    page.initializeAudioPlayer();
+
+    for (const messageId of [
+      'image-message',
+      'location-message',
+      'product-message',
+      'text-message',
+      'unknown-message'
+    ]) {
+      await page.onVoiceMessageTap(tapEvent(messageId));
+    }
+    assert(
+      audioInstances.length === 0 && toasts.length === 0,
+      'non-voice messages enter playback or show a voice failure'
+    );
+
+    await page.onVoiceMessageTap(tapEvent('voice-message-1'));
+    assert(
+      audioInstances.length === 0
+      && toasts.length === 1
+      && toasts[0] === '语音播放失败',
+      'temporary URL failure is not isolated to the selected voice message'
+    );
+    await page.onVoiceMessageTap(tapEvent('image-message'));
+    assert(
+      toasts.length === 1,
+      'a non-voice click shows a voice playback failure after URL resolution failed'
+    );
+
+    await page.onVoiceMessageTap(tapEvent('voice-message-1'));
+    const firstAudio = audioInstances[0];
+    assert(
+      firstAudio
+      && firstAudio.source.startsWith('https://')
+      && firstAudio.playCalls === 0
+      && firstAudio.autoplay === false
+      && firstAudio.obeyMuteSwitch === false,
+      'voice playback does not wait for a playable HTTPS source'
+    );
+    firstAudio.triggerCanplay();
+    assert(
+      firstAudio.playCalls === 1
+      && page.data.playingVoiceMessageId === 'voice-message-1',
+      'onCanplay did not start the selected voice exactly once'
+    );
+    firstAudio.triggerCanplay();
+    assert(firstAudio.playCalls === 1, 'repeated onCanplay starts duplicate playback');
+
+    await page.onVoiceMessageTap(tapEvent('voice-message-2'));
+    const secondAudio = audioInstances[1];
+    assert(
+      firstAudio.stopCalls === 1
+      && firstAudio.destroyCalls >= 1
+      && secondAudio
+      && page.data.playingVoiceMessageId === 'voice-message-2',
+      'starting a new voice does not stop and destroy the previous instance'
+    );
+    firstAudio.triggerError({
+      errCode: 10001,
+      errMsg: 'late failure https://sensitive.invalid/one.mp3'
+    });
+    assert(
+      toasts.length === 1
+      && page.data.playingVoiceMessageId === 'voice-message-2',
+      'a stale audio error changes the active playback or shows a toast'
+    );
+    secondAudio.triggerCanplay();
+    secondAudio.triggerEnded();
+    assert(
+      page.data.playingVoiceMessageId === ''
+      && secondAudio.destroyCalls >= 1,
+      'playback end does not clear state and release the current instance'
+    );
+
+    await page.onVoiceMessageTap(tapEvent('voice-message-2'));
+    const thirdAudio = audioInstances[2];
+    thirdAudio.triggerCanplay();
+    await page.onVoiceMessageTap(tapEvent('voice-message-2'));
+    assert(
+      thirdAudio.stopCalls === 1
+      && thirdAudio.destroyCalls >= 1
+      && page.data.playingVoiceMessageId === ''
+      && toasts.length === 1,
+      'tapping the active voice does not stop silently'
+    );
+
+    await page.onVoiceMessageTap(tapEvent('voice-message-1'));
+    const fourthAudio = audioInstances[3];
+    fourthAudio.triggerError({
+      errCode: 10002,
+      errMsg: 'decode failed cloud://verification-env/private/path.mp3'
+    });
+    assert(
+      toasts.length === 2
+      && page.data.playingVoiceMessageId === ''
+      && fourthAudio.destroyCalls >= 1,
+      'current audio errors do not clean state or show one failure toast'
+    );
+    await page.onVoiceMessageTap(tapEvent('voice-message-1'));
+    const retryAudio = audioInstances[4];
+    retryAudio.triggerCanplay();
+    retryAudio.triggerEnded();
+    assert(
+      retryAudio.playCalls === 1,
+      'voice playback cannot be retried after a URL or decoder failure'
+    );
+
+    await page.onVoiceMessageTap(tapEvent('voice-message-2'));
+    const unloadAudio = audioInstances[5];
+    page.destroyAudioPlayer();
+    assert(
+      unloadAudio.stopCalls === 1
+      && unloadAudio.destroyCalls >= 1
+      && page.audioContext === null,
+      'page cleanup does not stop and destroy the active audio instance'
+    );
+  } finally {
+    ChatMediaService.resolveTemporaryUrl = originalResolveTemporaryUrl;
+    delete require.cache[require.resolve(pagePath)];
+    if (originalPage === undefined) {
+      delete global.Page;
+    } else {
+      global.Page = originalPage;
+    }
     if (originalWx === undefined) {
       delete global.wx;
     } else {
@@ -4349,8 +5401,14 @@ async function verifyMessagingFunctionFlow() {
         if (expected.__op === 'lt') {
           return comparable(actual) < comparable(expected.value);
         }
+        if (expected.__op === 'gt') {
+          return comparable(actual) > comparable(expected.value);
+        }
         if (expected.__op === 'eq') {
           return comparable(actual) === comparable(expected.value);
+        }
+        if (expected.__op === 'in') {
+          return expected.value.includes(actual);
         }
       }
       return comparable(actual) === comparable(expected);
@@ -4419,6 +5477,12 @@ async function verifyMessagingFunctionFlow() {
       },
       eq(value) {
         return { __op: 'eq', value };
+      },
+      gt(value) {
+        return { __op: 'gt', value };
+      },
+      in(value) {
+        return { __op: 'in', value };
       }
     },
     collection: createCollection,
@@ -4484,7 +5548,10 @@ async function verifyMessagingFunctionFlow() {
       status,
       sellerId: ownerUserId,
       sellerName: '卖家',
-      sellerAvatar: ''
+      sellerAvatar: '',
+      createdAt: options.createdAt || new Date(
+        Date.UTC(2026, 6, 18, 10, stores.products.size, 0)
+      )
     };
     if (options.includeSellerOpenid !== false) {
       product.sellerOpenid = ownerOpenId;
@@ -4509,8 +5576,18 @@ async function verifyMessagingFunctionFlow() {
     { includeSellerOpenid: false }
   );
   addProduct('product-own', buyerOpenId, buyerUserId);
+  addProduct('product-third-party', attackerOpenId, attackerUserId);
+  addProduct(
+    'product-inconsistent-owner',
+    sellerOpenId,
+    attackerUserId
+  );
+  addProduct('product-seller-sold', sellerOpenId, sellerUserId, 'sold');
+  addProduct('product-buyer-reserved', buyerOpenId, buyerUserId, 'reserved');
   addProduct('product-deleted', sellerOpenId, sellerUserId, 'deleted');
   addProduct('product-offline', sellerOpenId, sellerUserId, 'offline');
+  stores.products.get('product-message-2').coverImage
+    = 'cloud://verification-env/products/product-message-2/cover.jpg';
 
   Module._load = function loadWithCloudMock(request, parent, isMain) {
     if (request === 'wx-server-sdk') {
@@ -4663,18 +5740,519 @@ async function verifyMessagingFunctionFlow() {
       && stores.messages.size === 1,
       'repeated clientMessageId duplicated a message'
     );
+    const conflictingTextReplay = await messageAction.main({
+      action: 'sendTextMessage',
+      data: {
+        conversationId,
+        content: '试图覆盖原消息',
+        clientMessageId: 'msg_verification_0001'
+      }
+    });
+    const conflictingTypeReplay = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_verification_0001',
+        type: 'location',
+        location: {
+          name: '',
+          address: '',
+          latitude: 999,
+          longitude: 999
+        }
+      }
+    });
+    assert(
+      conflictingTextReplay.success === true
+      && conflictingTextReplay.data.reused === true
+      && conflictingTextReplay.data.message.content === '你好'
+      && conflictingTypeReplay.success === true
+      && conflictingTypeReplay.data.reused === true
+      && conflictingTypeReplay.data.message.type === 'text'
+      && conflictingTypeReplay.data.message.content === '你好'
+      && stores.messages.size === 1,
+      'idempotency conflict did not preserve the first committed message'
+    );
 
     let conversation = stores.conversations.get(conversationId);
     const buyerSlot = conversation.participantAOpenid === buyerOpenId ? 'A' : 'B';
     const sellerSlot = buyerSlot === 'A' ? 'B' : 'A';
     assert(
       conversation[`participant${sellerSlot}UnreadCount`] === 1
-      && conversation[`participant${buyerSlot}UnreadCount`] === 0,
-      'send did not increment only the recipient unread slot'
+      && conversation[`participant${buyerSlot}UnreadCount`] === 0
+      && conversation.lastMessage === '你好'
+      && conversation.lastMessageType === 'text',
+      'send or conflicting replay changed recipient unread/last-message state'
     );
     assert(
       firstSend.data.message.senderPublicUserId === buyerUserId,
       'message sender public id trusted a client field'
+    );
+
+    const selfProducts = await messageQuery.main({
+      action: 'listConversationProducts',
+      data: {
+        conversationId,
+        ownerScope: 'self',
+        pageSize: 8
+      }
+    });
+    assert(
+      selfProducts.success === true
+      && selfProducts.data.list.some(
+        (product) => product.productId === 'product-own'
+      )
+      && selfProducts.data.list.some(
+        (product) => product.productId === 'product-buyer-reserved'
+      )
+      && selfProducts.data.list.every(
+        (product) => product.ownerPublicUserId === buyerUserId
+      ),
+      'conversation product query does not limit self products to the caller'
+    );
+    const otherProducts = await messageQuery.main({
+      action: 'listConversationProducts',
+      data: {
+        conversationId,
+        ownerScope: 'other',
+        pageSize: 8
+      }
+    });
+    assert(
+      otherProducts.success === true
+      && otherProducts.data.list.every(
+          (product) => product.ownerPublicUserId === sellerUserId
+          && product.productId !== 'product-message-1'
+          && product.productId !== 'product-inconsistent-owner'
+          && !['deleted', 'offline'].includes(product.status)
+      )
+      && otherProducts.data.list.some(
+        (product) => product.productId === 'product-seller-sold'
+      ),
+      'conversation product query leaks the current or hidden product'
+    );
+    assert(
+      !JSON.stringify({
+        selfProducts,
+        otherProducts
+      }).includes(attackerOpenId),
+      'conversation product query leaked a third-party identity'
+    );
+    currentOpenId = sellerOpenId;
+    const sellerSelfPageOne = await messageQuery.main({
+      action: 'listConversationProducts',
+      data: {
+        conversationId,
+        ownerScope: 'self',
+        pageSize: 1
+      }
+    });
+    const sellerSelfPageTwo = await messageQuery.main({
+      action: 'listConversationProducts',
+      data: {
+        conversationId,
+        ownerScope: 'self',
+        pageSize: 1,
+        cursor: sellerSelfPageOne.data.nextCursor
+      }
+    });
+    const sellerOtherProducts = await messageQuery.main({
+      action: 'listConversationProducts',
+      data: {
+        conversationId,
+        ownerScope: 'other',
+        pageSize: 8
+      }
+    });
+    assert(
+      sellerSelfPageOne.success === true
+      && sellerSelfPageOne.data.list.length === 1
+      && sellerSelfPageOne.data.list[0].ownerPublicUserId === sellerUserId
+      && sellerSelfPageOne.data.list[0].productId !== 'product-message-1'
+      && sellerSelfPageOne.data.hasMore === true
+      && sellerSelfPageOne.data.nextCursor
+      && sellerSelfPageTwo.success === true
+      && sellerSelfPageTwo.data.list.length === 1
+      && sellerSelfPageTwo.data.list[0].productId
+        !== sellerSelfPageOne.data.list[0].productId
+      && sellerOtherProducts.success === true
+      && sellerOtherProducts.data.list.every(
+        (product) => product.ownerPublicUserId === buyerUserId
+      ),
+      'role-reversed product query or stable pagination failed'
+    );
+    currentOpenId = buyerOpenId;
+
+    const voiceClientMessageId = 'msg_rich_voice_0001';
+    const voiceFileId = [
+      'cloud://verification-env/chat-media/voice',
+      conversationId,
+      buyerUserId,
+      '20260726',
+      `${voiceClientMessageId}.mp3`
+    ].join('/');
+    const voiceSend = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: voiceClientMessageId,
+        type: 'voice',
+        senderPublicUserId: attackerUserId,
+        media: {
+          fileId: voiceFileId,
+          durationMs: 6200,
+          size: 32100,
+          format: 'mp3'
+        }
+      }
+    });
+    assert(
+      voiceSend.success === true
+      && voiceSend.data.message.type === 'voice'
+      && voiceSend.data.message.senderPublicUserId === buyerUserId
+      && stores.conversations.get(conversationId).lastMessage === '[语音]',
+      'voice message did not preserve trusted identity or summary'
+    );
+    const repeatedVoice = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: voiceClientMessageId,
+        type: 'voice',
+        media: {
+          fileId: voiceFileId,
+          durationMs: 6200,
+          size: 32100,
+          format: 'mp3'
+        }
+      }
+    });
+    assert(
+      repeatedVoice.success === true
+      && repeatedVoice.data.reused === true
+      && repeatedVoice.data.message.messageId
+        === voiceSend.data.message.messageId,
+      'voice retry with the same clientMessageId created a duplicate'
+    );
+    const forgedVoice = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_rich_voice_forged',
+        type: 'voice',
+        media: {
+          fileId: `cloud://verification-env/chat-media/voice/${conversationId}/${attackerUserId}/20260726/msg_rich_voice_forged.mp3`,
+          durationMs: 2000,
+          size: 1000,
+          format: 'mp3'
+        }
+      }
+    });
+    assert(
+      forgedVoice.code === 'INVALID_MEDIA',
+      'voice message accepts another user media directory'
+    );
+    const crossConversationVoiceId = 'msg_rich_voice_cross_conversation';
+    const crossConversationVoice = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: crossConversationVoiceId,
+        type: 'voice',
+        media: {
+          fileId: `cloud://verification-env/chat-media/voice/${concurrentResults[0].data.conversationId}/${buyerUserId}/20260726/${crossConversationVoiceId}.mp3`,
+          durationMs: 2000,
+          size: 1000,
+          format: 'mp3'
+        }
+      }
+    });
+    const voiceUsingImageDirectory = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_rich_voice_image_directory',
+        type: 'voice',
+        media: {
+          fileId: `cloud://verification-env/chat-media/image/${conversationId}/${buyerUserId}/20260726/msg_rich_voice_image_directory.mp3`,
+          durationMs: 2000,
+          size: 1000,
+          format: 'mp3'
+        }
+      }
+    });
+    assert(
+      crossConversationVoice.code === 'INVALID_MEDIA'
+      && voiceUsingImageDirectory.code === 'INVALID_MEDIA',
+      'voice media accepts another conversation or image directory'
+    );
+
+    const imageClientMessageId = 'msg_rich_image_0001';
+    const imageSend = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: imageClientMessageId,
+        type: 'image',
+        media: {
+          fileId: `cloud://verification-env/chat-media/image/${conversationId}/${buyerUserId}/20260726/${imageClientMessageId}.jpg`,
+          width: 1280,
+          height: 960,
+          size: 480000
+        }
+      }
+    });
+    assert(
+      imageSend.success === true
+      && imageSend.data.message.media.width === 1280
+      && stores.conversations.get(conversationId).lastMessage === '[图片]',
+      'image message metadata or summary is invalid'
+    );
+    const imageUsingVoiceDirectory = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_rich_image_voice_directory',
+        type: 'image',
+        media: {
+          fileId: `cloud://verification-env/chat-media/voice/${conversationId}/${buyerUserId}/20260726/msg_rich_image_voice_directory.jpg`,
+          width: 100,
+          height: 100,
+          size: 1000
+        }
+      }
+    });
+    const imageUsingProductCover = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_rich_image_product_cover',
+        type: 'image',
+        media: {
+          fileId: stores.products.get('product-message-2').coverImage,
+          width: 100,
+          height: 100,
+          size: 1000
+        }
+      }
+    });
+    const imageUsingAvatar = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_rich_image_avatar',
+        type: 'image',
+        media: {
+          fileId: `cloud://verification-env/avatars/${buyerUserId}/avatar.jpg`,
+          width: 100,
+          height: 100,
+          size: 1000
+        }
+      }
+    });
+    assert(
+      imageUsingVoiceDirectory.code === 'INVALID_MEDIA'
+      && imageUsingProductCover.code === 'INVALID_MEDIA'
+      && imageUsingAvatar.code === 'INVALID_MEDIA',
+      'image media accepts voice, product-cover, or avatar paths'
+    );
+    const forgedConversationId = `c_${'0'.repeat(64)}`;
+    const forgedConversationSend = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId: forgedConversationId,
+        clientMessageId: 'msg_rich_forged_conversation',
+        type: 'image',
+        media: {
+          fileId: `cloud://verification-env/chat-media/image/${forgedConversationId}/${buyerUserId}/20260726/msg_rich_forged_conversation.jpg`,
+          width: 100,
+          height: 100,
+          size: 1000
+        }
+      }
+    });
+    assert(
+      forgedConversationSend.code === 'CONVERSATION_NOT_FOUND',
+      'a forged conversation id reaches media persistence'
+    );
+
+    const invalidLocation = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_rich_location_bad',
+        type: 'location',
+        location: {
+          name: '错误地点',
+          address: '错误坐标',
+          latitude: 120,
+          longitude: 181
+        }
+      }
+    });
+    assert(
+      invalidLocation.code === 'INVALID_LOCATION',
+      'out-of-range location coordinates are accepted'
+    );
+    const incompleteLocation = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_rich_location_incomplete',
+        type: 'location',
+        location: {
+          name: '缺少地址',
+          latitude: 31.2,
+          longitude: 121.4
+        }
+      }
+    });
+    const overlongLocation = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_rich_location_long',
+        type: 'location',
+        location: {
+          name: '地'.repeat(81),
+          address: '址'.repeat(201),
+          latitude: 31.2,
+          longitude: 121.4
+        }
+      }
+    });
+    assert(
+      incompleteLocation.code === 'INVALID_LOCATION'
+      && overlongLocation.code === 'INVALID_LOCATION',
+      'incomplete or overlong location payload is accepted'
+    );
+    const locationSend = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_rich_location_0001',
+        type: 'location',
+        location: {
+          name: '东区图书馆',
+          address: '即出大学东区 1 号',
+          latitude: 31.2304,
+          longitude: 121.4737
+        }
+      }
+    });
+    assert(
+      locationSend.success === true
+      && locationSend.data.message.location.name === '东区图书馆'
+      && stores.conversations.get(conversationId).lastMessage === '[位置]',
+      'valid location message or summary failed'
+    );
+
+    const currentProductShare = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_rich_product_current',
+        type: 'product',
+        productId: 'product-message-1'
+      }
+    });
+    assert(
+      currentProductShare.code === 'INVALID_PRODUCT',
+      'current conversation product can be shared as another product'
+    );
+    const thirdPartyProductShare = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_rich_product_third',
+        type: 'product',
+        productId: 'product-third-party'
+      }
+    });
+    assert(
+      thirdPartyProductShare.code === 'PRODUCT_NOT_ACCESSIBLE',
+      'third-party product can be forged into a conversation'
+    );
+    const inconsistentProductShare = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_rich_product_inconsistent',
+        type: 'product',
+        productId: 'product-inconsistent-owner'
+      }
+    });
+    assert(
+      inconsistentProductShare.code === 'PRODUCT_NOT_ACCESSIBLE',
+      'inconsistent trusted and public product owners are accepted'
+    );
+    const unavailableProductResults = await Promise.all([
+      ['product-missing', 'msg_rich_product_missing'],
+      ['product-deleted', 'msg_rich_product_deleted'],
+      ['product-offline', 'msg_rich_product_offline']
+    ].map(([productId, clientMessageId]) => messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId,
+        type: 'product',
+        productId
+      }
+    })));
+    assert(
+      unavailableProductResults.every(
+        (result) => result.code === 'PRODUCT_NOT_ACCESSIBLE'
+      ),
+      'missing, deleted, or offline product can be shared'
+    );
+    const productSend = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_rich_product_0001',
+        type: 'product',
+        productId: 'product-message-2',
+        product: {
+          title: '伪造标题',
+          price: 0,
+          coverImage: `cloud://verification-env/avatars/${attackerUserId}/avatar.jpg`,
+          ownerPublicUserId: attackerUserId
+        }
+      }
+    });
+    assert(
+      productSend.success === true
+      && productSend.data.message.product.title
+        === stores.products.get('product-message-2').title
+      && productSend.data.message.product.price === 12
+      && productSend.data.message.product.coverImage
+        === stores.products.get('product-message-2').coverImage
+      && productSend.data.message.product.ownerPublicUserId === sellerUserId
+      && stores.conversations.get(conversationId).lastMessage === '[商品]',
+      'product message trusted a client snapshot or lost its summary'
+    );
+
+    const richHistory = await messageQuery.main({
+      action: 'listMessages',
+      data: {
+        conversationId,
+        pageSize: 20
+      }
+    });
+    const richTypes = new Set(
+      richHistory.data.list.map((message) => message.type)
+    );
+    assert(
+      ['text', 'voice', 'image', 'location', 'product'].every(
+        (type) => richTypes.has(type)
+      ),
+      'rich messages do not round-trip through messageQuery'
+    );
+    assert(
+      !/"senderOpenid"|"fileName"|"localTempPath"/.test(
+        JSON.stringify(richHistory)
+      ),
+      'rich message response leaks internal identity or local paths'
     );
 
     currentOpenId = attackerOpenId;
@@ -4697,6 +6275,49 @@ async function verifyMessagingFunctionFlow() {
       data: { conversationId }
     });
     assert(forbiddenMessages.code === 'FORBIDDEN', 'non-participant can read messages');
+    const forbiddenRichResults = await Promise.all([
+      messageAction.main({
+        action: 'sendMessage',
+        data: {
+          conversationId,
+          clientMessageId: 'msg_rich_attacker_voice',
+          type: 'voice',
+          media: {
+            fileId: `cloud://verification-env/chat-media/voice/${conversationId}/${attackerUserId}/20260726/msg_rich_attacker_voice.mp3`,
+            durationMs: 2000,
+            size: 1000,
+            format: 'mp3'
+          }
+        }
+      }),
+      messageAction.main({
+        action: 'sendMessage',
+        data: {
+          conversationId,
+          clientMessageId: 'msg_rich_attacker_location',
+          type: 'location',
+          location: {
+            name: '合法格式地点',
+            address: '合法格式地址',
+            latitude: 31.2,
+            longitude: 121.4
+          }
+        }
+      }),
+      messageAction.main({
+        action: 'sendMessage',
+        data: {
+          conversationId,
+          clientMessageId: 'msg_rich_attacker_product',
+          type: 'product',
+          productId: 'product-third-party'
+        }
+      })
+    ]);
+    assert(
+      forbiddenRichResults.every((result) => result.code === 'FORBIDDEN'),
+      'non-participant can send legal-format rich messages'
+    );
     const attackerList = await messageQuery.main({
       action: 'listConversations',
       data: {}
@@ -4704,6 +6325,17 @@ async function verifyMessagingFunctionFlow() {
     assert(
       attackerList.success === true && attackerList.data.list.length === 0,
       'conversation list leaked another user conversation'
+    );
+    const attackerProducts = await messageQuery.main({
+      action: 'listConversationProducts',
+      data: {
+        conversationId,
+        ownerScope: 'self'
+      }
+    });
+    assert(
+      attackerProducts.code === 'FORBIDDEN',
+      'non-participant can query conversation products'
     );
 
     currentOpenId = sellerOpenId;
@@ -4715,7 +6347,13 @@ async function verifyMessagingFunctionFlow() {
         clientMessageId: 'msg_verification_0002'
       }
     });
-    assert(sellerSend.success === true && stores.messages.size === 2, 'second participant could not send');
+    assert(
+      sellerSend.success === true
+      && [...stores.messages.values()].some(
+        (message) => message.content === '还在的'
+      ),
+      'second participant could not send'
+    );
     conversation = stores.conversations.get(conversationId);
     assert(
       conversation[`participant${buyerSlot}UnreadCount`] === 1,
@@ -4830,6 +6468,27 @@ async function verifyMessagingFunctionFlow() {
     assert(
       deletedConversationSend.code === 'PRODUCT_UNAVAILABLE',
       'deleted-product conversation still accepts new messages'
+    );
+    const deletedConversationReplay = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_verification_0003',
+        type: 'location',
+        location: {
+          name: '',
+          address: '',
+          latitude: 999,
+          longitude: 999
+        }
+      }
+    });
+    assert(
+      deletedConversationReplay.success === true
+      && deletedConversationReplay.data.reused === true
+      && deletedConversationReplay.data.message.type === 'text'
+      && deletedConversationReplay.data.message.content === '已售会话继续',
+      'a committed retry stops being idempotent after the product is deleted'
     );
 
     const invalidAction = await messageAction.main({
@@ -5508,6 +7167,84 @@ record('product media UI and DTO boundaries are wired', () => {
   assert(!/\bimages:\s*record\.images/.test(userQuerySource), 'public profile list still returns all product images');
 });
 
+record('product detail preview preserves state until an explicit product change', () => {
+  const detailPageSource = readText(
+    path.join(root, 'pages/product-detail/index.js')
+  );
+  const detailTemplateSource = readText(
+    path.join(root, 'pages/product-detail/index.wxml')
+  );
+  const editPageSource = readText(
+    path.join(root, 'pages/product-edit/index.js')
+  );
+  const myProductsSource = readText(
+    path.join(root, 'pages/my-products/index.js')
+  );
+
+  const onLoadSource = detailPageSource.slice(
+    detailPageSource.indexOf('onLoad(options)'),
+    detailPageSource.indexOf('onShow()')
+  );
+  const onShowSource = detailPageSource.slice(
+    detailPageSource.indexOf('onShow()'),
+    detailPageSource.indexOf('onHide()')
+  );
+  const previewSource = detailPageSource.slice(
+    detailPageSource.indexOf('onPreviewProductImage(event)'),
+    detailPageSource.indexOf('onProductVideoError()')
+  );
+
+  assert(
+    (onLoadSource.match(/this\.loadProduct\(\)/g) || []).length === 1
+      && /observedProductsVersion\s*=\s*AppStore\.getProductsVersion\(\)/.test(
+        onLoadSource
+      ),
+    'product detail does not perform one version-observed initial load'
+  );
+  assert(
+    /const productsVersion = AppStore\.getProductsVersion\(\)/.test(
+      onShowSource
+    )
+      && /productsVersion === this\.observedProductsVersion[\s\S]*return/.test(
+        onShowSource
+      )
+      && /this\.observedProductsVersion = productsVersion/.test(onShowSource)
+      && /viewState === 'success'[\s\S]*this\.loadProduct\(\)/.test(
+        onShowSource
+      )
+      && !/hasShown/.test(detailPageSource),
+    'product detail still reloads unconditionally whenever onShow runs'
+  );
+  assert(
+    /wx\.previewImage\(\{[\s\S]*current:\s*selected\.url,[\s\S]*urls/.test(
+      previewSource
+    )
+      && !/loadProduct|observedProductsVersion|markProductsChanged|scrollTop|navigateTo|redirectTo/.test(
+        previewSource
+      ),
+    'product image preview mutates refresh state, scroll state, or navigation'
+  );
+  assert(
+    /bindtap="onPreviewProductImage"/.test(detailTemplateSource)
+      && !/<(?:view|swiper|swiper-item)[^>]*bindtap="[^"]*"[^>]*>[\s\S]{0,300}<image[^>]*bindtap="onPreviewProductImage"/.test(
+        detailTemplateSource
+      ),
+    'product image preview can bubble into a parent tap action'
+  );
+  assert(
+    /AppStore\.markProductsChanged\(\)/.test(editPageSource)
+      && /AppStore\.markProductsChanged\(\)/.test(myProductsSource),
+    'product edits or status changes do not publish an explicit refresh version'
+  );
+  assert(
+    /AppStore\.markFavoritesChanged\(\);[\s\S]{0,120}this\.observedProductsVersion = AppStore\.getProductsVersion\(\)/.test(
+      detailPageSource
+    )
+      && /hasRecordedViewAttempt/.test(detailPageSource),
+    'local favorite changes cause a later reload or view recording is unguarded'
+  );
+});
+
 record('product view display and protected invocation boundaries are wired', () => {
   const cardTemplate = readText(path.join(root, 'components/product-card/index.wxml'));
   const favoritesTemplate = readText(path.join(root, 'pages/favorites/index.wxml'));
@@ -5586,8 +7323,13 @@ async function runAsyncChecks() {
   checks.push('PASS product view owner exclusion, rolling window, atomic concurrency and failure degradation flow');
   await verifyMessageServiceFlow();
   checks.push('PASS MessageService payload, normalization, validation and identity boundaries');
+  await verifyChatMediaServiceFlow();
+  checks.push('PASS chat media selection, validation, scoped upload and cleanup flow');
+  await verifyChatAudioPageFlow();
+  checks.push('PASS chat message tap isolation and iOS-safe voice playback lifecycle');
   await verifyMessagingFunctionFlow();
   checks.push('PASS messaging identity, permissions, idempotency, unread counts, cursors and privacy flow');
+  checks.push('PASS rich message types, media paths, location ranges and participant-product boundaries');
   const {
     verifyAppointmentFlow,
     verifyChatAppointmentDegradation

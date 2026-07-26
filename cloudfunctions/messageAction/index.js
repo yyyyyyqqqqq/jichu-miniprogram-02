@@ -13,8 +13,36 @@ const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const CONVERSATION_ID_PATTERN = /^c_[a-f0-9]{64}$/;
 const CLIENT_MESSAGE_ID_PATTERN = /^[a-zA-Z0-9_-]{8,80}$/;
 const NEW_CONVERSATION_STATUSES = new Set(['available', 'reserved']);
+const MESSAGE_TYPES = new Set([
+  'text',
+  'voice',
+  'image',
+  'location',
+  'product'
+]);
+const SELECTABLE_PRODUCT_STATUSES = new Set([
+  'available',
+  'reserved',
+  'sold'
+]);
+const IMAGE_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{8,80}\.(?:jpg|jpeg|png|webp)$/i;
+const VOICE_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{8,80}\.mp3$/i;
 const MESSAGE_MAX_LENGTH = 500;
 const LAST_MESSAGE_MAX_LENGTH = 80;
+const MAX_MEDIA_FILE_ID_LENGTH = 1024;
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const MAX_VOICE_SIZE = 10 * 1024 * 1024;
+const MIN_VOICE_DURATION_MS = 1000;
+const MAX_VOICE_DURATION_MS = 60000;
+const MAX_MEDIA_DIMENSION = 12000;
+const MAX_LOCATION_NAME_LENGTH = 80;
+const MAX_LOCATION_ADDRESS_LENGTH = 200;
+const LAST_MESSAGE_SUMMARIES = {
+  voice: '[语音]',
+  image: '[图片]',
+  location: '[位置]',
+  product: '[商品]'
+};
 
 const ERROR_CODES = {
   OK: 'OK',
@@ -30,6 +58,11 @@ const ERROR_CODES = {
   FORBIDDEN: 'FORBIDDEN',
   MESSAGE_EMPTY: 'MESSAGE_EMPTY',
   MESSAGE_TOO_LONG: 'MESSAGE_TOO_LONG',
+  INVALID_MESSAGE_TYPE: 'INVALID_MESSAGE_TYPE',
+  INVALID_MEDIA: 'INVALID_MEDIA',
+  INVALID_LOCATION: 'INVALID_LOCATION',
+  INVALID_PRODUCT: 'INVALID_PRODUCT',
+  PRODUCT_NOT_ACCESSIBLE: 'PRODUCT_NOT_ACCESSIBLE',
   MESSAGE_SEND_FAILED: 'MESSAGE_SEND_FAILED',
   DATABASE_ERROR: 'DATABASE_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
@@ -83,6 +116,147 @@ function normalizeClientMessageId(value) {
 function normalizeCount(value) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
+}
+
+function normalizeInteger(value, minimum, maximum) {
+  const number = Number(value);
+  return Number.isFinite(number)
+    && number >= minimum
+    && number <= maximum
+    ? Math.floor(number)
+    : null;
+}
+
+function normalizeCoordinate(value, minimum, maximum) {
+  const number = Number(value);
+  return Number.isFinite(number)
+    && number >= minimum
+    && number <= maximum
+    ? number
+    : null;
+}
+
+function getCloudFilePath(fileId) {
+  if (
+    typeof fileId !== 'string'
+    || fileId.length > MAX_MEDIA_FILE_ID_LENGTH
+    || !fileId.startsWith('cloud://')
+  ) {
+    return '';
+  }
+  const match = fileId.match(/^cloud:\/\/[^/]+\/(.+)$/);
+  return match ? match[1] : '';
+}
+
+function validateChatMediaPath(
+  fileId,
+  mediaType,
+  conversationId,
+  senderPublicUserId,
+  clientMessageId
+) {
+  const segments = getCloudFilePath(fileId).split('/');
+  const fileNamePattern = mediaType === 'voice'
+    ? VOICE_FILE_NAME_PATTERN
+    : IMAGE_FILE_NAME_PATTERN;
+  if (
+    segments.length !== 6
+    || segments[0] !== 'chat-media'
+    || segments[1] !== mediaType
+    || segments[2] !== conversationId
+    || segments[3] !== senderPublicUserId
+    || !/^\d{8}$/.test(segments[4])
+    || !fileNamePattern.test(segments[5])
+  ) {
+    return false;
+  }
+  const fileStem = segments[5].slice(0, segments[5].lastIndexOf('.'));
+  return fileStem === clientMessageId;
+}
+
+function normalizeMediaPayload(
+  type,
+  value,
+  conversationId,
+  senderPublicUserId,
+  clientMessageId
+) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const fileId = normalizeString(value.fileId || value.fileID);
+  if (!validateChatMediaPath(
+    fileId,
+    type,
+    conversationId,
+    senderPublicUserId,
+    clientMessageId
+  )) {
+    return null;
+  }
+
+  if (type === 'voice') {
+    const durationMs = normalizeInteger(
+      value.durationMs,
+      MIN_VOICE_DURATION_MS,
+      MAX_VOICE_DURATION_MS
+    );
+    const size = normalizeInteger(value.size, 1, MAX_VOICE_SIZE);
+    const format = normalizeString(value.format).toLowerCase();
+    if (durationMs === null || size === null || format !== 'mp3') {
+      return null;
+    }
+    return {
+      fileId,
+      durationMs,
+      size,
+      format: 'mp3'
+    };
+  }
+
+  const width = normalizeInteger(value.width, 1, MAX_MEDIA_DIMENSION);
+  const height = normalizeInteger(value.height, 1, MAX_MEDIA_DIMENSION);
+  const size = normalizeInteger(value.size, 1, MAX_IMAGE_SIZE);
+  if (width === null || height === null || size === null) {
+    return null;
+  }
+  return {
+    fileId,
+    width,
+    height,
+    size
+  };
+}
+
+function normalizeLocationPayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const name = normalizeString(value.name);
+  const address = normalizeString(value.address);
+  const latitude = normalizeCoordinate(value.latitude, -90, 90);
+  const longitude = normalizeCoordinate(value.longitude, -180, 180);
+  if (
+    !name
+    || name.length > MAX_LOCATION_NAME_LENGTH
+    || !address
+    || address.length > MAX_LOCATION_ADDRESS_LENGTH
+    || latitude === null
+    || longitude === null
+  ) {
+    return null;
+  }
+  return {
+    name,
+    address,
+    latitude,
+    longitude
+  };
+}
+
+function normalizeMessageType(value) {
+  const type = normalizeString(value);
+  return MESSAGE_TYPES.has(type) ? type : '';
 }
 
 function logProductLookupDiagnostic(productId, productFound, code) {
@@ -196,14 +370,51 @@ function toIsoString(value) {
 }
 
 function toSafeMessage(record, openId) {
-  return {
+  const type = normalizeMessageType(record.type) || 'text';
+  const message = {
     messageId: String(record._id || ''),
     senderPublicUserId: String(record.senderPublicUserId || ''),
     isMine: record.senderOpenid === openId,
-    type: 'text',
-    content: normalizeString(record.content),
+    type,
     createdAt: toIsoString(record.createdAt)
   };
+  if (type === 'text') {
+    message.content = normalizeString(record.content);
+  } else if (type === 'voice' || type === 'image') {
+    message.media = record.media && typeof record.media === 'object'
+      ? {
+          fileId: normalizeString(record.media.fileId),
+          durationMs: normalizeCount(record.media.durationMs),
+          size: normalizeCount(record.media.size),
+          format: type === 'voice' ? 'mp3' : '',
+          width: type === 'image' ? normalizeCount(record.media.width) : 0,
+          height: type === 'image' ? normalizeCount(record.media.height) : 0
+        }
+      : {};
+  } else if (type === 'location') {
+    const location = record.location && typeof record.location === 'object'
+      ? record.location
+      : {};
+    message.location = {
+      name: normalizeString(location.name),
+      address: normalizeString(location.address),
+      latitude: Number(location.latitude),
+      longitude: Number(location.longitude)
+    };
+  } else if (type === 'product') {
+    const product = record.product && typeof record.product === 'object'
+      ? record.product
+      : {};
+    message.product = {
+      productId: normalizeString(product.productId),
+      title: normalizeString(product.title),
+      coverImage: normalizeString(product.coverImage),
+      price: Number(product.price) || 0,
+      status: normalizeString(product.status),
+      ownerPublicUserId: normalizeString(product.ownerPublicUserId)
+    };
+  }
+  return message;
 }
 
 function toProductSnapshot(product, productId) {
@@ -404,24 +615,21 @@ async function createOrGetConversation(data, identity, trace) {
   return success(result);
 }
 
-async function sendTextMessage(data, openId, trace) {
+async function sendMessage(data, openId, trace, forcedType = '') {
   trace.step = 'send.validate';
   const conversationId = normalizeConversationId(data.conversationId);
   const clientMessageId = normalizeClientMessageId(data.clientMessageId);
+  const type = forcedType || normalizeMessageType(data.type);
   const content = typeof data.content === 'string' ? data.content.trim() : '';
-  if (!conversationId || !clientMessageId) {
-    return failure(ERROR_CODES.INVALID_ARGUMENT, '消息参数不正确');
-  }
-  if (!content) {
-    return failure(ERROR_CODES.MESSAGE_EMPTY, '消息内容不能为空');
-  }
-  if (content.length > MESSAGE_MAX_LENGTH) {
+  if (!conversationId || !clientMessageId || !type) {
     return failure(
-      ERROR_CODES.MESSAGE_TOO_LONG,
-      `消息不能超过 ${MESSAGE_MAX_LENGTH} 个字`
+      type ? ERROR_CODES.INVALID_ARGUMENT : ERROR_CODES.INVALID_MESSAGE_TYPE,
+      type ? '消息参数不正确' : '不支持的消息类型'
     );
   }
-
+  if (forcedType && normalizeString(data.type) && data.type !== forcedType) {
+    return failure(ERROR_CODES.INVALID_MESSAGE_TYPE, '消息类型不正确');
+  }
   const messageId = createMessageId(
     conversationId,
     openId,
@@ -446,18 +654,6 @@ async function sendTextMessage(data, openId, trace) {
       businessError(ERROR_CODES.FORBIDDEN, '无权向该会话发送消息');
     }
 
-    const productDocument = transaction
-      .collection('products')
-      .doc(conversation.productId);
-    trace.step = 'send.read_product';
-    const product = await getDocumentOrNull(productDocument);
-    if (!product || product.status === 'deleted') {
-      businessError(
-        ERROR_CODES.PRODUCT_UNAVAILABLE,
-        '商品已删除，仅可查看历史消息'
-      );
-    }
-
     const messageDocument = transaction.collection('messages').doc(messageId);
     trace.step = 'send.read_message';
     const existingMessage = await getDocumentOrNull(messageDocument);
@@ -468,26 +664,157 @@ async function sendTextMessage(data, openId, trace) {
       };
     }
 
+    const productDocument = transaction
+      .collection('products')
+      .doc(conversation.productId);
+    trace.step = 'send.read_product';
+    const conversationProduct = await getDocumentOrNull(productDocument);
+    if (!conversationProduct || conversationProduct.status === 'deleted') {
+      businessError(
+        ERROR_CODES.PRODUCT_UNAVAILABLE,
+        '商品已删除，仅可查看历史消息'
+      );
+    }
+
+    // clientMessageId is a first-write-wins idempotency key. Payload-specific
+    // validation intentionally happens after the existing-message lookup so a
+    // retry cannot mutate the committed message or advance unread/summary state.
+    if (type === 'text' && !content) {
+      businessError(ERROR_CODES.MESSAGE_EMPTY, '消息内容不能为空');
+    }
+    if (type === 'text' && content.length > MESSAGE_MAX_LENGTH) {
+      businessError(
+        ERROR_CODES.MESSAGE_TOO_LONG,
+        `消息不能超过 ${MESSAGE_MAX_LENGTH} 个字`
+      );
+    }
+    const location = type === 'location'
+      ? normalizeLocationPayload(data.location)
+      : null;
+    if (type === 'location' && !location) {
+      businessError(ERROR_CODES.INVALID_LOCATION, '位置信息不正确');
+    }
+    const productId = type === 'product'
+      ? normalizeProductId(data.productId)
+      : '';
+    if (type === 'product' && !productId) {
+      businessError(ERROR_CODES.INVALID_PRODUCT, '商品信息不正确');
+    }
+
     const senderPublicUserId = slot === 'A'
       ? conversation.participantAUserId
       : conversation.participantBUserId;
-    trace.step = 'send.write_message';
-    await messageDocument.set({
-      data: {
+    const messageData = {
+      conversationId,
+      senderOpenid: openId,
+      senderPublicUserId,
+      type,
+      clientMessageId,
+      createdAt: db.serverDate()
+    };
+
+    if (type === 'text') {
+      messageData.content = content;
+    } else if (type === 'voice' || type === 'image') {
+      const media = normalizeMediaPayload(
+        type,
+        data.media,
         conversationId,
-        senderOpenid: openId,
         senderPublicUserId,
-        type: 'text',
-        content,
-        clientMessageId,
-        createdAt: db.serverDate()
+        clientMessageId
+      );
+      if (!media) {
+        businessError(ERROR_CODES.INVALID_MEDIA, '媒体文件不正确');
       }
-    });
+      messageData.media = media;
+    } else if (type === 'location') {
+      messageData.location = location;
+    } else if (type === 'product') {
+      if (productId === conversation.productId) {
+        businessError(
+          ERROR_CODES.INVALID_PRODUCT,
+          '请选择当前会话商品以外的商品'
+        );
+      }
+      trace.step = 'send.read_shared_product';
+      const selectedProduct = await getDocumentOrNull(
+        transaction.collection('products').doc(productId)
+      );
+      if (
+        !selectedProduct
+        || !SELECTABLE_PRODUCT_STATUSES.has(
+          normalizeString(selectedProduct.status)
+        )
+      ) {
+        businessError(
+          ERROR_CODES.PRODUCT_NOT_ACCESSIBLE,
+          '商品不存在或当前不可发送'
+        );
+      }
+      const ownerOpenId = normalizeString(selectedProduct.sellerOpenid);
+      const storedOwnerPublicUserId = normalizeString(
+        selectedProduct.sellerId
+      );
+      let ownerPublicUserId = '';
+      if (ownerOpenId) {
+        const ownerSlot = getParticipantSlot(conversation, ownerOpenId);
+        if (ownerSlot) {
+          const participantPublicUserId = normalizeString(
+            conversation[`participant${ownerSlot}UserId`]
+          );
+          if (
+            participantPublicUserId
+            && (
+              !storedOwnerPublicUserId
+              || storedOwnerPublicUserId === participantPublicUserId
+            )
+          ) {
+            ownerPublicUserId = participantPublicUserId;
+          }
+        }
+      } else if ([
+        conversation.participantAUserId,
+        conversation.participantBUserId
+      ].includes(storedOwnerPublicUserId)) {
+        ownerPublicUserId = storedOwnerPublicUserId;
+      }
+      if (!ownerPublicUserId) {
+        businessError(
+          ERROR_CODES.PRODUCT_NOT_ACCESSIBLE,
+          '只能发送当前会话双方的商品'
+        );
+      }
+      messageData.product = {
+        productId,
+        title: normalizeString(selectedProduct.title).slice(0, 80)
+          || '未命名闲置',
+        coverImage: normalizeString(selectedProduct.coverImage)
+          || (
+            Array.isArray(selectedProduct.images)
+            ? normalizeString(selectedProduct.images[0])
+            : ''
+          ),
+        price: Number.isFinite(Number(selectedProduct.price))
+          && Number(selectedProduct.price) >= 0
+          ? Number(selectedProduct.price)
+          : 0,
+        status: normalizeString(selectedProduct.status),
+        ownerPublicUserId
+      };
+    }
+
+    trace.step = 'send.write_message';
+    await messageDocument.set({ data: messageData });
 
     const updateData = {
-      productSnapshot: toProductSnapshot(product, conversation.productId),
-      lastMessage: content.slice(0, LAST_MESSAGE_MAX_LENGTH),
-      lastMessageType: 'text',
+      productSnapshot: toProductSnapshot(
+        conversationProduct,
+        conversation.productId
+      ),
+      lastMessage: type === 'text'
+        ? content.slice(0, LAST_MESSAGE_MAX_LENGTH)
+        : LAST_MESSAGE_SUMMARIES[type],
+      lastMessageType: type,
       lastMessageAt: db.serverDate(),
       lastSenderOpenid: openId,
       updatedAt: db.serverDate()
@@ -507,18 +834,22 @@ async function sendTextMessage(data, openId, trace) {
     });
 
     return {
-      message: {
-        messageId,
-        senderPublicUserId,
-        isMine: true,
-        type: 'text',
-        content,
+      message: toSafeMessage({
+        _id: messageId,
+        ...messageData,
         createdAt: new Date().toISOString()
-      },
+      }, openId),
       reused: false
     };
   });
   return success(result);
+}
+
+async function sendTextMessage(data, openId, trace) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return failure(ERROR_CODES.INVALID_ARGUMENT, '消息参数不正确');
+  }
+  return sendMessage({ ...data, type: 'text' }, openId, trace, 'text');
 }
 
 async function markConversationRead(data, openId, trace) {
@@ -593,6 +924,7 @@ exports.main = async (event = {}) => {
   const allowedActions = [
     'createOrGetConversation',
     'sendTextMessage',
+    'sendMessage',
     'markConversationRead'
   ];
   if (!allowedActions.includes(action)) {
@@ -620,6 +952,9 @@ exports.main = async (event = {}) => {
     }
     if (action === 'sendTextMessage') {
       return await sendTextMessage(data, openId, trace);
+    }
+    if (action === 'sendMessage') {
+      return await sendMessage(data, openId, trace);
     }
     return await markConversationRead(data, openId, trace);
   } catch (error) {

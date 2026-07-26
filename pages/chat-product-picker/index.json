@@ -1,0 +1,9 @@
+{
+  "navigationBarTitleText": "选择商品",
+  "enablePullDownRefresh": false,
+  "onReachBottomDistance": 120,
+  "usingComponents": {
+    "empty-state": "/components/empty-state/index",
+    "loading-state": "/components/loading-state/index"
+  }
+}

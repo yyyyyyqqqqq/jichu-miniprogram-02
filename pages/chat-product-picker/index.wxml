@@ -1,0 +1,115 @@
+<view class="picker-page">
+  <view class="owner-tabs">
+    <button
+      class="owner-tab {{ownerScope === 'self' ? 'owner-tab--active' : ''}}"
+      data-scope="self"
+      disabled="{{isSending}}"
+      bindtap="switchOwnerScope"
+    >
+      我的商品
+    </button>
+    <button
+      class="owner-tab {{ownerScope === 'other' ? 'owner-tab--active' : ''}}"
+      data-scope="other"
+      disabled="{{isSending}}"
+      bindtap="switchOwnerScope"
+    >
+      对方商品
+    </button>
+  </view>
+
+  <loading-state
+    wx:if="{{viewState === 'loading'}}"
+    text="正在加载可发送商品"
+  />
+
+  <empty-state
+    wx:elif="{{viewState === 'error'}}"
+    title="商品列表加载失败"
+    description="{{errorMessage}}"
+    action-text="重新加载"
+    bind:action="retryProducts"
+  />
+
+  <block wx:else>
+    <view wx:if="{{owner}}" class="owner-summary">
+      <image
+        wx:if="{{owner.avatarUrl}}"
+        class="owner-summary__avatar"
+        src="{{owner.avatarUrl}}"
+        mode="aspectFill"
+      />
+      <view wx:else class="owner-summary__avatar owner-summary__avatar--text">
+        {{owner.avatarText}}
+      </view>
+      <view class="owner-summary__copy">
+        <text class="owner-summary__name">{{owner.nickname}}</text>
+        <text class="owner-summary__campus">{{owner.campus}}</text>
+      </view>
+    </view>
+
+    <view class="product-list">
+      <view
+        wx:for="{{productList}}"
+        wx:key="productId"
+        class="product-card"
+      >
+        <image
+          wx:if="{{item.coverImage}}"
+          class="product-card__image"
+          src="{{item.coverImage}}"
+          mode="aspectFill"
+        />
+        <view wx:else class="product-card__image product-card__image--empty">
+          <image
+            class="product-card__empty-icon"
+            src="/assets/icons/chat/product.svg"
+            mode="aspectFit"
+          />
+        </view>
+        <view class="product-card__body">
+          <text class="product-card__title">{{item.title}}</text>
+          <view class="product-card__meta">
+            <text class="product-card__price">{{item.priceDisplay}}</text>
+            <text class="product-card__status">{{item.statusText}}</text>
+          </view>
+          <text class="product-card__owner">{{item.ownerLabel}}</text>
+        </view>
+        <button
+          class="product-card__send"
+          data-product-id="{{item.productId}}"
+          disabled="{{isSending}}"
+          loading="{{sendingProductId === item.productId}}"
+          bindtap="sendProduct"
+        >
+          {{sendingProductId === item.productId ? '发送中' : '发送'}}
+        </button>
+      </view>
+    </view>
+
+    <empty-state
+      wx:if="{{!isLoadingProducts && productList.length === 0}}"
+      title="{{ownerScope === 'self' ? '你还没有其他可发送的商品' : '对方没有其他可发送的商品'}}"
+      description="当前会话关联的商品不会出现在这里"
+      show-action="{{false}}"
+    />
+
+    <loading-state
+      wx:if="{{isLoadingProducts}}"
+      compact
+      text="正在加载商品"
+    />
+
+    <view wx:if="{{productError}}" class="inline-error">
+      <text>{{productError}}</text>
+      <button class="inline-error__retry" bindtap="retryProducts">重试</button>
+    </view>
+
+    <view
+      wx:if="{{!isLoadingProducts && productList.length > 0 && !hasMore}}"
+      class="list-end"
+    >
+      已显示全部可发送商品
+    </view>
+  </block>
+</view>

@@ -242,13 +242,24 @@
   font-size: 22rpx;
 }
 
-.profile-edit-button,
-.logout-button {
+.profile-action-button {
+  width: 400rpx;
+  max-width: 100%;
   height: 72rpx;
-  margin-top: 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 24rpx auto 0;
+  padding: 0;
+  box-sizing: border-box;
   border-radius: 18rpx;
   font-size: 25rpx;
-  line-height: 72rpx;
+  line-height: normal;
+  text-align: center;
+}
+
+.profile-action-button::after {
+  border: 0;
 }
 
 .profile-edit-button {

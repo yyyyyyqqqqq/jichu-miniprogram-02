@@ -107,10 +107,18 @@
         {{user.profileCompleted ? '资料已完善' : '资料待完善'}}
       </text>
     </view>
-    <button class="profile-edit-button" bindtap="editProfile">
+    <button
+      class="profile-action-button profile-edit-button"
+      bindtap="editProfile"
+    >
       {{user.profileCompleted ? '编辑头像与昵称' : '立即完善资料'}}
     </button>
-    <button class="logout-button" bindtap="logout">退出登录</button>
+    <button
+      class="profile-action-button logout-button"
+      bindtap="logout"
+    >
+      退出登录
+    </button>
   </view>
 
   <view class="safety-note">校内线下面交 · 不涉及在线支付</view>

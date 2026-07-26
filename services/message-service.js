@@ -12,6 +12,24 @@ const CLIENT_MESSAGE_ID_PATTERN = /^[a-zA-Z0-9_-]{8,80}$/;
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const PUBLIC_USER_ID_PATTERN = /^u_[a-f0-9]{32}$/;
 const APPOINTMENT_ID_PATTERN = /^a_[a-f0-9]{64}$/;
+const MESSAGE_TYPES = new Set([
+  'text',
+  'voice',
+  'image',
+  'location',
+  'product',
+  'system'
+]);
+const PRODUCT_MESSAGE_STATUSES = new Set([
+  'available',
+  'reserved',
+  'sold'
+]);
+const MIN_VOICE_DURATION_MS = 1000;
+const MAX_VOICE_DURATION_MS = 60000;
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const MAX_VOICE_SIZE = 10 * 1024 * 1024;
+const MAX_MEDIA_DIMENSION = 12000;
 const APPOINTMENT_EVENT_TYPES = new Set([
   'appointment_created',
   'appointment_accepted',
@@ -44,6 +62,14 @@ const ERROR_MESSAGES = {
   FORBIDDEN: '无权访问该会话',
   MESSAGE_EMPTY: '消息内容不能为空',
   MESSAGE_TOO_LONG: `消息不能超过 ${MESSAGE_MAX_LENGTH} 个字`,
+  INVALID_MESSAGE_TYPE: '暂不支持这种消息类型',
+  INVALID_MEDIA: '媒体文件不正确，请重新选择',
+  INVALID_LOCATION: '位置信息不正确，请重新选择',
+  INVALID_PRODUCT: '商品信息不正确，请重新选择',
+  PRODUCT_NOT_ACCESSIBLE: '商品不存在或当前不可发送',
+  INVALID_OWNER_SCOPE: '商品归属筛选不正确',
+  MEDIA_UPLOAD_FAILED: '媒体上传失败，请稍后重试',
+  PERMISSION_DENIED: '需要相关权限才能继续',
   MESSAGE_SEND_FAILED: '发送失败，请重试',
   DATABASE_ERROR: '消息数据暂不可用，请稍后重试',
   INTERNAL_ERROR: '消息服务暂不可用',
@@ -80,6 +106,28 @@ function normalizeCount(value) {
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
 }
 
+function normalizeInteger(value, minimum, maximum) {
+  const number = Number(value);
+  return Number.isFinite(number)
+    && number >= minimum
+    && number <= maximum
+    ? Math.floor(number)
+    : null;
+}
+
+function normalizeCoordinate(value, minimum, maximum) {
+  const number = Number(value);
+  return Number.isFinite(number)
+    && number >= minimum
+    && number <= maximum
+    ? number
+    : null;
+}
+
+function normalizeMessageType(value) {
+  return MESSAGE_TYPES.has(value) ? value : 'unsupported';
+}
+
 function normalizeDate(value) {
   if (!value) {
     return '';
@@ -113,6 +161,15 @@ function normalizeCursor(value) {
   return time && /^(?:c|m)_[a-f0-9]{64}$/.test(id)
     ? { time, id }
     : null;
+}
+
+function normalizeProductCursor(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const time = normalizeDate(value.time);
+  const id = normalizeString(value.id);
+  return time && PRODUCT_ID_PATTERN.test(id) ? { time, id } : null;
 }
 
 function normalizePublicUser(value) {
@@ -156,6 +213,114 @@ function normalizeProduct(value) {
   };
 }
 
+function normalizeMessageMedia(type, value) {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : {};
+  const fileId = normalizeString(record.fileId || record.fileID);
+  if (!fileId.startsWith('cloud://')) {
+    throw createError('INVALID_RESPONSE');
+  }
+  if (type === 'voice') {
+    const durationMs = normalizeInteger(
+      record.durationMs,
+      MIN_VOICE_DURATION_MS,
+      MAX_VOICE_DURATION_MS
+    );
+    const size = normalizeInteger(record.size, 1, MAX_VOICE_SIZE);
+    if (
+      durationMs === null
+      || size === null
+      || normalizeString(record.format).toLowerCase() !== 'mp3'
+    ) {
+      throw createError('INVALID_RESPONSE');
+    }
+    return {
+      fileId,
+      durationMs,
+      durationText: `${Math.max(1, Math.ceil(durationMs / 1000))}″`,
+      size,
+      format: 'mp3'
+    };
+  }
+  const width = normalizeInteger(record.width, 1, MAX_MEDIA_DIMENSION);
+  const height = normalizeInteger(record.height, 1, MAX_MEDIA_DIMENSION);
+  const size = normalizeInteger(record.size, 1, MAX_IMAGE_SIZE);
+  if (width === null || height === null || size === null) {
+    throw createError('INVALID_RESPONSE');
+  }
+  const ratio = width / height;
+  return {
+    fileId,
+    width,
+    height,
+    size,
+    displayMode: ratio > 1.35 ? 'landscape' : ratio < 0.74 ? 'portrait' : 'square'
+  };
+}
+
+function normalizeMessageLocation(value) {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : {};
+  const name = normalizeString(record.name);
+  const address = normalizeString(record.address);
+  const latitude = normalizeCoordinate(record.latitude, -90, 90);
+  const longitude = normalizeCoordinate(record.longitude, -180, 180);
+  if (
+    !name
+    || name.length > 80
+    || !address
+    || address.length > 200
+    || latitude === null
+    || longitude === null
+  ) {
+    throw createError('INVALID_RESPONSE');
+  }
+  return {
+    name,
+    address,
+    latitude,
+    longitude
+  };
+}
+
+function normalizeMessageProduct(value) {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : {};
+  const productId = normalizeString(record.productId);
+  const title = normalizeString(record.title);
+  const ownerPublicUserId = normalizeString(record.ownerPublicUserId);
+  const status = PRODUCT_MESSAGE_STATUSES.has(record.status)
+    ? record.status
+    : 'sold';
+  const price = Number(record.price);
+  if (
+    !PRODUCT_ID_PATTERN.test(productId)
+    || !title
+    || !PUBLIC_USER_ID_PATTERN.test(ownerPublicUserId)
+    || !Number.isFinite(price)
+    || price < 0
+  ) {
+    throw createError('INVALID_RESPONSE');
+  }
+  return {
+    productId,
+    title,
+    coverImage: normalizeString(record.coverImage),
+    price,
+    priceDisplay: price === 0 ? '免费送' : `¥${formatPrice(price)}`,
+    status,
+    statusText: {
+      available: '在售',
+      reserved: '已预定',
+      sold: '已售出'
+    }[status],
+    ownerPublicUserId
+  };
+}
+
 function normalizeConversation(record) {
   if (!record || typeof record !== 'object') {
     throw createError('INVALID_RESPONSE');
@@ -172,7 +337,7 @@ function normalizeConversation(record) {
     otherUser: normalizePublicUser(record.otherUser),
     product: normalizeProduct(record.product),
     lastMessage: normalizeString(record.lastMessage) || '开始聊聊这件闲置吧',
-    lastMessageType: ['text', 'system'].includes(record.lastMessageType)
+    lastMessageType: MESSAGE_TYPES.has(record.lastMessageType)
       ? record.lastMessageType
       : '',
     lastMessageAt,
@@ -188,43 +353,78 @@ function normalizeMessage(record) {
   }
   const messageId = normalizeString(record.messageId || record._id);
   const senderPublicUserId = normalizeString(record.senderPublicUserId);
-  const type = record.type;
-  const isSystem = type === 'system';
+  let type = normalizeMessageType(record.type);
   const eventType = normalizeString(record.eventType);
   const appointmentId = normalizeString(record.appointmentId);
   if (
     !MESSAGE_ID_PATTERN.test(messageId)
-    || !['text', 'system'].includes(type)
     || !PUBLIC_USER_ID_PATTERN.test(senderPublicUserId)
-    || (
-      isSystem
-      && (
-        !APPOINTMENT_EVENT_TYPES.has(eventType)
-        || !APPOINTMENT_ID_PATTERN.test(appointmentId)
-      )
-    )
-    || typeof record.content !== 'string'
   ) {
     throw createError('INVALID_RESPONSE');
   }
-  const content = record.content.trim();
-  if (!content || content.length > MESSAGE_MAX_LENGTH) {
-    throw createError('INVALID_RESPONSE');
+  if (
+    type === 'system'
+    && (
+      !APPOINTMENT_EVENT_TYPES.has(eventType)
+      || !APPOINTMENT_ID_PATTERN.test(appointmentId)
+    )
+  ) {
+    type = 'unsupported';
   }
   const createdAt = normalizeDate(record.createdAt);
-  return {
+  const message = {
     messageId,
     senderPublicUserId,
     isMine: record.isMine === true,
     type,
-    eventType: isSystem ? eventType : '',
-    appointmentId: isSystem ? appointmentId : '',
-    content,
     createdAt,
     createdAtText: formatMessageTime(createdAt),
     sendStatus: 'sent',
     clientMessageId: ''
   };
+  if (type === 'text' || type === 'system') {
+    const content = typeof record.content === 'string'
+      ? record.content.trim()
+      : '';
+    if (!content || content.length > MESSAGE_MAX_LENGTH) {
+      message.type = 'unsupported';
+      message.content = '当前版本暂不支持此消息类型';
+      return message;
+    }
+    message.content = content;
+    message.eventType = type === 'system' ? eventType : '';
+    message.appointmentId = type === 'system' ? appointmentId : '';
+  } else if (type === 'voice' || type === 'image') {
+    try {
+      message.media = normalizeMessageMedia(type, record.media);
+    } catch (error) {
+      message.type = 'unsupported';
+      message.content = '当前版本暂不支持此消息类型';
+      return message;
+    }
+    message.content = type === 'voice' ? '[语音]' : '[图片]';
+  } else if (type === 'location') {
+    try {
+      message.location = normalizeMessageLocation(record.location);
+    } catch (error) {
+      message.type = 'unsupported';
+      message.content = '当前版本暂不支持此消息类型';
+      return message;
+    }
+    message.content = '[位置]';
+  } else if (type === 'product') {
+    try {
+      message.product = normalizeMessageProduct(record.product);
+    } catch (error) {
+      message.type = 'unsupported';
+      message.content = '当前版本暂不支持此消息类型';
+      return message;
+    }
+    message.content = '[商品]';
+  } else {
+    message.content = '当前版本暂不支持此消息类型';
+  }
+  return message;
 }
 
 function mapTransportError(error) {
@@ -407,6 +607,45 @@ async function listMessages(conversationId, options = {}) {
   };
 }
 
+function normalizeSelectableProduct(record) {
+  const product = normalizeMessageProduct(record);
+  const ownerScope = record.ownerScope === 'other' ? 'other' : 'self';
+  return {
+    ...product,
+    ownerScope,
+    ownerLabel: ownerScope === 'self' ? '我的商品' : '对方商品'
+  };
+}
+
+async function listConversationProducts(conversationId, options = {}) {
+  const id = normalizeString(conversationId);
+  const ownerScope = options.ownerScope === 'other' ? 'other' : 'self';
+  if (!CONVERSATION_ID_PATTERN.test(id)) {
+    throw createError('INVALID_ARGUMENT');
+  }
+  const pageSize = normalizePositiveInteger(
+    options.pageSize,
+    8,
+    MAX_PAGE_SIZE
+  );
+  const data = await callQuery('listConversationProducts', {
+    conversationId: id,
+    ownerScope,
+    pageSize,
+    cursor: normalizeProductCursor(options.cursor)
+  });
+  if (!Array.isArray(data.list)) {
+    throw createError('INVALID_RESPONSE');
+  }
+  return {
+    ownerScope,
+    owner: normalizePublicUser(data.owner),
+    list: data.list.map(normalizeSelectableProduct),
+    hasMore: data.hasMore === true,
+    nextCursor: normalizeProductCursor(data.nextCursor)
+  };
+}
+
 async function sendTextMessage(options = {}) {
   const conversationId = normalizeString(options.conversationId);
   const content = typeof options.content === 'string'
@@ -434,6 +673,67 @@ async function sendTextMessage(options = {}) {
     message: normalizeMessage(data.message),
     reused: data.reused === true
   };
+}
+
+async function sendTypedMessage(type, options = {}) {
+  const conversationId = normalizeString(options.conversationId);
+  const clientMessageId = normalizeString(options.clientMessageId);
+  if (!CONVERSATION_ID_PATTERN.test(conversationId)) {
+    throw createError('INVALID_ARGUMENT');
+  }
+  if (!CLIENT_MESSAGE_ID_PATTERN.test(clientMessageId)) {
+    throw createError('INVALID_ARGUMENT');
+  }
+  if (!['voice', 'image', 'location', 'product'].includes(type)) {
+    throw createError('INVALID_MESSAGE_TYPE');
+  }
+  const payload = {
+    conversationId,
+    clientMessageId,
+    type
+  };
+  if (type === 'voice' || type === 'image') {
+    const media = options.media && typeof options.media === 'object'
+      ? options.media
+      : null;
+    if (!media) {
+      throw createError('INVALID_MEDIA');
+    }
+    payload.media = media;
+  } else if (type === 'location') {
+    try {
+      payload.location = normalizeMessageLocation(options.location);
+    } catch (error) {
+      throw createError('INVALID_LOCATION');
+    }
+  } else {
+    const productId = normalizeString(options.productId);
+    if (!PRODUCT_ID_PATTERN.test(productId)) {
+      throw createError('INVALID_PRODUCT');
+    }
+    payload.productId = productId;
+  }
+  const data = await callAction('sendMessage', payload);
+  return {
+    message: normalizeMessage(data.message),
+    reused: data.reused === true
+  };
+}
+
+function sendVoiceMessage(options) {
+  return sendTypedMessage('voice', options);
+}
+
+function sendImageMessage(options) {
+  return sendTypedMessage('image', options);
+}
+
+function sendLocationMessage(options) {
+  return sendTypedMessage('location', options);
+}
+
+function sendProductMessage(options) {
+  return sendTypedMessage('product', options);
 }
 
 async function markConversationRead(conversationId) {
@@ -465,6 +765,11 @@ module.exports = {
   listConversations,
   getConversation,
   listMessages,
+  listConversationProducts,
   sendTextMessage,
+  sendVoiceMessage,
+  sendImageMessage,
+  sendLocationMessage,
+  sendProductMessage,
   markConversationRead
 };

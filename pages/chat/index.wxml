@@ -118,14 +118,98 @@
         </view>
         <view
           wx:else
-          class="message-bubble {{item.isMine ? 'message-bubble--mine' : ''}} {{item.sendStatus === 'failed' ? 'message-bubble--failed' : ''}}"
+          class="message-bubble message-bubble--{{item.type}} {{item.isMine ? 'message-bubble--mine' : ''}} {{item.sendStatus === 'failed' ? 'message-bubble--failed' : ''}}"
           data-client-message-id="{{item.clientMessageId}}"
           bindtap="retryMessage"
         >
-          <text class="message-content">{{item.content}}</text>
+          <text
+            wx:if="{{item.type === 'text' || item.type === 'unsupported'}}"
+            class="message-content"
+            data-client-message-id="{{item.clientMessageId}}"
+            catchtap="retryMessage"
+          >{{item.content}}</text>
+
+          <view
+            wx:elif="{{item.type === 'voice'}}"
+            class="voice-message"
+            data-message-id="{{item.messageId}}"
+            catchtap="onVoiceMessageTap"
+          >
+            <image
+              class="voice-message__icon {{playingVoiceMessageId === item.messageId ? 'voice-message__icon--playing' : ''}}"
+              src="/assets/icons/chat/voice-play.svg"
+              mode="aspectFit"
+            />
+            <text class="voice-message__duration">{{item.media.durationText}}</text>
+          </view>
+
+          <image
+            wx:elif="{{item.type === 'image'}}"
+            class="message-image message-image--{{item.media.displayMode}}"
+            src="{{item.localTempPath || item.media.fileId}}"
+            mode="aspectFill"
+            data-message-id="{{item.messageId}}"
+            catchtap="onImageMessageTap"
+          />
+
+          <view
+            wx:elif="{{item.type === 'location'}}"
+            class="location-message"
+            data-message-id="{{item.messageId}}"
+            catchtap="openLocationMessage"
+          >
+            <view class="location-message__copy">
+              <text class="location-message__name">{{item.location.name}}</text>
+              <text class="location-message__address">{{item.location.address}}</text>
+              <text class="location-message__action">查看位置</text>
+            </view>
+            <view class="location-message__map">
+              <image
+                class="location-message__icon"
+                src="/assets/icons/chat/location.svg"
+                mode="aspectFit"
+              />
+            </view>
+          </view>
+
+          <view
+            wx:elif="{{item.type === 'product'}}"
+            class="shared-product"
+            data-message-id="{{item.messageId}}"
+            data-product-id="{{item.product.productId}}"
+            catchtap="openProductMessage"
+          >
+            <image
+              wx:if="{{item.product.coverImage}}"
+              class="shared-product__image"
+              src="{{item.product.coverImage}}"
+              mode="aspectFill"
+            />
+            <view wx:else class="shared-product__placeholder">
+              <image
+                class="shared-product__placeholder-icon"
+                src="/assets/icons/chat/product.svg"
+                mode="aspectFit"
+              />
+            </view>
+            <view class="shared-product__copy">
+              <text class="shared-product__title">{{item.product.title}}</text>
+              <view class="shared-product__meta">
+                <text class="shared-product__price">{{item.product.priceDisplay}}</text>
+                <text class="shared-product__status">{{item.product.statusText}}</text>
+              </view>
+              <text class="shared-product__owner">
+                {{item.product.ownerPublicUserId === conversation.otherUser.publicUserId ? '对方商品' : '我的商品'}}
+              </text>
+            </view>
+          </view>
+
           <view class="message-meta">
             <text>{{item.createdAtText}}</text>
-            <text wx:if="{{item.sendStatus === 'sending'}}" class="send-state">发送中</text>
+            <text wx:if="{{item.sendStatus === 'uploading'}}" class="send-state">
+              上传中 {{item.uploadProgress}}%
+            </text>
+            <text wx:elif="{{item.sendStatus === 'sending'}}" class="send-state">发送中</text>
             <text wx:elif="{{item.sendStatus === 'failed'}}" class="send-state send-state--failed">
               发送失败，点此重试
             </text>
@@ -138,26 +222,118 @@
     <view wx:if="{{!conversation.canSend}}" class="send-disabled-notice">
       商品已删除，当前会话仅可查看历史消息
     </view>
-    <view wx:else class="composer">
-      <textarea
-        class="composer-input"
-        value="{{inputValue}}"
-        maxlength="{{maxLength}}"
-        auto-height
-        show-confirm-bar="{{false}}"
-        cursor-spacing="24"
-        placeholder="输入消息"
-        bindinput="onInput"
-      />
-      <view class="composer-side">
-        <text class="input-counter">{{inputLength}}/{{maxLength}}</text>
+    <view
+      wx:else
+      class="chat-dock {{isExtensionPanelOpen ? 'chat-dock--expanded' : ''}}"
+    >
+      <view class="chat-composer">
         <button
-          class="send-button"
-          disabled="{{sendDisabled}}"
-          bindtap="sendMessage"
+          class="chat-composer__icon"
+          aria-label="{{inputMode === 'text' ? '切换到语音输入' : '切换到文字输入'}}"
+          bindtap="toggleInputMode"
         >
-          {{isSending ? '发送中' : '发送'}}
+          <image
+            class="chat-composer__icon-image"
+            src="{{inputMode === 'text' ? '/assets/icons/chat/voice-switch.svg' : '/assets/icons/chat/keyboard.svg'}}"
+            mode="aspectFit"
+          />
         </button>
+
+        <view class="chat-composer__main">
+          <view wx:if="{{inputMode === 'text'}}" class="chat-composer__input-wrap">
+            <textarea
+              class="chat-composer__input"
+              value="{{inputValue}}"
+              maxlength="{{maxLength}}"
+              auto-height
+              adjust-position="{{true}}"
+              disable-default-padding="{{true}}"
+              show-confirm-bar="{{false}}"
+              cursor-spacing="24"
+              bindfocus="onTextInputFocus"
+              bindinput="onInput"
+            />
+          </view>
+          <view
+            wx:else
+            class="voice-record-button {{isRecording ? 'voice-record-button--active' : ''}}"
+            hover-class="none"
+            catchtouchstart="onVoiceTouchStart"
+            catchtouchmove="onVoiceTouchMove"
+            catchtouchend="onVoiceTouchEnd"
+            catchtouchcancel="onVoiceTouchCancel"
+          >
+            <view class="voice-record-button__label">
+              {{isCancellingVoice ? '松开取消' : (isRecording ? '松开发送' : (isPreparingRecording ? '正在准备' : '按住说话'))}}
+            </view>
+          </view>
+        </view>
+
+        <view class="chat-composer__right">
+          <button
+            wx:if="{{inputMode === 'voice' || !hasInputContent}}"
+            class="chat-composer__icon chat-composer__plus"
+            aria-label="{{isExtensionPanelOpen ? '收起更多功能' : '展开更多功能'}}"
+            bindtap="toggleExtensionPanel"
+          >
+            <view class="chat-composer__plus-mark"></view>
+          </button>
+          <button
+            wx:else
+            class="chat-composer__send"
+            disabled="{{sendDisabled}}"
+            bindtap="sendMessage"
+          >
+            {{isSending ? '发送中' : '发送'}}
+          </button>
+        </view>
+      </view>
+
+      <view
+        wx:if="{{isExtensionPanelOpen}}"
+        class="extension-panel"
+      >
+        <button class="extension-item" bindtap="onAlbumTap">
+          <view class="extension-item__icon-wrap">
+            <image class="extension-item__icon" src="/assets/icons/chat/gallery.svg" mode="aspectFit" />
+          </view>
+          <text class="extension-item__label">相册</text>
+        </button>
+        <button class="extension-item" bindtap="onCameraTap">
+          <view class="extension-item__icon-wrap">
+            <image class="extension-item__icon" src="/assets/icons/chat/camera.svg" mode="aspectFit" />
+          </view>
+          <text class="extension-item__label">拍摄</text>
+        </button>
+        <button class="extension-item" bindtap="onLocationTap">
+          <view class="extension-item__icon-wrap">
+            <image class="extension-item__icon" src="/assets/icons/chat/location.svg" mode="aspectFit" />
+          </view>
+          <text class="extension-item__label">位置</text>
+        </button>
+        <button class="extension-item" bindtap="openProductPicker">
+          <view class="extension-item__icon-wrap">
+            <image class="extension-item__icon" src="/assets/icons/chat/product.svg" mode="aspectFit" />
+          </view>
+          <text class="extension-item__label">发送商品</text>
+        </button>
+      </view>
+    </view>
+
+    <view
+      wx:if="{{isPreparingRecording || isRecording}}"
+      class="recording-overlay"
+    >
+      <view class="recording-card {{isCancellingVoice ? 'recording-card--cancel' : ''}}">
+        <image
+          class="recording-card__icon"
+          src="/assets/icons/chat/voice-switch.svg"
+          mode="aspectFit"
+        />
+        <text class="recording-card__duration">{{recordingDuration}} 秒</text>
+        <text class="recording-card__hint">
+          {{isCancellingVoice ? '松开手指，取消发送' : '手指上滑，取消发送'}}
+        </text>
       </view>
     </view>
   </block>

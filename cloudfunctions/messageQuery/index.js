@@ -10,9 +10,25 @@ const conversations = db.collection('conversations');
 const users = db.collection('users');
 const products = db.collection('products');
 const CONVERSATION_ID_PATTERN = /^c_[a-f0-9]{64}$/;
+const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
+const PUBLIC_USER_ID_PATTERN = /^u_[a-f0-9]{32}$/;
+const MESSAGE_TYPES = new Set([
+  'text',
+  'voice',
+  'image',
+  'location',
+  'product',
+  'system'
+]);
+const CONVERSATION_PRODUCT_STATUSES = [
+  'available',
+  'reserved',
+  'sold'
+];
 const MAX_PAGE_SIZE = 30;
 const DEFAULT_CONVERSATION_PAGE_SIZE = 10;
 const DEFAULT_MESSAGE_PAGE_SIZE = 20;
+const DEFAULT_PRODUCT_PAGE_SIZE = 8;
 
 const ERROR_CODES = {
   OK: 'OK',
@@ -21,6 +37,7 @@ const ERROR_CODES = {
   LOGIN_REQUIRED: 'LOGIN_REQUIRED',
   CONVERSATION_NOT_FOUND: 'CONVERSATION_NOT_FOUND',
   FORBIDDEN: 'FORBIDDEN',
+  INVALID_OWNER_SCOPE: 'INVALID_OWNER_SCOPE',
   DATABASE_ERROR: 'DATABASE_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
 };
@@ -136,6 +153,10 @@ function normalizeCursor(value, idPattern) {
     : null;
 }
 
+function normalizeProductCursor(value) {
+  return normalizeCursor(value, PRODUCT_ID_PATTERN);
+}
+
 function getParticipantSlot(conversation, openId) {
   if (conversation.participantAOpenid === openId) {
     return 'A';
@@ -244,7 +265,7 @@ async function enrichConversation(conversation, openId) {
     otherUser: safeUser(otherUser, otherUserId),
     product: safeProductValue,
     lastMessage: normalizeString(conversation.lastMessage),
-    lastMessageType: ['text', 'system'].includes(conversation.lastMessageType)
+    lastMessageType: MESSAGE_TYPES.has(conversation.lastMessageType)
       ? conversation.lastMessageType
       : '',
     lastMessageAt: toIsoString(conversation.lastMessageAt),
@@ -338,21 +359,58 @@ async function getConversation(data, openId) {
 }
 
 function toSafeMessage(record, openId) {
-  const type = record.type === 'system' ? 'system' : 'text';
-  return {
+  const type = MESSAGE_TYPES.has(record.type) ? record.type : 'unsupported';
+  const message = {
     messageId: String(record._id || ''),
     senderPublicUserId: String(record.senderPublicUserId || ''),
     isMine: record.senderOpenid === openId,
     type,
-    eventType: type === 'system'
-      ? normalizeString(record.eventType)
-      : '',
-    appointmentId: type === 'system'
-      ? normalizeString(record.appointmentId)
-      : '',
-    content: normalizeString(record.content),
     createdAt: toIsoString(record.createdAt)
   };
+  if (type === 'text') {
+    message.content = normalizeString(record.content);
+  } else if (type === 'system') {
+    message.eventType = normalizeString(record.eventType);
+    message.appointmentId = normalizeString(record.appointmentId);
+    message.content = normalizeString(record.content);
+  } else if (type === 'voice' || type === 'image') {
+    const media = record.media && typeof record.media === 'object'
+      ? record.media
+      : {};
+    message.media = {
+      fileId: normalizeString(media.fileId),
+      durationMs: normalizeCount(media.durationMs),
+      size: normalizeCount(media.size),
+      format: type === 'voice' ? 'mp3' : '',
+      width: type === 'image' ? normalizeCount(media.width) : 0,
+      height: type === 'image' ? normalizeCount(media.height) : 0
+    };
+  } else if (type === 'location') {
+    const location = record.location && typeof record.location === 'object'
+      ? record.location
+      : {};
+    message.location = {
+      name: normalizeString(location.name),
+      address: normalizeString(location.address),
+      latitude: Number(location.latitude),
+      longitude: Number(location.longitude)
+    };
+  } else if (type === 'product') {
+    const product = record.product && typeof record.product === 'object'
+      ? record.product
+      : {};
+    message.product = {
+      productId: normalizeString(product.productId),
+      title: normalizeString(product.title),
+      coverImage: normalizeString(product.coverImage),
+      price: Number(product.price) || 0,
+      status: normalizeString(product.status),
+      ownerPublicUserId: normalizeString(product.ownerPublicUserId)
+    };
+  } else {
+    message.content = '当前版本暂不支持此消息类型';
+  }
+  return message;
 }
 
 async function listMessages(data, openId) {
@@ -402,6 +460,123 @@ async function listMessages(data, openId) {
   });
 }
 
+function toSelectableProduct(record, ownerPublicUserId, ownerScope) {
+  return {
+    productId: String(record._id || ''),
+    title: normalizeString(record.title) || '未命名闲置',
+    coverImage: normalizeString(record.coverImage)
+      || (
+        Array.isArray(record.images)
+        ? normalizeString(record.images[0])
+        : ''
+      ),
+    price: Number.isFinite(Number(record.price)) && Number(record.price) >= 0
+      ? Number(record.price)
+      : 0,
+    status: normalizeString(record.status),
+    ownerPublicUserId,
+    ownerScope
+  };
+}
+
+function buildConversationProductCondition(ownerOpenId, cursor) {
+  const base = {
+    sellerOpenid: ownerOpenId,
+    status: command.in(CONVERSATION_PRODUCT_STATUSES)
+  };
+  if (!cursor) {
+    return base;
+  }
+  return command.or([
+    {
+      ...base,
+      createdAt: command.lt(cursor.date)
+    },
+    {
+      ...base,
+      createdAt: command.eq(cursor.date),
+      _id: command.gt(cursor.id)
+    }
+  ]);
+}
+
+async function listConversationProducts(data, openId) {
+  const conversationId = normalizeConversationId(data.conversationId);
+  const ownerScope = normalizeString(data.ownerScope);
+  if (!conversationId) {
+    return failure(ERROR_CODES.INVALID_ARGUMENT, '缺少有效会话 ID');
+  }
+  if (!['self', 'other'].includes(ownerScope)) {
+    return failure(ERROR_CODES.INVALID_OWNER_SCOPE, '商品归属筛选不正确');
+  }
+  const conversationResult = await getConversationRecord(
+    conversationId,
+    openId
+  );
+  if (conversationResult.error) {
+    return conversationResult.error;
+  }
+  const conversation = conversationResult.conversation;
+  const currentSlot = getParticipantSlot(conversation, openId);
+  const targetSlot = ownerScope === 'self'
+    ? currentSlot
+    : currentSlot === 'A' ? 'B' : 'A';
+  const ownerOpenId = normalizeString(
+    conversation[`participant${targetSlot}Openid`]
+  );
+  const ownerPublicUserId = normalizeString(
+    conversation[`participant${targetSlot}UserId`]
+  );
+  if (
+    !ownerOpenId
+    || !PUBLIC_USER_ID_PATTERN.test(ownerPublicUserId)
+  ) {
+    return failure(ERROR_CODES.FORBIDDEN, '无法读取该参与者的商品');
+  }
+
+  const pageSize = normalizePositiveInteger(
+    data.pageSize,
+    DEFAULT_PRODUCT_PAGE_SIZE,
+    MAX_PAGE_SIZE
+  );
+  const cursor = normalizeProductCursor(data.cursor);
+  const result = await products
+    .where(buildConversationProductCondition(ownerOpenId, cursor))
+    .orderBy('createdAt', 'desc')
+    .orderBy('_id', 'asc')
+    .limit(pageSize + 2)
+    .get();
+  const records = Array.isArray(result.data) ? result.data : [];
+  const visible = records
+    .filter((record) => (
+      String(record._id || '') !== normalizeString(conversation.productId)
+      && CONVERSATION_PRODUCT_STATUSES.includes(record.status)
+      && (
+        !normalizeString(record.sellerId)
+        || normalizeString(record.sellerId) === ownerPublicUserId
+      )
+    ));
+  const page = visible.slice(0, pageSize);
+  const last = page[page.length - 1];
+  const ownerUser = await getDocumentOrNull(users.doc(ownerPublicUserId));
+  return success({
+    ownerScope,
+    owner: safeUser(ownerUser, ownerPublicUserId),
+    list: page.map((record) => toSelectableProduct(
+      record,
+      ownerPublicUserId,
+      ownerScope
+    )),
+    hasMore: visible.length > pageSize || records.length > pageSize + 1,
+    nextCursor: last
+      ? {
+          time: toIsoString(last.createdAt),
+          id: String(last._id || '')
+        }
+      : null
+  });
+}
+
 function classifyFailure(error) {
   const message = [
     error && error.message,
@@ -426,7 +601,8 @@ exports.main = async (event = {}) => {
   const allowedActions = [
     'listConversations',
     'getConversation',
-    'listMessages'
+    'listMessages',
+    'listConversationProducts'
   ];
   if (!allowedActions.includes(action)) {
     return failure(ERROR_CODES.INVALID_ACTION, '不支持的消息查询操作');
@@ -444,6 +620,9 @@ exports.main = async (event = {}) => {
     }
     if (action === 'getConversation') {
       return await getConversation(data, openId);
+    }
+    if (action === 'listConversationProducts') {
+      return await listConversationProducts(data, openId);
     }
     return await listMessages(data, openId);
   } catch (error) {
