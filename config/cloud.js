@@ -40,6 +40,8 @@ const CLOUD_CONFIG = {
   avatarUploadTimeoutMs: 30000,
   productFunctionName: 'productQuery',
   productTimeoutMs: 15000,
+  productViewFunctionName: 'productViewAction',
+  productViewTimeoutMs: 15000,
   createProductFunctionName: 'createProduct',
   createProductTimeoutMs: 15000,
   manageProductFunctionName: 'manageProduct',

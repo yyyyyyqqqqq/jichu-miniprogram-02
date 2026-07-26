@@ -51,7 +51,6 @@
           {{product.originalPriceDisplay}}
         </text>
       </view>
-      <text class="view-count">{{product.viewCountText}} 次浏览</text>
     </view>
   </view>
 </view>

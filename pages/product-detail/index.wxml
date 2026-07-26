@@ -122,9 +122,7 @@
       </view>
 
       <view class="stats-row">
-        <text>{{product.viewCountText}} 次浏览</text>
-        <view class="stats-dot"></view>
-        <text>{{product.favoriteCountText}} 人关注</text>
+        <text>{{product.viewCountText}} 人浏览 · {{product.favoriteCountText}} 人收藏</text>
       </view>
     </view>
 

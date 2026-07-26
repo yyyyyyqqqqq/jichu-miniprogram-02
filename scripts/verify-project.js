@@ -5508,6 +5508,58 @@ record('product media UI and DTO boundaries are wired', () => {
   assert(!/\bimages:\s*record\.images/.test(userQuerySource), 'public profile list still returns all product images');
 });
 
+record('product view display and protected invocation boundaries are wired', () => {
+  const cardTemplate = readText(path.join(root, 'components/product-card/index.wxml'));
+  const favoritesTemplate = readText(path.join(root, 'pages/favorites/index.wxml'));
+  const publicProfileTemplate = readText(path.join(root, 'pages/user-profile/index.wxml'));
+  const myProductsTemplate = readText(path.join(root, 'pages/my-products/index.wxml'));
+  const detailTemplate = readText(path.join(root, 'pages/product-detail/index.wxml'));
+  const detailPage = readText(path.join(root, 'pages/product-detail/index.js'));
+  const viewService = readText(path.join(root, 'services/product-view-service.js'));
+  const viewFunction = readText(path.join(root, 'cloudfunctions/productViewAction/index.js'));
+  const manageFunction = readText(path.join(root, 'cloudfunctions/manageProduct/index.js'));
+  const createFunction = readText(path.join(root, 'cloudfunctions/createProduct/index.js'));
+
+  [cardTemplate, favoritesTemplate, publicProfileTemplate, myProductsTemplate]
+    .forEach((template, index) => {
+      assert(
+        !/viewCountText/.test(template),
+        `product list template ${index + 1} still displays view count`
+      );
+    });
+  assert(
+    /\{\{product\.viewCountText\}\}\s*人浏览\s*·\s*\{\{product\.favoriteCountText\}\}\s*人收藏/.test(detailTemplate),
+    'product detail does not use the unified weak view/favorite copy'
+  );
+  assert(!/次浏览|人关注/.test(detailTemplate), 'product detail keeps the old view/favorite wording');
+  assert(
+    /setData\([\s\S]*viewState:\s*'success'[\s\S]*recordViewIfEligible\(\)/.test(detailPage),
+    'product detail does not attempt view recording after a successful detail render'
+  );
+  assert(
+    /hasRecordedViewAttempt/.test(detailPage)
+    && /AuthStore\.isLoggedIn\(\)/.test(detailPage),
+    'product detail lacks per-page or logged-in view recording guards'
+  );
+  assert(
+    /data:\s*\{\s*productId:\s*id\s*\}/.test(viewService)
+    && !/viewerOpenid\s*:/.test(viewService)
+    && !/viewCount\s*:/.test(viewService),
+    'product view service sends protected identity or counter fields'
+  );
+  assert(
+    /getWXContext\(\)/.test(viewFunction)
+    && /command\.inc\(1\)/.test(viewFunction)
+    && /runTransaction/.test(viewFunction),
+    'product view cloud function lacks trusted identity or atomic transaction update'
+  );
+  assert(
+    !/viewCount\s*:\s*(?:data|request|productInput|input)\./.test(manageFunction)
+    && /viewCount:\s*0/.test(createFunction),
+    'product create/manage boundary allows a client-controlled view count'
+  );
+});
+
 async function runAsyncChecks() {
   await verifyServiceFlow();
   checks.push('PASS ProductService filtering, sorting, pagination and detail boundaries');
@@ -5529,6 +5581,9 @@ async function runAsyncChecks() {
   checks.push('PASS userQuery public profile whitelist, safe id and available-product pagination flow');
   await verifyCloudServiceFlow();
   checks.push('PASS centralized cloud initialization, retry, concurrency and transport error classification');
+  const { verifyProductViewFlow } = require('./verify-product-views');
+  await verifyProductViewFlow(root);
+  checks.push('PASS product view owner exclusion, rolling window, atomic concurrency and failure degradation flow');
   await verifyMessageServiceFlow();
   checks.push('PASS MessageService payload, normalization, validation and identity boundaries');
   await verifyMessagingFunctionFlow();

@@ -56,7 +56,6 @@
           <text class="favorite-location">{{item.locationName}}</text>
           <view class="favorite-meta">
             <text>{{item.favoriteCountText}} 收藏</text>
-            <text>{{item.viewCountText}} 浏览</text>
           </view>
         </view>
       </view>

@@ -5,6 +5,7 @@ const AuthStore = require('../../store/auth-store');
 const AppStore = require('../../store/app-store');
 const FavoriteService = require('../../services/favorite-service');
 const MessageService = require('../../services/message-service');
+const ProductViewService = require('../../services/product-view-service');
 const { formatCount } = require('../../utils/format');
 const {
   ROUTES,
@@ -54,6 +55,7 @@ Page({
     this.isPageActive = true;
     this.requestVersion = 0;
     this.hasShown = false;
+    this.hasRecordedViewAttempt = false;
 
     const id = this.normalizeProductId(options && options.id);
     if (!id) {
@@ -159,6 +161,7 @@ Page({
         canRetry: false
       });
       this.refreshFavoriteStatus();
+      this.recordViewIfEligible();
     } catch (error) {
       if (!this.isPageActive || requestVersion !== this.requestVersion) {
         return;
@@ -176,6 +179,34 @@ Page({
         errorActionText: '重新加载'
       });
     }
+  },
+
+  async recordViewIfEligible() {
+    if (
+      this.hasRecordedViewAttempt
+      || !this.isPageActive
+      || !this.data.product
+      || !AuthStore.isLoggedIn()
+    ) {
+      return;
+    }
+
+    this.hasRecordedViewAttempt = true;
+    const productId = this.productId;
+    const result = await ProductViewService.recordProductView(productId);
+    if (
+      !this.isPageActive
+      || !this.data.product
+      || this.data.product.id !== productId
+      || result.counted !== true
+    ) {
+      return;
+    }
+
+    this.setData({
+      'product.viewCount': result.currentViewCount,
+      'product.viewCountText': formatCount(result.currentViewCount)
+    });
   },
 
   onImageSwiperChange(event) {

@@ -250,10 +250,3 @@
   text-decoration: line-through;
   white-space: nowrap;
 }
-
-.view-count {
-  margin-left: 16rpx;
-  color: #a0a8a4;
-  font-size: 20rpx;
-  white-space: nowrap;
-}

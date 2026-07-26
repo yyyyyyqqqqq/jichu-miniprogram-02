@@ -74,7 +74,6 @@
           <text class="my-product-price">{{item.priceDisplay}}</text>
           <view class="my-product-meta">
             <text>{{item.publishedAtText}}</text>
-            <text>{{item.viewCountText}} 浏览</text>
             <text>{{item.favoriteCountText}} 收藏</text>
           </view>
         </view>

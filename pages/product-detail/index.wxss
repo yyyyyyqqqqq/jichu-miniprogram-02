@@ -308,16 +308,10 @@
   margin-top: 26rpx;
   padding-top: 22rpx;
   border-top: 1rpx solid #edf1ef;
-  color: #929b96;
-  font-size: 22rpx;
-}
-
-.stats-dot {
-  width: 6rpx;
-  height: 6rpx;
-  margin: 0 18rpx;
-  border-radius: 50%;
-  background: #c2c9c5;
+  color: #9aa39e;
+  font-size: 21rpx;
+  line-height: 1.5;
+  word-break: break-all;
 }
 
 .section-title {
