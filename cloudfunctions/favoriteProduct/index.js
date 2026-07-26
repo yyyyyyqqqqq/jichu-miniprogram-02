@@ -8,7 +8,12 @@ cloud.init({
 const db = cloud.database();
 const products = db.collection('products');
 const favorites = db.collection('favorites');
-const ALLOWED_LIST_STATUSES = new Set(['available', 'offline', 'sold']);
+const ALLOWED_LIST_STATUSES = new Set([
+  'available',
+  'reserved',
+  'offline',
+  'sold'
+]);
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const MAX_PAGE = 100;
 const MAX_PAGE_SIZE = 20;

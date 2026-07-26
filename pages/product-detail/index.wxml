@@ -38,7 +38,7 @@
     </view>
 
     <view wx:if="{{product.isReserved}}" class="status-notice status-notice--reserved">
-      该商品当前已预订，本阶段不提供预约变更功能
+      该商品当前已预定，可继续联系卖家，但不能创建或接受新的预约
     </view>
 
     <view wx:if="{{product.isSold}}" class="status-notice status-notice--sold">

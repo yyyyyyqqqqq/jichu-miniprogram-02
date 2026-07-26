@@ -11,6 +11,15 @@ const MESSAGE_ID_PATTERN = /^m_[a-f0-9]{64}$/;
 const CLIENT_MESSAGE_ID_PATTERN = /^[a-zA-Z0-9_-]{8,80}$/;
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const PUBLIC_USER_ID_PATTERN = /^u_[a-f0-9]{32}$/;
+const APPOINTMENT_ID_PATTERN = /^a_[a-f0-9]{64}$/;
+const APPOINTMENT_EVENT_TYPES = new Set([
+  'appointment_created',
+  'appointment_accepted',
+  'appointment_rejected',
+  'appointment_cancelled',
+  'appointment_completed',
+  'appointment_auto_cancelled'
+]);
 
 const ERROR_MESSAGES = {
   NETWORK_ERROR: '网络连接失败，请稍后重试',
@@ -142,7 +151,8 @@ function normalizeProduct(value) {
     priceText: formatPrice(safePrice),
     priceDisplay: safePrice === 0 ? '免费送' : `¥${formatPrice(safePrice)}`,
     status,
-    statusText
+    statusText,
+    locationName: normalizeString(record.location)
   };
 }
 
@@ -162,7 +172,9 @@ function normalizeConversation(record) {
     otherUser: normalizePublicUser(record.otherUser),
     product: normalizeProduct(record.product),
     lastMessage: normalizeString(record.lastMessage) || '开始聊聊这件闲置吧',
-    lastMessageType: record.lastMessageType === 'text' ? 'text' : '',
+    lastMessageType: ['text', 'system'].includes(record.lastMessageType)
+      ? record.lastMessageType
+      : '',
     lastMessageAt,
     lastMessageAtText: formatPublishedTime(lastMessageAt),
     unreadCount: normalizeCount(record.unreadCount),
@@ -176,10 +188,21 @@ function normalizeMessage(record) {
   }
   const messageId = normalizeString(record.messageId || record._id);
   const senderPublicUserId = normalizeString(record.senderPublicUserId);
+  const type = record.type;
+  const isSystem = type === 'system';
+  const eventType = normalizeString(record.eventType);
+  const appointmentId = normalizeString(record.appointmentId);
   if (
     !MESSAGE_ID_PATTERN.test(messageId)
+    || !['text', 'system'].includes(type)
     || !PUBLIC_USER_ID_PATTERN.test(senderPublicUserId)
-    || record.type !== 'text'
+    || (
+      isSystem
+      && (
+        !APPOINTMENT_EVENT_TYPES.has(eventType)
+        || !APPOINTMENT_ID_PATTERN.test(appointmentId)
+      )
+    )
     || typeof record.content !== 'string'
   ) {
     throw createError('INVALID_RESPONSE');
@@ -193,7 +216,9 @@ function normalizeMessage(record) {
     messageId,
     senderPublicUserId,
     isMine: record.isMine === true,
-    type: 'text',
+    type,
+    eventType: isSystem ? eventType : '',
+    appointmentId: isSystem ? appointmentId : '',
     content,
     createdAt,
     createdAtText: formatMessageTime(createdAt),

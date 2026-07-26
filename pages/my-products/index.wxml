@@ -120,6 +120,12 @@
         </button>
       </view>
 
+      <view wx:elif="{{item.status === 'reserved'}}" class="sold-actions">
+        <text class="sold-note">
+          已预定商品请先处理预约，暂不支持编辑、下架、标记已售或删除
+        </text>
+      </view>
+
       <view wx:elif="{{item.status === 'offline'}}" class="my-product-actions">
         <button
           class="manage-button manage-button--secondary"

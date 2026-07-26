@@ -1,0 +1,88 @@
+<view class="page-shell appointments-page">
+  <view class="appointment-header">
+    <view class="page-title">我的预约</view>
+    <view class="page-subtitle">查看待确认、进行中和已结束的线下面交安排</view>
+  </view>
+
+  <view class="filter-tabs">
+    <view
+      wx:for="{{filters}}"
+      wx:key="value"
+      class="filter-tab {{activeFilter === item.value ? 'filter-tab--active' : ''}}"
+      data-filter="{{item.value}}"
+      bindtap="selectFilter"
+    >
+      {{item.label}}
+    </view>
+  </view>
+
+  <loading-state
+    wx:if="{{viewState === 'loading'}}"
+    text="正在加载预约"
+  />
+
+  <view wx:elif="{{viewState === 'success'}}" class="appointment-list">
+    <view
+      wx:for="{{appointments}}"
+      wx:key="appointmentId"
+      class="surface-card appointment-card"
+      data-appointment-id="{{item.appointmentId}}"
+      bindtap="openAppointment"
+    >
+      <image
+        wx:if="{{item.product.coverImage}}"
+        class="product-image"
+        src="{{item.product.coverImage}}"
+        mode="aspectFill"
+      />
+      <view class="appointment-copy">
+        <view class="title-row">
+          <text class="product-title">{{item.product.title}}</text>
+          <text class="status-badge status-badge--{{item.statusClassName}}">
+            {{item.statusText}}
+          </text>
+        </view>
+        <text class="other-user">
+          {{item.isSeller ? '买家' : '卖家'}}：{{item.otherUser.nickname}}
+        </text>
+        <text class="appointment-time">{{item.scheduledAtText}}</text>
+        <text class="appointment-location">{{item.location.name}}</text>
+        <text wx:if="{{item.waitingForMe}}" class="waiting-tag">等待你处理</text>
+        <text wx:elif="{{item.status === 'pending'}}" class="waiting-copy">等待对方处理</text>
+        <text wx:elif="{{item.completionHint}}" class="waiting-copy">
+          {{item.completionHint}}
+        </text>
+      </view>
+      <text class="row-arrow">›</text>
+    </view>
+
+    <loading-state
+      wx:if="{{isLoadingMore}}"
+      compact
+      text="正在加载更多预约"
+    />
+    <view wx:elif="{{loadMoreError}}" class="list-status">
+      <text>{{loadMoreError}}</text>
+      <text class="retry-link" bindtap="retryLoadMore">重试</text>
+    </view>
+    <view wx:elif="{{!hasMore}}" class="list-status">没有更多预约了</view>
+  </view>
+
+  <view wx:elif="{{viewState === 'empty'}}" class="surface-card empty-card">
+    <empty-state
+      title="当前分类还没有预约"
+      description="进入商品聊天后，可以发起线下面交预约"
+      action-text="查看消息"
+      bind:action="goMessages"
+    />
+  </view>
+
+  <view wx:else class="surface-card empty-card">
+    <empty-state
+      title="预约暂时无法加载"
+      description="{{errorMessage}}"
+      action-text="重新加载"
+      bind:action="retryLoad"
+    />
+  </view>
+</view>

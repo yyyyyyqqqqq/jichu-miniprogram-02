@@ -1,7 +1,39 @@
-<view class="page-shell--plain">
-  <view class="surface-card placeholder-page">
-    <view class="placeholder-mark">点</view>
-    <view class="placeholder-title">面交地点选择占位</view>
-    <view class="placeholder-description">地图选点和面交预约不属于第一阶段，本页面仅保证后续路由边界有效。</view>
+<view class="page-shell--plain location-page">
+  <view class="surface-card location-card">
+    <view class="location-mark">点</view>
+    <view class="location-title">选择校园公共面交地点</view>
+    <view class="location-description">
+      将打开微信地图。取消选择或授权失败不会覆盖原有地点。
+    </view>
+
+    <loading-state
+      wx:if="{{state === 'choosing'}}"
+      compact
+      text="正在打开地图"
+    />
+
+    <view wx:if="{{location}}" class="selected-location" bindtap="previewLocation">
+      <text class="selected-name">{{location.name}}</text>
+      <text class="selected-address">{{location.address}}</text>
+      <text class="selected-coordinate">
+        {{location.latitude}}, {{location.longitude}}
+      </text>
+      <text class="preview-link">在地图中查看</text>
+    </view>
+
+    <view wx:if="{{errorMessage}}" class="location-error">
+      {{errorMessage}}
+    </view>
+
+    <button class="secondary-button choose-button" bindtap="chooseLocation">
+      {{location ? '重新选择' : '打开地图选点'}}
+    </button>
+    <button
+      class="primary-button confirm-button"
+      disabled="{{!location}}"
+      bindtap="confirmLocation"
+    >
+      使用此地点
+    </button>
   </view>
 </view>

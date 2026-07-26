@@ -1,0 +1,90 @@
+<view class="page-shell--plain appointment-create-page">
+  <loading-state
+    wx:if="{{viewState === 'loading'}}"
+    text="正在准备预约信息"
+  />
+
+  <view wx:elif="{{viewState === 'error'}}" class="surface-card error-card">
+    <empty-state
+      title="暂时无法发起预约"
+      description="{{errorMessage}}"
+      action-text="重新加载"
+      bind:action="retryLoad"
+    />
+  </view>
+
+  <block wx:elif="{{viewState === 'success' && conversation}}">
+    <view class="surface-card product-summary">
+      <image
+        wx:if="{{conversation.product.coverImage}}"
+        class="product-image"
+        src="{{conversation.product.coverImage}}"
+        mode="aspectFill"
+      />
+      <view class="product-copy">
+        <text class="product-title">{{conversation.product.title}}</text>
+        <text class="product-price">{{conversation.product.priceDisplay}}</text>
+        <text class="other-user">与 {{conversation.otherUser.nickname}} 约定面交</text>
+      </view>
+    </view>
+
+    <view class="surface-card form-card">
+      <view class="field-label">面交时间</view>
+      <view class="time-row">
+        <picker
+          class="picker-control"
+          mode="date"
+          value="{{date}}"
+          start="{{minDate}}"
+          end="{{maxDate}}"
+          bindchange="onDateChange"
+        >
+          <view>{{date}}</view>
+        </picker>
+        <picker
+          class="picker-control"
+          mode="time"
+          value="{{time}}"
+          bindchange="onTimeChange"
+        >
+          <view>{{time}}</view>
+        </picker>
+      </view>
+
+      <view class="field-label field-label--spaced">面交地点</view>
+      <view wx:if="{{legacyLocationName && !location}}" class="legacy-location">
+        <text>商品原地点：{{legacyLocationName}}</text>
+        <text class="legacy-hint">旧商品没有坐标，请重新地图选点后提交</text>
+      </view>
+      <view wx:if="{{location}}" class="location-value" bindtap="previewLocation">
+        <text class="location-name">{{location.name}}</text>
+        <text class="location-address">{{location.address}}</text>
+        <text class="location-preview">在地图中查看</text>
+      </view>
+      <button class="secondary-button location-button" bindtap="chooseLocation">
+        {{location ? '重新地图选点' : '地图选点'}}
+      </button>
+
+      <view class="field-label field-label--spaced">备注（选填）</view>
+      <textarea
+        class="note-input"
+        value="{{note}}"
+        maxlength="{{noteMaxLength}}"
+        placeholder="例如：到达后请在聊天中联系"
+        bindinput="onNoteInput"
+      />
+      <text class="note-count">{{noteLength}}/{{noteMaxLength}}</text>
+    </view>
+
+    <view class="safety-note">
+      建议选择校园公共区域。预约仅用于线下面交安排，不涉及支付或资金担保。
+    </view>
+    <button
+      class="primary-button submit-button"
+      disabled="{{isSubmitting}}"
+      bindtap="submit"
+    >
+      {{isSubmitting ? '正在提交' : '发起预约'}}
+    </button>
+  </block>
+</view>

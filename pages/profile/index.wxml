@@ -87,6 +87,12 @@
       <text class="menu-state">{{isLoggedIn ? '查看会话' : '需登录'}}</text>
       <text class="menu-arrow">›</text>
     </view>
+    <view class="menu-item" bindtap="goAppointments">
+      <view class="menu-icon">约</view>
+      <text class="menu-label">我的预约</text>
+      <text class="menu-state">{{isLoggedIn ? '查看面交安排' : '需登录'}}</text>
+      <text class="menu-arrow">›</text>
+    </view>
     <view class="menu-item menu-item--last" bindtap="showAbout">
       <view class="menu-icon">介</view>
       <text class="menu-label">关于项目</text>

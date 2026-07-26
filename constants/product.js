@@ -19,7 +19,7 @@ const PRODUCT_STATUS_META = {
     className: 'available'
   },
   [PRODUCT_STATUS.RESERVED]: {
-    text: '已预订',
+    text: '已预定',
     className: 'reserved'
   },
   [PRODUCT_STATUS.SOLD]: {

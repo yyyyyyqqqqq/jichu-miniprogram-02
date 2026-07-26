@@ -10,7 +10,7 @@ const products = db.collection('products');
 
 const PUBLIC_LIST_STATUSES = ['available', 'reserved'];
 const PUBLIC_DETAIL_STATUSES = ['available', 'reserved', 'sold'];
-const MY_PRODUCT_STATUSES = ['available', 'offline', 'sold'];
+const MY_PRODUCT_STATUSES = ['available', 'reserved', 'offline', 'sold'];
 const VALID_CATEGORIES = new Set([
   'all',
   'digital',
@@ -102,7 +102,13 @@ function normalizeMyStatuses(value) {
     return MY_PRODUCT_STATUSES;
   }
   const statuses = Array.isArray(value) ? value : [value];
-  return [...new Set(statuses.filter((status) => MY_PRODUCT_STATUSES.includes(status)))];
+  const normalized = statuses.filter(
+    (status) => MY_PRODUCT_STATUSES.includes(status)
+  );
+  if (normalized.includes('available')) {
+    normalized.push('reserved');
+  }
+  return [...new Set(normalized)];
 }
 
 function normalizeProductId(value) {

@@ -102,31 +102,30 @@
 
 1. 打开微信开发者工具，选择“导入项目”。
 2. 项目目录选择本地克隆目录 `<PROJECT_ROOT>`。
-3. 将 `project.config.json` 中的 `YOUR_WECHAT_APP_ID` 替换为开发者自己的小程序 AppID，或使用不提交到仓库的本地私有配置。
-4. 确认当前账号有该 AppID 权限；不要把私有配置、真实凭据或本机路径提交到仓库。
-5. 按下方说明准备 `products` 集合并部署 `productQuery` 与 `createProduct`。
-6. 点击“编译”，首页应显示来自云数据库的商品列表。
+3. 保持 `project.config.json` 中的 `YOUR_WECHAT_APP_ID` 不变，在被 Git 忽略的 `project.private.config.json` 顶层填写真实 `appid`。
+4. 复制 `config/cloud.private.example.js` 为 `config/cloud.private.js`，只在副本中填写真实云环境 ID。
+5. 确认当前账号有该 AppID 和云环境权限；不要提交两个本机私有配置文件。
+6. 按下方说明准备 `products` 集合并部署 `productQuery` 与 `createProduct`。
+7. 点击“编译”，首页应显示来自云数据库的商品列表。
 
 ## 云开发配置
 
-部署前，将以下占位符替换为开发者自己的云环境 ID：
+公开文件中的占位符不得替换。开发前创建本机文件 `config/cloud.private.js`：
 
-```text
-YOUR_CLOUDBASE_ENV_ID
+```js
+module.exports = {
+  environmentId: '你的真实云环境 ID'
+};
 ```
 
 ### 本地配置与隐私
 
-公开仓库只保留可复用占位符：
+公开仓库只保留可复用占位符和 `config/cloud.private.example.js`。真实值的来源固定为：
 
-```text
-YOUR_WECHAT_APP_ID
-YOUR_CLOUDBASE_ENV_ID
-<PROJECT_ROOT>
-<WECHAT_DEVTOOLS_CLI_PATH>
-```
+- AppID：`project.private.config.json` 顶层 `appid`，覆盖 `project.config.json` 的公开占位符。
+- 云环境 ID：`config/cloud.private.js` 的 `environmentId`，由 `config/cloud.js` 加载后交给统一云初始化。
 
-真实 AppID、云环境 ID、本机路径和私有配置只应保存在本地。`project.private.config.json`、`.env*`、依赖目录、临时部署产物、数据库导出、诊断日志、私有截图、用户数据目录和编号内部交接文档均由 `.gitignore` 排除。不要提交 AppSecret、SecretId、SecretKey、访问令牌、私钥、完整 OPENID 或生产用户数据。
+若运行时私有云配置缺失或仍是占位符，应用会返回 `CLOUD_CONFIG_MISSING`，不会静默连接其他环境。真实 AppID、云环境 ID、本机路径和私有配置只应保存在本地。`project.private.config.json`、`config/cloud.private.js`、`.env*`、依赖目录、临时部署产物、数据库导出、诊断日志、私有截图、用户数据目录和编号内部交接文档均由 `.gitignore` 排除。不要提交 AppSecret、SecretId、SecretKey、访问令牌、私钥、完整 OPENID 或生产用户数据。
 
 认证云函数（`login`、`current`、`updateProfile`）：
 
@@ -294,16 +293,20 @@ docs/phase-9-messaging-chat.md
 docs/phase-9-real-login-test-prep.md
 ```
 
+第十阶段面交预约、状态机、地图选点、云端集合与部署结果见：
+
+```text
+docs/phase-10-appointment-meetup.md
+```
+
 ## 本阶段未实现
 
 - 已删除商品恢复、图片排序
-- 面交预约、预约接受/拒绝/取消
 - 图片、文件、语音、视频消息与消息撤回
 - WebSocket、数据库 watch、订阅通知和消息 Tab 总未读角标
-- 地图选点
 - 任何在线支付、担保支付或物流能力
 
-预约相关入口仍未实现；聊天当前只支持绑定具体商品的一对一文本消息。
+聊天当前支持绑定具体商品的一对一文本消息，以及预约状态系统消息；图片、语音和实时推送仍未实现。
 
 ## 本地验证
 
@@ -317,11 +320,11 @@ node scripts/verify-project.js
 npm run verify
 ```
 
-验证覆盖 JSON、页面和组件四件套、真实身份唯一性与并发登录、统一云初始化、资料校验、头像上传安全、身份与返回边界、登录守卫、商品查询、本人商品隔离、字段白名单、version 并发、状态迁移、软删除、图片差异与回滚、收藏事务与幂等、收藏计数、公开资料白名单、会话权限、消息幂等、未读计数、稳定游标、发布参数、Loading 清理与日志脱敏。当前结果为 `51 checks passed`。
+验证覆盖 JSON、页面和组件四件套、真实身份唯一性与并发登录、统一云初始化、资料校验、头像上传安全、身份与返回边界、登录守卫、商品查询、本人商品隔离、字段白名单、version 并发、状态迁移、软删除、图片差异与回滚、收藏事务与幂等、收藏计数、公开资料白名单、会话权限、消息幂等、预约权限与状态机、系统消息、稳定游标、聊天降级、发布参数、Loading 清理与日志脱敏。当前结果为 `57 checks passed`。
 
 ## 后续阶段
 
-第九阶段已经完成。后续可在具备第三个真实微信账号时补测非参与者越权，并继续兼容性、体验版和正式发布准备。下一独立业务阶段建议实现面交预约。
+第十阶段已完成云端基础部署与单账号只读联调。后续需用双账号完成预约全状态流，并在具备第三个真实微信账号时补测非参与者越权，再继续兼容性、体验版和正式发布准备。
 
 ## Git 仓库
 

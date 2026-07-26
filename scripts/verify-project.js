@@ -124,6 +124,12 @@ record('relative require paths resolve', () => {
       }
       const base = path.resolve(path.dirname(jsFile), request);
       const candidates = [base, `${base}.js`, `${base}.json`];
+      const isOptionalPrivateCloudConfig = relative(jsFile) === 'config/cloud.js'
+        && request === './cloud.private'
+        && fs.existsSync(path.join(root, 'config/cloud.private.example.js'));
+      if (isOptionalPrivateCloudConfig && !candidates.some(fs.existsSync)) {
+        continue;
+      }
       assert(candidates.some(fs.existsSync), `${relative(jsFile)} has unresolved require ${request}`);
       assert(!fs.existsSync(base) || !fs.statSync(base).isDirectory(), `${relative(jsFile)} uses unsupported directory require ${request}`);
     }
@@ -574,7 +580,12 @@ record('public user profiles use a safe id and strict response whitelist', () =>
   assert(/PUBLIC_USER_ID_PATTERN\s*=\s*\/\^u_/.test(functionSource), 'public user id is not constrained');
   assert(/_id:\s*publicUserId/.test(functionSource), 'public user id is not resolved server-side');
   assert(/sellerOpenid:\s*user\.openid/.test(functionSource), 'public products are not scoped through the server user mapping');
-  assert(/status:\s*['"]available['"]/.test(functionSource), 'public profile exposes non-available products');
+  assert(
+    /PUBLIC_PRODUCT_STATUSES\s*=\s*\[['"]available['"],\s*['"]reserved['"]\]/
+      .test(functionSource)
+    && /status:\s*command\.in\(PUBLIC_PRODUCT_STATUSES\)/.test(functionSource),
+    'public profile does not restrict products to available and reserved'
+  );
   const profileStart = functionSource.indexOf('profile: {');
   const profileEnd = functionSource.indexOf('async function publicProducts');
   const profileSource = functionSource.slice(profileStart, profileEnd);
@@ -948,7 +959,8 @@ record('App bootstrap is non-blocking and cloud initialization is centralized', 
   assert(!/async\s+onLaunch/.test(appSource), 'App.onLaunch is async');
   assert(!/await\s+AuthStore\.bootstrap/.test(appSource), 'App.onLaunch blocks on bootstrap');
   assert(
-    /wx\.cloud\.init\(\s*{\s*env:\s*CLOUD_CONFIG\.environmentId,\s*traceUser:\s*true/s.test(cloudServiceSource),
+    /assertCloudEnvironmentConfigured\(\)/.test(cloudServiceSource)
+      && /wx\.cloud\.init\(\s*{\s*env:\s*environmentId,\s*traceUser:\s*true/s.test(cloudServiceSource),
     'centralized cloud initialization does not use the fixed environment'
   );
   assert(
@@ -1392,6 +1404,19 @@ async function verifyProductQueryFunctionFlow() {
       createdAt: new Date('2026-07-17T07:30:00.000Z')
     },
     {
+      _id: 'product-reserved',
+      title: '已预定商品',
+      description: '已预定商品保留公开列表和详情。',
+      price: 28,
+      categoryId: 'life',
+      categoryName: '生活',
+      status: 'reserved',
+      sellerOpenid: 'private-openid',
+      favoriteCount: 1,
+      viewCount: 4,
+      createdAt: new Date('2026-07-17T07:45:00.000Z')
+    },
+    {
       _id: 'product-owner-offline',
       title: '本人下架商品',
       description: '仅本人列表可以读取。',
@@ -1573,7 +1598,12 @@ async function verifyProductQueryFunctionFlow() {
       }
     });
     assert(listResult.success === true, 'productQuery rejected a valid public list request');
-    assert(listResult.data.list.length === 1, 'productQuery list leaked a hidden status');
+    assert(
+      listResult.data.list.length === 2
+      && listResult.data.list.some((product) => product.status === 'available')
+      && listResult.data.list.some((product) => product.status === 'reserved'),
+      'productQuery list does not expose exactly available and reserved products'
+    );
     assert(
       !Object.prototype.hasOwnProperty.call(listResult.data.list[0], 'sellerOpenid'),
       'productQuery list leaked sellerOpenid'
@@ -1592,6 +1622,34 @@ async function verifyProductQueryFunctionFlow() {
     assert(
       soldDetail.success === true && soldDetail.data.product.status === 'sold',
       'productQuery no longer exposes sold product detail'
+    );
+    const reservedDetail = await productQueryFunction.main({
+      action: 'detail',
+      data: {
+        productId: 'product-reserved'
+      }
+    });
+    assert(
+      reservedDetail.success === true
+      && reservedDetail.data.product.status === 'reserved',
+      'productQuery does not expose reserved product detail'
+    );
+
+    const availableOwnerProducts = await productQueryFunction.main({
+      action: 'myProducts',
+      data: {
+        status: 'available',
+        page: 1,
+        pageSize: 20
+      }
+    });
+    assert(
+      availableOwnerProducts.success === true
+      && availableOwnerProducts.data.list.length === 2
+      && availableOwnerProducts.data.list.some(
+        (product) => product.status === 'reserved'
+      ),
+      'myProducts in-sale tab omits the owner reserved product'
     );
 
     const myProductsResult = await productQueryFunction.main({
@@ -3147,7 +3205,12 @@ async function verifyFavoriteProductFunctionFlow() {
   }
 
   function matches(record, condition) {
-    return Object.entries(condition).every(([key, value]) => record[key] === value);
+    return Object.entries(condition).every(([key, value]) => {
+      if (value && Array.isArray(value.$in)) {
+        return value.$in.includes(record[key]);
+      }
+      return record[key] === value;
+    });
   }
 
   function createQuery(records, condition) {
@@ -3271,7 +3334,7 @@ async function verifyFavoriteProductFunctionFlow() {
     status: 'available',
     favoriteCount: 0
   });
-  ['offline', 'sold', 'deleted'].forEach((status) => {
+  ['reserved', 'offline', 'sold', 'deleted'].forEach((status) => {
     productRecords.set(`product-${status}`, {
       _id: `product-${status}`,
       ...baseProduct,
@@ -3331,7 +3394,7 @@ async function verifyFavoriteProductFunctionFlow() {
       data: { productId: 'product-own' }
     });
     assert(own.success === false && own.code === 'CANNOT_FAVORITE_OWN_PRODUCT', 'own product can be favorited');
-    for (const unavailableStatus of ['offline', 'sold']) {
+    for (const unavailableStatus of ['reserved', 'offline', 'sold']) {
       const unavailable = await favoriteFunction.main({
         action: 'addFavorite',
         data: { productId: `product-${unavailableStatus}` }
@@ -3420,6 +3483,12 @@ async function verifyFavoriteProductFunctionFlow() {
       productId: 'product-offline',
       createdAt: new Date('2026-07-18T09:30:00.000Z')
     });
+    favoriteRecords.set('manual-reserved', {
+      _id: 'manual-reserved',
+      userOpenid: currentOpenId,
+      productId: 'product-reserved',
+      createdAt: new Date('2026-07-18T09:40:00.000Z')
+    });
     favoriteRecords.set('manual-sold', {
       _id: 'manual-sold',
       userOpenid: currentOpenId,
@@ -3437,6 +3506,7 @@ async function verifyFavoriteProductFunctionFlow() {
       data: { page: 1, pageSize: 20 }
     });
     assert(list.success === true, 'favorite list failed');
+    assert(list.data.list.some((item) => item.status === 'reserved'), 'reserved favorite is not displayed');
     assert(list.data.list.some((item) => item.status === 'offline'), 'offline favorite is not displayed');
     assert(list.data.list.some((item) => item.status === 'sold'), 'sold favorite is not displayed');
     assert(!list.data.list.some((item) => item.status === 'deleted'), 'deleted favorite is displayed');
@@ -3457,7 +3527,12 @@ async function verifyUserQueryFunctionFlow() {
   const productRecords = new Map();
 
   function matches(record, condition) {
-    return Object.entries(condition).every(([key, value]) => record[key] === value);
+    return Object.entries(condition).every(([key, value]) => {
+      if (value && Array.isArray(value.$in)) {
+        return value.$in.includes(record[key]);
+      }
+      return record[key] === value;
+    });
   }
 
   function createQuery(records, condition) {
@@ -3504,6 +3579,11 @@ async function verifyUserQueryFunctionFlow() {
   }
 
   const database = {
+    command: {
+      in(value) {
+        return { $in: value };
+      }
+    },
     collection(name) {
       const records = name === 'users' ? userRecords : productRecords;
       return {
@@ -3534,7 +3614,7 @@ async function verifyUserQueryFunctionFlow() {
     lastLoginAt: new Date(),
     createdAt: new Date('2025-09-01T00:00:00.000Z')
   });
-  ['available', 'offline', 'sold', 'deleted'].forEach((status, index) => {
+  ['available', 'reserved', 'offline', 'sold', 'deleted'].forEach((status, index) => {
     productRecords.set(`public-${status}`, {
       _id: `public-${status}`,
       title: `${status} 商品`,
@@ -3579,7 +3659,7 @@ async function verifyUserQueryFunctionFlow() {
     });
     assert(profile.success === true, 'public profile query failed');
     assert(profile.data.profile.nickname === '即出用户', 'public profile default nickname is missing');
-    assert(profile.data.profile.activeProductCount === 1, 'public active product count is incorrect');
+    assert(profile.data.profile.activeProductCount === 2, 'public active product count is incorrect');
     ['openid', 'role', 'status', 'lastLoginAt'].forEach((field) => {
       assert(
         !Object.prototype.hasOwnProperty.call(profile.data.profile, field),
@@ -3592,8 +3672,12 @@ async function verifyUserQueryFunctionFlow() {
       data: { publicUserId, page: 1, pageSize: 6 }
     });
     assert(productsResult.success === true, 'public products query failed');
-    assert(productsResult.data.list.length === 1, 'public products include a non-available status');
-    assert(productsResult.data.list[0].status === 'available', 'public products status is not available');
+    assert(
+      productsResult.data.list.length === 2
+      && productsResult.data.list.some((item) => item.status === 'available')
+      && productsResult.data.list.some((item) => item.status === 'reserved'),
+      'public products do not expose exactly available and reserved statuses'
+    );
     assert(productsResult.data.list[0].favoriteCount === 0, 'missing favoriteCount is not normalized');
     assert(
       !Object.prototype.hasOwnProperty.call(productsResult.data.list[0], 'sellerOpenid'),
@@ -3620,7 +3704,14 @@ async function verifyUserQueryFunctionFlow() {
 
 async function verifyCloudServiceFlow() {
   const servicePath = path.join(root, 'services/cloud-service.js');
+  const configPath = path.join(root, 'config/cloud.js');
+  const {
+    CLOUD_CONFIG,
+    PUBLIC_ENVIRONMENT_ID
+  } = require(configPath);
   const originalWx = global.wx;
+  const originalEnvironmentId = CLOUD_CONFIG.environmentId;
+  const originalEnvironmentSource = CLOUD_CONFIG.environmentSource;
   let initCalls = 0;
   let initOptions = null;
   let shouldFailInit = true;
@@ -3665,10 +3756,27 @@ async function verifyCloudServiceFlow() {
       }
     }
   };
+  CLOUD_CONFIG.environmentId = 'verification-cloud-environment';
+  CLOUD_CONFIG.environmentSource = 'verification';
   delete require.cache[require.resolve(servicePath)];
 
   try {
     const CloudService = require(servicePath);
+    CLOUD_CONFIG.environmentId = PUBLIC_ENVIRONMENT_ID;
+    let missingConfigError;
+    try {
+      await CloudService.ensureCloudReady();
+    } catch (error) {
+      missingConfigError = error;
+    }
+    assert(
+      missingConfigError
+      && missingConfigError.code === 'CLOUD_CONFIG_MISSING'
+      && initCalls === 0,
+      'missing private cloud configuration is not rejected clearly'
+    );
+    CLOUD_CONFIG.environmentId = 'verification-cloud-environment';
+
     let initError;
     try {
       await CloudService.ensureCloudReady();
@@ -3690,7 +3798,7 @@ async function verifyCloudServiceFlow() {
     assert(initCalls === 2, 'failed cloud initialization cannot be retried safely');
     assert(
       initOptions
-      && initOptions.env === 'YOUR_CLOUDBASE_ENV_ID'
+      && initOptions.env === 'verification-cloud-environment'
       && initOptions.traceUser === true,
       'cloud initialization uses the wrong environment'
     );
@@ -3745,6 +3853,8 @@ async function verifyCloudServiceFlow() {
       'cloud timeout is not classified separately'
     );
   } finally {
+    CLOUD_CONFIG.environmentId = originalEnvironmentId;
+    CLOUD_CONFIG.environmentSource = originalEnvironmentSource;
     delete require.cache[require.resolve(servicePath)];
     if (originalWx === undefined) {
       delete global.wx;
@@ -5048,18 +5158,96 @@ async function verifyAuthStateFlow() {
   }
 }
 
-record('project.private.config.json is ignored and not tracked', () => {
-  const ignoreResult = spawnSync('git', ['check-ignore', 'project.private.config.json'], {
-    cwd: root,
-    encoding: 'utf8'
-  });
-  assert(ignoreResult.status === 0, 'project.private.config.json is not ignored');
+record('public placeholders and local private configurations are isolated', () => {
+  const publicProjectConfig = readJson(path.join(root, 'project.config.json'));
+  const cloudConfigPath = path.join(root, 'config/cloud.js');
+  const privateCloudConfigPath = path.join(root, 'config/cloud.private.js');
+  const exampleCloudConfigPath = path.join(root, 'config/cloud.private.example.js');
 
-  const trackedResult = spawnSync('git', ['ls-files', '--error-unmatch', 'project.private.config.json'], {
-    cwd: root,
-    encoding: 'utf8'
+  assert(
+    publicProjectConfig.appid === 'YOUR_WECHAT_APP_ID',
+    'project.config.json does not keep the public AppID placeholder'
+  );
+  assert(
+    readText(cloudConfigPath).includes("const PUBLIC_ENVIRONMENT_ID = 'YOUR_CLOUDBASE_ENV_ID'"),
+    'config/cloud.js does not keep the public cloud environment placeholder'
+  );
+  assert(fs.existsSync(exampleCloudConfigPath), 'private cloud configuration example is missing');
+
+  [
+    'project.private.config.json',
+    'config/cloud.private.js'
+  ].forEach((privatePath) => {
+    const ignoreResult = spawnSync('git', ['check-ignore', privatePath], {
+      cwd: root,
+      encoding: 'utf8'
+    });
+    assert(ignoreResult.status === 0, `${privatePath} is not ignored`);
+
+    const trackedResult = spawnSync(
+      'git',
+      ['ls-files', '--error-unmatch', privatePath],
+      { cwd: root, encoding: 'utf8' }
+    );
+    assert(trackedResult.status !== 0, `${privatePath} is tracked`);
   });
-  assert(trackedResult.status !== 0, 'project.private.config.json is tracked');
+
+  const exampleIgnoreResult = spawnSync(
+    'git',
+    ['check-ignore', '--no-index', 'config/cloud.private.example.js'],
+    { cwd: root, encoding: 'utf8' }
+  );
+  assert(
+    exampleIgnoreResult.status !== 0,
+    'config/cloud.private.example.js is ignored instead of publishable'
+  );
+
+  const originalLoad = Module._load;
+  delete require.cache[require.resolve(cloudConfigPath)];
+  try {
+    Module._load = function loadWithMissingPrivateConfig(request, parent, isMain) {
+      if (
+        request === './cloud.private'
+        && parent
+        && parent.filename === cloudConfigPath
+      ) {
+        const error = new Error('Cannot find module ./cloud.private');
+        error.code = 'MODULE_NOT_FOUND';
+        throw error;
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    };
+    const fallbackConfig = require(cloudConfigPath);
+    assert(
+      fallbackConfig.CLOUD_CONFIG.environmentId === 'YOUR_CLOUDBASE_ENV_ID'
+      && fallbackConfig.CLOUD_CONFIG.environmentSource === 'public-placeholder',
+      'missing private cloud configuration does not fall back to the public placeholder'
+    );
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[require.resolve(cloudConfigPath)];
+  }
+
+  if (fs.existsSync(path.join(root, 'project.private.config.json'))) {
+    const privateProjectConfig = readJson(path.join(root, 'project.private.config.json'));
+    assert(
+      typeof privateProjectConfig.appid === 'string'
+      && /^wx[a-zA-Z0-9]{16}$/.test(privateProjectConfig.appid)
+      && privateProjectConfig.appid !== 'YOUR_WECHAT_APP_ID',
+      'project.private.config.json does not contain a valid local AppID'
+    );
+  }
+
+  if (fs.existsSync(privateCloudConfigPath)) {
+    const privateCloudConfig = require(privateCloudConfigPath);
+    assert(
+      privateCloudConfig
+      && typeof privateCloudConfig.environmentId === 'string'
+      && privateCloudConfig.environmentId.trim()
+      && privateCloudConfig.environmentId !== 'YOUR_CLOUDBASE_ENV_ID',
+      'config/cloud.private.js does not contain a valid local environment ID'
+    );
+  }
 });
 
 async function runAsyncChecks() {
@@ -5087,6 +5275,31 @@ async function runAsyncChecks() {
   checks.push('PASS MessageService payload, normalization, validation and identity boundaries');
   await verifyMessagingFunctionFlow();
   checks.push('PASS messaging identity, permissions, idempotency, unread counts, cursors and privacy flow');
+  const {
+    verifyAppointmentFlow,
+    verifyChatAppointmentDegradation
+  } = require('./verify-appointments');
+  const appointmentResult = await verifyAppointmentFlow(root);
+  assert(appointmentResult.creation, 'appointment creation verification did not finish');
+  checks.push('PASS appointment creation validation, identity, active uniqueness and idempotency flow');
+  assert(appointmentResult.permissions, 'appointment permission verification did not finish');
+  checks.push('PASS appointment participant queries, privacy and third-party isolation flow');
+  assert(appointmentResult.transitions, 'appointment transition verification did not finish');
+  checks.push('PASS appointment state machine, seller-only completion, sold linkage and cleanup flow');
+  assert(
+    appointmentResult.productReservationLinkage,
+    'appointment product reservation linkage verification did not finish'
+  );
+  checks.push('PASS appointment reserved linkage, single acceptance, recovery, display and refresh flow');
+  assert(appointmentResult.messaging, 'appointment messaging verification did not finish');
+  checks.push('PASS appointment system messages, unread idempotency and MessageService compatibility flow');
+  assert(
+    appointmentResult.paginationAndLocation,
+    'appointment pagination and location verification did not finish'
+  );
+  checks.push('PASS appointment stable pagination and real map location boundaries');
+  await verifyChatAppointmentDegradation(root);
+  checks.push('PASS chat keeps messages available when appointment lookup fails and preserves message errors');
   await verifyAuthUserFunctionFlow();
   checks.push('PASS authUser real identities, unique users, profile validation, updates and privacy flow');
   await verifyAvatarServiceFlow();

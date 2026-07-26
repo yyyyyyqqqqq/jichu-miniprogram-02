@@ -20,6 +20,7 @@ Page({
   onLoad(options) {
     this.isPageActive = true;
     this.requestVersion = 0;
+    this.hasShown = false;
     const publicUserId = PublicUserService.normalizePublicUserId(
       options && options.userId
     );
@@ -32,6 +33,16 @@ Page({
     }
     this.setData({ publicUserId });
     this.loadPage();
+  },
+
+  onShow() {
+    if (!this.hasShown) {
+      this.hasShown = true;
+      return;
+    }
+    if (this.isPageActive && this.data.publicUserId) {
+      this.loadPage();
+    }
   },
 
   onUnload() {

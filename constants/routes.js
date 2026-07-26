@@ -10,7 +10,10 @@ const ROUTES = {
   MY_PRODUCTS: '/pages/my-products/index',
   CHAT: '/pages/chat/index',
   USER_PROFILE: '/pages/user-profile/index',
-  LOCATION_PICKER: '/pages/location-picker/index'
+  LOCATION_PICKER: '/pages/location-picker/index',
+  APPOINTMENT_CREATE: '/pages/appointment-create/index',
+  APPOINTMENT_DETAIL: '/pages/appointment-detail/index',
+  APPOINTMENTS: '/pages/appointments/index'
 };
 
 const AUTH_TARGETS = {

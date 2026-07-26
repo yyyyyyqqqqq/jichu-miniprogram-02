@@ -1,0 +1,142 @@
+.appointment-header {
+  padding: 10rpx 2rpx 24rpx;
+}
+
+.filter-tabs {
+  display: flex;
+  gap: 12rpx;
+  margin-bottom: 22rpx;
+  padding: 8rpx;
+  border-radius: 20rpx;
+  background: #eaf0ed;
+}
+
+.filter-tab {
+  flex: 1;
+  padding: 16rpx 10rpx;
+  border-radius: 15rpx;
+  color: #76817b;
+  font-size: 23rpx;
+  text-align: center;
+}
+
+.filter-tab--active {
+  background: #ffffff;
+  color: #13865a;
+  font-weight: 680;
+  box-shadow: 0 5rpx 14rpx rgba(31, 72, 51, 0.07);
+}
+
+.appointment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18rpx;
+}
+
+.appointment-card {
+  display: flex;
+  align-items: center;
+  padding: 22rpx;
+}
+
+.product-image {
+  width: 108rpx;
+  height: 108rpx;
+  flex: none;
+  border-radius: 18rpx;
+  background: #edf2ef;
+}
+
+.appointment-copy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  margin-left: 18rpx;
+}
+
+.title-row {
+  display: flex;
+  align-items: center;
+}
+
+.product-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #2d3b34;
+  font-size: 25rpx;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-badge {
+  flex: none;
+  margin-left: 12rpx;
+  padding: 5rpx 10rpx;
+  border-radius: 999rpx;
+  background: #fff3dc;
+  color: #a66a11;
+  font-size: 18rpx;
+}
+
+.status-badge--accepted,
+.status-badge--completed {
+  background: #e9f7f0;
+  color: #13865a;
+}
+
+.status-badge--rejected,
+.status-badge--cancelled {
+  background: #eef1ef;
+  color: #737d78;
+}
+
+.other-user,
+.appointment-time,
+.appointment-location {
+  margin-top: 7rpx;
+  overflow: hidden;
+  color: #7e8983;
+  font-size: 20rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appointment-time {
+  color: #4d5a53;
+}
+
+.waiting-tag,
+.waiting-copy {
+  margin-top: 9rpx;
+  color: #159160;
+  font-size: 20rpx;
+}
+
+.waiting-copy {
+  color: #9a7a45;
+}
+
+.row-arrow {
+  margin-left: 10rpx;
+  color: #a3aca7;
+  font-size: 38rpx;
+}
+
+.empty-card {
+  margin-top: 8rpx;
+}
+
+.list-status {
+  padding: 24rpx 0 8rpx;
+  color: #919b96;
+  font-size: 22rpx;
+  text-align: center;
+}
+
+.retry-link {
+  margin-left: 14rpx;
+  color: #16a36a;
+}

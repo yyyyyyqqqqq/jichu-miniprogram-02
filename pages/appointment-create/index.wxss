@@ -1,0 +1,163 @@
+.appointment-create-page {
+  padding-bottom: calc(48rpx + env(safe-area-inset-bottom));
+}
+
+.error-card {
+  padding-bottom: 24rpx;
+}
+
+.product-summary {
+  display: flex;
+  padding: 24rpx;
+}
+
+.product-image {
+  width: 128rpx;
+  height: 128rpx;
+  flex: none;
+  border-radius: 20rpx;
+  background: #edf2ef;
+}
+
+.product-copy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  margin-left: 22rpx;
+}
+
+.product-title {
+  overflow: hidden;
+  color: #27352e;
+  font-size: 28rpx;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-price {
+  margin-top: 10rpx;
+  color: #ef5d42;
+  font-size: 27rpx;
+  font-weight: 700;
+}
+
+.other-user {
+  margin-top: 12rpx;
+  color: #7c8781;
+  font-size: 22rpx;
+}
+
+.form-card {
+  margin-top: 22rpx;
+  padding: 28rpx;
+}
+
+.field-label {
+  color: #37453d;
+  font-size: 25rpx;
+  font-weight: 650;
+}
+
+.field-label--spaced {
+  margin-top: 30rpx;
+}
+
+.time-row {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 16rpx;
+}
+
+.picker-control {
+  flex: 1;
+  padding: 20rpx;
+  border-radius: 16rpx;
+  background: #f3f7f5;
+  color: #34423a;
+  font-size: 24rpx;
+  text-align: center;
+}
+
+.legacy-location,
+.location-value {
+  display: flex;
+  flex-direction: column;
+  margin-top: 16rpx;
+  padding: 20rpx;
+  border-radius: 16rpx;
+  background: #f5f8f6;
+}
+
+.legacy-location {
+  color: #68746d;
+  font-size: 23rpx;
+}
+
+.legacy-hint {
+  margin-top: 9rpx;
+  color: #b07829;
+  font-size: 20rpx;
+}
+
+.location-name {
+  color: #2d3c34;
+  font-size: 25rpx;
+  font-weight: 650;
+}
+
+.location-address {
+  margin-top: 8rpx;
+  color: #79847e;
+  font-size: 22rpx;
+  line-height: 1.5;
+}
+
+.location-preview {
+  margin-top: 10rpx;
+  color: #159160;
+  font-size: 21rpx;
+}
+
+.location-button {
+  min-height: 72rpx;
+  margin-top: 16rpx;
+  font-size: 24rpx;
+}
+
+.note-input {
+  width: 100%;
+  min-height: 180rpx;
+  margin-top: 16rpx;
+  padding: 20rpx;
+  border-radius: 16rpx;
+  background: #f3f7f5;
+  color: #2e3c35;
+  font-size: 24rpx;
+  line-height: 1.6;
+}
+
+.note-count {
+  display: block;
+  margin-top: 8rpx;
+  color: #99a19d;
+  font-size: 19rpx;
+  text-align: right;
+}
+
+.safety-note {
+  margin: 22rpx 8rpx;
+  color: #858f89;
+  font-size: 21rpx;
+  line-height: 1.65;
+}
+
+.submit-button {
+  margin-top: 18rpx;
+}
+
+.submit-button[disabled] {
+  background: #dce4e0;
+  color: #929b97;
+}

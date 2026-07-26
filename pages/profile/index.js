@@ -91,6 +91,15 @@ Page({
     }
   },
 
+  async goAppointments() {
+    const allowed = await AuthGuard.requireLogin({
+      target: AUTH_TARGETS.PROFILE
+    });
+    if (allowed) {
+      NavigationService.safeNavigateTo(ROUTES.APPOINTMENTS);
+    }
+  },
+
   async retryAuth() {
     await AuthStore.refreshCurrentUser();
   },

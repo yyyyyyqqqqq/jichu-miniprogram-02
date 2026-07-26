@@ -1,1 +1,96 @@
-/* 使用 app.wxss 中的公共占位页样式。 */
+.location-page {
+  padding-bottom: calc(40rpx + env(safe-area-inset-bottom));
+}
+
+.location-card {
+  min-height: 70vh;
+  padding: 48rpx 34rpx;
+  text-align: center;
+}
+
+.location-mark {
+  width: 92rpx;
+  height: 92rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  border-radius: 30rpx;
+  background: #eaf7f1;
+  color: #16a36a;
+  font-size: 40rpx;
+  font-weight: 700;
+}
+
+.location-title {
+  margin-top: 24rpx;
+  color: #223129;
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.location-description {
+  margin: 16rpx auto 30rpx;
+  color: #7e8983;
+  font-size: 23rpx;
+  line-height: 1.65;
+}
+
+.selected-location {
+  display: flex;
+  flex-direction: column;
+  margin-top: 24rpx;
+  padding: 26rpx;
+  border-radius: 20rpx;
+  background: #f4f8f6;
+  text-align: left;
+}
+
+.selected-name {
+  color: #2a3931;
+  font-size: 28rpx;
+  font-weight: 680;
+}
+
+.selected-address,
+.selected-coordinate {
+  margin-top: 10rpx;
+  color: #7b8680;
+  font-size: 22rpx;
+  line-height: 1.55;
+}
+
+.selected-coordinate {
+  color: #9aa39f;
+  font-size: 19rpx;
+}
+
+.preview-link {
+  margin-top: 14rpx;
+  color: #159160;
+  font-size: 22rpx;
+}
+
+.location-error {
+  margin-top: 22rpx;
+  padding: 18rpx;
+  border-radius: 16rpx;
+  background: #fff3ef;
+  color: #b45444;
+  font-size: 22rpx;
+  line-height: 1.55;
+}
+
+.choose-button,
+.confirm-button {
+  margin-top: 26rpx;
+}
+
+.confirm-button {
+  margin-top: 16rpx;
+}
+
+.confirm-button[disabled] {
+  background: #dce4e0;
+  color: #929b97;
+}

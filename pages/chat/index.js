@@ -1,6 +1,7 @@
 const AuthStore = require('../../store/auth-store');
 const AuthGuard = require('../../services/auth-guard');
 const MessageService = require('../../services/message-service');
+const AppointmentService = require('../../services/appointment-service');
 const NavigationService = require('../../services/navigation-service');
 const {
   ROUTES,
@@ -14,6 +15,11 @@ Page({
   data: {
     viewState: 'loading',
     conversation: null,
+    activeAppointment: null,
+    appointmentError: '',
+    appointmentErrorCode: '',
+    messageErrorCode: '',
+    isLoadingAppointment: false,
     messages: [],
     inputValue: '',
     inputLength: 0,
@@ -82,14 +88,30 @@ Page({
     this.requestVersion = requestVersion;
     this.setData({
       viewState: 'loading',
-      errorMessage: ''
+      errorMessage: '',
+      messageErrorCode: ''
     });
     try {
-      const [conversation, messageResult] = await Promise.all([
+      const appointmentRequest = AppointmentService
+        .getActiveByConversation(this.conversationId)
+        .then((appointment) => ({
+          success: true,
+          appointment
+        }))
+        .catch(() => ({
+          success: false,
+          appointment: null
+        }));
+      const [
+        conversation,
+        messageResult,
+        appointmentResult
+      ] = await Promise.all([
         MessageService.getConversation(this.conversationId),
         MessageService.listMessages(this.conversationId, {
           pageSize: 20
-        })
+        }),
+        appointmentRequest
       ]);
       if (
         !this.isPageActive
@@ -106,6 +128,14 @@ Page({
       this.setData({
         viewState: 'success',
         conversation,
+        activeAppointment: appointmentResult.appointment,
+        appointmentError: appointmentResult.success
+          ? ''
+          : '预约功能暂不可用',
+        appointmentErrorCode: appointmentResult.success
+          ? ''
+          : 'APPOINTMENT_SERVICE_ERROR',
+        messageErrorCode: '',
         hasMore: messageResult.hasMore,
         historyError: ''
       });
@@ -121,6 +151,7 @@ Page({
       }
       this.setData({
         viewState: 'error',
+        messageErrorCode: 'MESSAGE_SERVICE_ERROR',
         errorMessage: error && error.message
           ? error.message
           : '会话暂时无法加载'
@@ -235,10 +266,44 @@ Page({
       this.serverMessages = [...byId.values()];
       this.renderMessages(true);
       this.markRead();
+      this.refreshActiveAppointment();
     } catch (error) {
       // 轮询失败保持当前消息，下一轮或手动操作继续重试。
     } finally {
       this.pollInFlight = false;
+    }
+  },
+
+  async refreshActiveAppointment() {
+    if (
+      !this.isPageActive
+      || !this.isPageVisible
+      || this.data.isLoadingAppointment
+    ) {
+      return;
+    }
+    this.setData({ isLoadingAppointment: true });
+    try {
+      const appointment = await AppointmentService
+        .getActiveByConversation(this.conversationId);
+      if (this.isPageActive && this.isPageVisible) {
+        this.setData({
+          activeAppointment: appointment,
+          appointmentError: '',
+          appointmentErrorCode: ''
+        });
+      }
+    } catch (error) {
+      if (this.isPageActive && this.isPageVisible) {
+        this.setData({
+          appointmentError: '预约功能暂不可用',
+          appointmentErrorCode: 'APPOINTMENT_SERVICE_ERROR'
+        });
+      }
+    } finally {
+      if (this.isPageActive) {
+        this.setData({ isLoadingAppointment: false });
+      }
     }
   },
 
@@ -418,6 +483,52 @@ Page({
     NavigationService.safeNavigateTo(
       `${ROUTES.PRODUCT_DETAIL}?id=${encodeURIComponent(productId)}`
     );
+  },
+
+  onAppointmentTap() {
+    if (this.data.appointmentErrorCode === 'APPOINTMENT_SERVICE_ERROR') {
+      wx.showToast({
+        title: this.data.appointmentError || '预约功能暂不可用',
+        icon: 'none'
+      });
+      return;
+    }
+    const appointment = this.data.activeAppointment;
+    if (appointment) {
+      NavigationService.safeNavigateTo(
+        `${ROUTES.APPOINTMENT_DETAIL}?appointmentId=${encodeURIComponent(appointment.appointmentId)}`
+      );
+      return;
+    }
+    const product = this.data.conversation
+      && this.data.conversation.product;
+    if (
+      !product
+      || product.status !== 'available'
+      || !this.data.conversation.canSend
+    ) {
+      wx.showToast({
+        title: '当前商品不能创建面交预约',
+        icon: 'none'
+      });
+      return;
+    }
+    NavigationService.safeNavigateTo(
+      `${ROUTES.APPOINTMENT_CREATE}?conversationId=${encodeURIComponent(this.conversationId)}`
+    );
+  },
+
+  openAppointmentMessage(event) {
+    const appointmentId = event
+      && event.currentTarget
+      && event.currentTarget.dataset
+      ? event.currentTarget.dataset.appointmentId
+      : '';
+    if (appointmentId) {
+      NavigationService.safeNavigateTo(
+        `${ROUTES.APPOINTMENT_DETAIL}?appointmentId=${encodeURIComponent(appointmentId)}`
+      );
+    }
   },
 
   retryConversation() {

@@ -1,3 +1,6 @@
 {
-  "navigationBarTitleText": "选择面交地点"
+  "navigationBarTitleText": "选择面交地点",
+  "usingComponents": {
+    "loading-state": "/components/loading-state/index"
+  }
 }

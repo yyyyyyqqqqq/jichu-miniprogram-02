@@ -1,4 +1,7 @@
-const { CLOUD_CONFIG } = require('../config/cloud');
+const {
+  CLOUD_CONFIG,
+  PUBLIC_ENVIRONMENT_ID
+} = require('../config/cloud');
 
 let cloudInitPromise = null;
 let cloudReady = false;
@@ -75,6 +78,19 @@ function classifyCallError(error) {
   );
 }
 
+function assertCloudEnvironmentConfigured() {
+  const environmentId = typeof CLOUD_CONFIG.environmentId === 'string'
+    ? CLOUD_CONFIG.environmentId.trim()
+    : '';
+  if (!environmentId || environmentId === PUBLIC_ENVIRONMENT_ID) {
+    throw createCloudError(
+      'CLOUD_CONFIG_MISSING',
+      'Cloud environment is not configured. Copy config/cloud.private.example.js to config/cloud.private.js and set environmentId.'
+    );
+  }
+  return environmentId;
+}
+
 function ensureCloudReady() {
   if (cloudReady) {
     return Promise.resolve();
@@ -96,9 +112,10 @@ function ensureCloudReady() {
         );
       }
 
+      const environmentId = assertCloudEnvironmentConfigured();
       try {
         wx.cloud.init({
-          env: CLOUD_CONFIG.environmentId,
+          env: environmentId,
           traceUser: true
         });
       } catch (error) {
@@ -185,5 +202,6 @@ module.exports = {
   isCloudReady,
   getCloudState,
   classifyCallError,
+  assertCloudEnvironmentConfigured,
   callFunction
 };

@@ -50,6 +50,7 @@ Page({
   onLoad(options) {
     this.isPageActive = true;
     this.requestVersion = 0;
+    this.hasShown = false;
 
     const id = this.normalizeProductId(options && options.id);
     if (!id) {
@@ -63,8 +64,12 @@ Page({
   },
 
   onShow() {
+    if (!this.hasShown) {
+      this.hasShown = true;
+      return;
+    }
     if (this.data.viewState === 'success' && this.data.product) {
-      this.refreshFavoriteStatus();
+      this.loadProduct();
     }
   },
 

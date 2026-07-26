@@ -1,0 +1,8 @@
+{
+  "navigationBarTitleText": "我的预约",
+  "enablePullDownRefresh": true,
+  "usingComponents": {
+    "loading-state": "/components/loading-state/index",
+    "empty-state": "/components/empty-state/index"
+  }
+}

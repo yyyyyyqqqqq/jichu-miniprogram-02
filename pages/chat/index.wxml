@@ -50,6 +50,27 @@
         </view>
         <text class="product-arrow">›</text>
       </view>
+
+      <view
+        class="appointment-entry {{appointmentError ? 'appointment-entry--unavailable' : ''}}"
+        bindtap="onAppointmentTap"
+      >
+        <view class="appointment-entry-copy">
+          <text class="appointment-entry-title">
+            {{appointmentError ? '预约功能暂不可用' : (activeAppointment ? '查看面交预约' : '预约面交')}}
+          </text>
+          <text wx:if="{{appointmentError}}" class="appointment-entry-description">
+            聊天不受影响，稍后可重新进入会话重试
+          </text>
+          <text wx:elif="{{activeAppointment}}" class="appointment-entry-description">
+            {{activeAppointment.statusText}} · {{activeAppointment.scheduledAtText}}
+          </text>
+          <text wx:else class="appointment-entry-description">
+            约定未来 30 天内的校园面交时间与地点
+          </text>
+        </view>
+        <text class="product-arrow">›</text>
+      </view>
     </view>
 
     <scroll-view
@@ -82,9 +103,21 @@
       <view
         wx:for="{{messages}}"
         wx:key="messageId"
-        class="message-row {{item.isMine ? 'message-row--mine' : ''}}"
+        class="message-row {{item.type === 'system' ? 'message-row--system' : (item.isMine ? 'message-row--mine' : '')}}"
       >
         <view
+          wx:if="{{item.type === 'system'}}"
+          class="system-message-card"
+          data-appointment-id="{{item.appointmentId}}"
+          bindtap="openAppointmentMessage"
+        >
+          <text class="system-message-label">面交预约</text>
+          <text class="system-message-content">{{item.content}}</text>
+          <text class="system-message-action">查看详情 ›</text>
+          <text class="system-message-time">{{item.createdAtText}}</text>
+        </view>
+        <view
+          wx:else
           class="message-bubble {{item.isMine ? 'message-bubble--mine' : ''}} {{item.sendStatus === 'failed' ? 'message-bubble--failed' : ''}}"
           data-client-message-id="{{item.clientMessageId}}"
           bindtap="retryMessage"

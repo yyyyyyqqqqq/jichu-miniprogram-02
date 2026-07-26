@@ -217,7 +217,8 @@ function safeProduct(record, snapshot) {
     price: Number.isFinite(Number(source.price)) && Number(source.price) >= 0
       ? Number(source.price)
       : 0,
-    status
+    status,
+    location: normalizeString(source.location)
   };
 }
 
@@ -243,7 +244,9 @@ async function enrichConversation(conversation, openId) {
     otherUser: safeUser(otherUser, otherUserId),
     product: safeProductValue,
     lastMessage: normalizeString(conversation.lastMessage),
-    lastMessageType: conversation.lastMessageType === 'text' ? 'text' : '',
+    lastMessageType: ['text', 'system'].includes(conversation.lastMessageType)
+      ? conversation.lastMessageType
+      : '',
     lastMessageAt: toIsoString(conversation.lastMessageAt),
     unreadCount,
     canSend: Boolean(product && product.status !== 'deleted')
@@ -335,11 +338,18 @@ async function getConversation(data, openId) {
 }
 
 function toSafeMessage(record, openId) {
+  const type = record.type === 'system' ? 'system' : 'text';
   return {
     messageId: String(record._id || ''),
     senderPublicUserId: String(record.senderPublicUserId || ''),
     isMine: record.senderOpenid === openId,
-    type: 'text',
+    type,
+    eventType: type === 'system'
+      ? normalizeString(record.eventType)
+      : '',
+    appointmentId: type === 'system'
+      ? normalizeString(record.appointmentId)
+      : '',
     content: normalizeString(record.content),
     createdAt: toIsoString(record.createdAt)
   };

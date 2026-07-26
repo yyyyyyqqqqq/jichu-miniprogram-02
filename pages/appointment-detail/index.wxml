@@ -1,0 +1,144 @@
+<view class="page-shell--plain appointment-detail-page">
+  <loading-state
+    wx:if="{{viewState === 'loading'}}"
+    text="正在加载预约详情"
+  />
+
+  <view wx:elif="{{viewState === 'error'}}" class="surface-card error-card">
+    <empty-state
+      title="预约暂时无法打开"
+      description="{{errorMessage}}"
+      action-text="重新加载"
+      bind:action="retryLoad"
+    />
+  </view>
+
+  <block wx:elif="{{viewState === 'success' && appointment}}">
+    <view class="surface-card status-card">
+      <view class="status-row">
+        <text class="status-label">预约状态</text>
+        <text class="status-badge status-badge--{{appointment.statusClassName}}">
+          {{appointment.statusText}}
+        </text>
+      </view>
+      <text wx:if="{{appointment.waitingForMe}}" class="status-description">
+        对方发起了预约，等待你接受或拒绝
+      </text>
+      <text wx:elif="{{appointment.status === 'pending'}}" class="status-description">
+        已发起预约，等待对方处理
+      </text>
+      <text wx:elif="{{appointment.completionHint}}" class="status-description">
+        {{appointment.completionHint}}
+      </text>
+      <text wx:elif="{{appointment.cancelReasonText}}" class="status-description">
+        {{appointment.cancelReasonText}}
+      </text>
+    </view>
+
+    <view class="surface-card product-card" bindtap="openProduct">
+      <image
+        wx:if="{{appointment.product.coverImage}}"
+        class="product-image"
+        src="{{appointment.product.coverImage}}"
+        mode="aspectFill"
+      />
+      <view class="product-copy">
+        <text class="product-title">{{appointment.product.title}}</text>
+        <text class="product-price">{{appointment.product.priceDisplay}}</text>
+        <text class="product-role">
+          {{appointment.isSeller ? '你是卖家' : '你是买家'}} · 对方 {{appointment.otherUser.nickname}}
+        </text>
+      </view>
+      <text class="row-arrow">›</text>
+    </view>
+
+    <view class="surface-card info-card">
+      <view class="info-row">
+        <text class="info-label">面交时间</text>
+        <text class="info-value">{{appointment.scheduledAtText}}</text>
+      </view>
+      <view class="info-row location-row" bindtap="openLocation">
+        <text class="info-label">面交地点</text>
+        <view class="location-copy">
+          <text class="location-name">{{appointment.location.name}}</text>
+          <text class="location-address">{{appointment.location.address}}</text>
+          <text class="map-link">在地图中查看</text>
+        </view>
+      </view>
+      <view class="info-row">
+        <text class="info-label">备注</text>
+        <text class="info-value">{{appointment.note || '无'}}</text>
+      </view>
+      <view class="info-row">
+        <text class="info-label">发起时间</text>
+        <text class="info-value">{{appointment.createdAtText}}</text>
+      </view>
+    </view>
+
+    <view class="surface-card timeline-card">
+      <text class="section-title">状态时间线</text>
+      <view class="timeline-row">
+        <view class="timeline-dot"></view>
+        <text>预约已发起</text>
+      </view>
+      <view wx:if="{{appointment.acceptedAt}}" class="timeline-row">
+        <view class="timeline-dot"></view>
+        <text>预约已接受</text>
+      </view>
+      <view wx:if="{{appointment.rejectedAt}}" class="timeline-row">
+        <view class="timeline-dot timeline-dot--ended"></view>
+        <text>预约已拒绝</text>
+      </view>
+      <view wx:if="{{appointment.cancelledAt}}" class="timeline-row">
+        <view class="timeline-dot timeline-dot--ended"></view>
+        <text>预约已取消</text>
+      </view>
+      <view wx:if="{{appointment.completedAt}}" class="timeline-row">
+        <view class="timeline-dot"></view>
+        <text>面交已完成，商品已标记为已出</text>
+      </view>
+    </view>
+
+    <button class="secondary-button chat-button" bindtap="openChat">
+      返回关联聊天
+    </button>
+
+    <view
+      wx:if="{{appointment.canAccept || appointment.canReject || appointment.canCancel || appointment.canComplete}}"
+      class="action-bar"
+    >
+      <button
+        wx:if="{{appointment.canReject}}"
+        class="action-button action-button--danger"
+        disabled="{{isActing}}"
+        bindtap="reject"
+      >
+        拒绝
+      </button>
+      <button
+        wx:if="{{appointment.canCancel}}"
+        class="action-button action-button--muted"
+        disabled="{{isActing}}"
+        bindtap="cancel"
+      >
+        取消预约
+      </button>
+      <button
+        wx:if="{{appointment.canAccept}}"
+        class="action-button action-button--primary"
+        disabled="{{isActing}}"
+        bindtap="accept"
+      >
+        接受
+      </button>
+      <button
+        wx:if="{{appointment.canComplete}}"
+        class="action-button action-button--primary"
+        disabled="{{isActing}}"
+        bindtap="complete"
+      >
+        确认已完成面交
+      </button>
+    </view>
+  </block>
+</view>

@@ -137,8 +137,47 @@
   font-size: 34rpx;
 }
 
+.appointment-entry {
+  display: flex;
+  align-items: center;
+  margin-top: 12rpx;
+  padding: 16rpx 18rpx;
+  border-radius: 18rpx;
+  background: #eaf7f1;
+}
+
+.appointment-entry--unavailable {
+  background: #f2f4f3;
+}
+
+.appointment-entry--unavailable .appointment-entry-title {
+  color: #727d77;
+}
+
+.appointment-entry-copy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.appointment-entry-title {
+  color: #137f57;
+  font-size: 24rpx;
+  font-weight: 680;
+}
+
+.appointment-entry-description {
+  margin-top: 6rpx;
+  overflow: hidden;
+  color: #718078;
+  font-size: 19rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .message-scroll {
-  height: calc(100vh - 344rpx - env(safe-area-inset-bottom));
+  height: calc(100vh - 438rpx - env(safe-area-inset-bottom));
   padding: 0 28rpx;
 }
 
@@ -190,6 +229,46 @@
 
 .message-row--mine {
   justify-content: flex-end;
+}
+
+.message-row--system {
+  justify-content: center;
+}
+
+.system-message-card {
+  max-width: 82%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18rpx 24rpx;
+  border: 1rpx solid #dbe9e1;
+  border-radius: 18rpx;
+  background: #f4f8f6;
+  text-align: center;
+}
+
+.system-message-label {
+  color: #159160;
+  font-size: 19rpx;
+  font-weight: 680;
+}
+
+.system-message-content {
+  margin-top: 8rpx;
+  color: #49564f;
+  font-size: 23rpx;
+}
+
+.system-message-action {
+  margin-top: 10rpx;
+  color: #159160;
+  font-size: 20rpx;
+}
+
+.system-message-time {
+  margin-top: 7rpx;
+  color: #9aa39f;
+  font-size: 18rpx;
 }
 
 .message-bubble {

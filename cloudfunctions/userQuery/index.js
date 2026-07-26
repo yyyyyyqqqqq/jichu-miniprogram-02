@@ -7,6 +7,8 @@ cloud.init({
 const db = cloud.database();
 const users = db.collection('users');
 const products = db.collection('products');
+const command = db.command;
+const PUBLIC_PRODUCT_STATUSES = ['available', 'reserved'];
 const PUBLIC_USER_ID_PATTERN = /^u_[a-f0-9]{32}$/;
 const MAX_PAGE = 100;
 const MAX_PAGE_SIZE = 20;
@@ -112,7 +114,7 @@ function toPublicProduct(record) {
     sellerName: record.sellerName,
     sellerAvatar: record.sellerAvatar,
     sellerVerified: record.sellerVerified === true,
-    status: 'available',
+    status: record.status,
     tags: record.tags,
     viewCount: normalizeCount(record.viewCount),
     favoriteCount: normalizeCount(record.favoriteCount),
@@ -143,7 +145,7 @@ async function publicProfile(data) {
   }
   const countResult = await products.where({
     sellerOpenid: user.openid,
-    status: 'available'
+    status: command.in(PUBLIC_PRODUCT_STATUSES)
   }).count();
   return success({
     profile: {
@@ -172,7 +174,7 @@ async function publicProducts(data) {
   const offset = (page - 1) * pageSize;
   const condition = {
     sellerOpenid: user.openid,
-    status: 'available'
+    status: command.in(PUBLIC_PRODUCT_STATUSES)
   };
   const countResult = await products.where(condition).count();
   const total = normalizeCount(countResult.total);

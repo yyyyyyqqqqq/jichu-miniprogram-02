@@ -26,6 +26,7 @@ Page({
     this.isPageActive = true;
     this.requestVersion = 0;
     this.lastFavoritesVersion = AppStore.getFavoritesVersion();
+    this.lastProductsVersion = AppStore.getProductsVersion();
     this.unsubscribeAuth = AuthStore.subscribe((state) => {
       if (!this.isPageActive) {
         return;
@@ -52,12 +53,17 @@ Page({
       return;
     }
     const version = AppStore.getFavoritesVersion();
+    const productsVersion = AppStore.getProductsVersion();
     if (
-      version !== this.lastFavoritesVersion
+      (
+        version !== this.lastFavoritesVersion
+        || productsVersion !== this.lastProductsVersion
+      )
       && !this.data.isLoadingMore
       && !this.data.removingProductId
     ) {
       this.lastFavoritesVersion = version;
+      this.lastProductsVersion = productsVersion;
       this.loadFavorites({ reset: true });
     }
   },

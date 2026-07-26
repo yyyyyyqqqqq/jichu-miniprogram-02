@@ -11,7 +11,10 @@
     "pages/my-products/index",
     "pages/chat/index",
     "pages/user-profile/index",
-    "pages/location-picker/index"
+    "pages/location-picker/index",
+    "pages/appointment-create/index",
+    "pages/appointment-detail/index",
+    "pages/appointments/index"
   ],
   "window": {
     "navigationBarTitleText": "即出",
