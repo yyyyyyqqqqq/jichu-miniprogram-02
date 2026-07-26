@@ -58,6 +58,7 @@ const CLOUD_CONFIG = {
   appointmentActionTimeoutMs: 15000,
   productImageValidationTimeoutMs: 5000,
   productUploadTimeoutMs: 30000,
+  productVideoUploadTimeoutMs: 120000,
   userCacheKey: 'auth:user-summary'
 };
 

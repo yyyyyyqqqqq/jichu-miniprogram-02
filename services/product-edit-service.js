@@ -30,9 +30,10 @@ const ERROR_MESSAGES = {
   PRODUCT_VERSION_CONFLICT: '商品信息已在其他页面发生变化，请刷新后重新编辑',
   INVALID_PRODUCT_FIELD: '商品信息不完整或格式不正确',
   INVALID_IMAGE_LIST: '请保留至少一张且最多六张有效商品图片',
+  INVALID_VIDEO: '商品视频信息不正确',
   UPDATE_FAILED: '商品更新失败，请稍后重试',
   DELETE_FAILED: '商品删除失败，请稍后重试',
-  IMAGE_CLEANUP_PARTIAL_FAILED: '商品已更新，部分旧图片正在清理，不影响正常使用',
+  IMAGE_CLEANUP_PARTIAL_FAILED: '商品已更新，部分旧媒体正在清理，不影响正常使用',
   DATABASE_ERROR: '商品数据暂不可用，请稍后重试',
   INTERNAL_ERROR: '商品编辑服务暂不可用',
   INVALID_RESPONSE: '商品编辑服务返回异常',
@@ -46,6 +47,7 @@ class ProductEditError extends Error {
     this.name = 'ProductEditError';
     this.code = code || 'UNKNOWN_ERROR';
     this.uploadedFileIds = [];
+    this.uploadedVideoFileId = '';
     this.outcomeUnknown = false;
   }
 }
@@ -73,6 +75,40 @@ function createMutationId() {
   return `mut_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 14)}`;
 }
 
+function normalizeEditableVideo(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const fileID = typeof value.fileID === 'string' && value.fileID.startsWith('cloud://')
+    ? value.fileID
+    : '';
+  const duration = Number(value.duration);
+  const size = Number(value.size);
+  const width = Number(value.width);
+  const height = Number(value.height);
+  if (
+    !fileID
+    || !Number.isFinite(duration)
+    || duration <= 0
+    || duration > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DURATION
+    || !Number.isFinite(size)
+    || size <= 0
+    || size > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_SIZE
+  ) {
+    return null;
+  }
+  return {
+    fileID,
+    posterFileID: typeof value.posterFileID === 'string'
+      ? value.posterFileID
+      : '',
+    duration,
+    width: Number.isFinite(width) && width >= 0 ? width : 0,
+    height: Number.isFinite(height) && height >= 0 ? height : 0,
+    size
+  };
+}
+
 function mapTransportError(error) {
   if (error instanceof ProductEditError) {
     return error;
@@ -82,6 +118,9 @@ function mapTransportError(error) {
     mapped.uploadedFileIds = Array.isArray(error.uploadedFileIds)
       ? error.uploadedFileIds.slice()
       : [];
+    mapped.uploadedVideoFileId = typeof error.uploadedVideoFileId === 'string'
+      ? error.uploadedVideoFileId
+      : '';
     return mapped;
   }
 
@@ -200,6 +239,7 @@ async function getEditableProduct(productId) {
         : '',
       location: typeof product.location === 'string' ? product.location : '',
       images: product.images.slice(),
+      video: normalizeEditableVideo(product.video),
       status: product.status
     },
     version
@@ -245,6 +285,24 @@ async function updateProduct(options = {}) {
   );
   let uploadedFileIds = pendingFileIds;
   let uploadedThisAttempt = [];
+  const existingVideo = options.existingVideo
+    ? ProductPublishService.normalizeCloudVideo(options.existingVideo, userId)
+    : null;
+  if (options.existingVideo && !existingVideo) {
+    throw createError('INVALID_VIDEO');
+  }
+  const localVideo = ProductPublishService.validateLocalVideo(options.localVideo);
+  if (existingVideo && localVideo) {
+    throw createError('INVALID_VIDEO');
+  }
+  const pendingVideo = localVideo && options.pendingVideoFileId
+    ? ProductPublishService.normalizeCloudVideo(Object.assign({}, localVideo, {
+      fileID: options.pendingVideoFileId,
+      posterFileID: ''
+    }), userId)
+    : null;
+  let finalVideo = existingVideo;
+  let uploadedVideoThisAttempt = '';
 
   try {
     if (uploadedFileIds.length === 0 && localImages.length > 0) {
@@ -255,6 +313,20 @@ async function updateProduct(options = {}) {
         onProgress: options.onProgress
       });
       uploadedThisAttempt = uploadedFileIds.slice();
+    }
+
+    if (localVideo) {
+      if (pendingVideo) {
+        finalVideo = pendingVideo;
+      } else {
+        finalVideo = await ProductPublishService.uploadLocalVideo({
+          localVideo,
+          userId,
+          shouldContinue: options.shouldContinue,
+          onProgress: options.onProgress
+        });
+        uploadedVideoThisAttempt = finalVideo.fileID;
+      }
     }
 
     const finalImages = [];
@@ -277,7 +349,8 @@ async function updateProduct(options = {}) {
       expectedVersion,
       mutationId,
       product: Object.assign({}, normalized, {
-        images: finalImages
+        images: finalImages,
+        video: finalVideo
       })
     });
     const version = normalizeVersion(data.version);
@@ -300,14 +373,17 @@ async function updateProduct(options = {}) {
       uploadedThisAttempt = normalizedError.uploadedFileIds.slice();
       uploadedFileIds = uploadedThisAttempt.slice();
     }
-    if (
-      uploadedFileIds.length > 0
-      && AMBIGUOUS_ERROR_CODES.has(normalizedError.code)
-    ) {
+    if (AMBIGUOUS_ERROR_CODES.has(normalizedError.code)) {
       normalizedError.uploadedFileIds = uploadedFileIds.slice();
+      normalizedError.uploadedVideoFileId = finalVideo && localVideo
+        ? finalVideo.fileID
+        : '';
       normalizedError.outcomeUnknown = true;
-    } else if (uploadedThisAttempt.length > 0) {
-      await ProductPublishService.deleteCloudFiles(uploadedThisAttempt, userId);
+    } else if (uploadedThisAttempt.length > 0 || uploadedVideoThisAttempt) {
+      await ProductPublishService.deleteCloudFiles(
+        uploadedThisAttempt.concat(uploadedVideoThisAttempt || []),
+        userId
+      );
     }
     throw normalizedError;
   }

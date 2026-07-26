@@ -11,6 +11,9 @@ const {
   formatPublishedTime,
   formatCount
 } = require('../utils/format');
+const {
+  PRODUCT_PUBLISH_LIMITS
+} = require('../constants/product-publish');
 
 const DEFAULT_PAGE_SIZE = 6;
 const MAX_PAGE_SIZE = 20;
@@ -101,7 +104,53 @@ function normalizeStringArray(value) {
 
   return value
     .filter((item) => typeof item === 'string' && item.trim())
-    .map((item) => item.trim());
+    .map((item) => item.trim())
+    .filter((item, index, list) => list.indexOf(item) === index);
+}
+
+function normalizeProductImages(record) {
+  const images = normalizeStringArray(record.images);
+  if (images.length > 0) {
+    return images;
+  }
+  const legacyImages = normalizeStringArray(record.imageUrls);
+  if (legacyImages.length > 0) {
+    return legacyImages;
+  }
+  const fallback = normalizeString(
+    record.coverImage || record.coverUrl || record.image
+  );
+  return fallback ? [fallback] : [];
+}
+
+function normalizeProductVideo(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const fileID = normalizeString(value.fileID);
+  const duration = Number(value.duration);
+  const size = Number(value.size);
+  if (
+    !fileID.startsWith('cloud://')
+    || !Number.isFinite(duration)
+    || duration <= 0
+    || duration > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DURATION
+    || !Number.isFinite(size)
+    || size <= 0
+    || size > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_SIZE
+    || normalizeNumber(value.width) > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DIMENSION
+    || normalizeNumber(value.height) > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DIMENSION
+  ) {
+    return null;
+  }
+  return {
+    fileID,
+    posterFileID: normalizeString(value.posterFileID),
+    duration: Math.ceil(duration),
+    width: normalizeNumber(value.width),
+    height: normalizeNumber(value.height),
+    size
+  };
 }
 
 function normalizeNumber(value, fallback = 0) {
@@ -188,8 +237,9 @@ function normalizeProduct(record) {
   const priceText = formatPrice(price);
   const originalPrice = normalizeNullablePrice(record.originalPrice);
   const hasOriginalPrice = originalPrice !== null && originalPrice > price;
-  const images = normalizeStringArray(record.images);
-  const coverImage = normalizeString(record.coverImage, images[0] || '');
+  const images = normalizeProductImages(record);
+  const coverImage = images[0] || normalizeString(record.coverImage);
+  const video = normalizeProductVideo(record.video);
   const categoryId = normalizeString(record.categoryId, 'other');
   const status = normalizeStatus(record.status);
   const statusMeta = PRODUCT_STATUS_META[status]
@@ -217,6 +267,7 @@ function normalizeProduct(record) {
     condition: normalizeString(record.condition, '成色未填写'),
     images,
     coverImage,
+    video,
     coverLabel: buildCoverLabel(title, record.coverLabel),
     coverTone: normalizeString(record.coverTone, CATEGORY_TONES[categoryId] || 'mint'),
     tags,

@@ -34,6 +34,7 @@
               data-index="{{index}}"
               bindtap="onPreviewImage"
             />
+            <text wx:if="{{index === 0}}" class="cover-image-badge">封面</text>
             <view
               wx:if="{{!isSubmitting && !outcomeUnknown}}"
               class="remove-image"
@@ -54,6 +55,46 @@
             <text>添加图片</text>
           </button>
         </view>
+      </view>
+
+      <view class="form-section">
+        <view class="section-heading">
+          <text class="section-title">商品视频（可选）</text>
+          <text class="section-meta">{{video ? '1 / 1' : '0 / 1'}}</text>
+        </view>
+        <view class="section-tip">
+          最多 1 个，时长不超过 {{maxVideoDuration}} 秒、大小不超过 {{maxVideoSizeMb}}MB
+        </view>
+
+        <view wx:if="{{video}}" class="video-editor">
+          <video
+            id="publish-video-preview"
+            class="selected-video"
+            src="{{video.previewUrl}}"
+            controls
+            autoplay="{{false}}"
+            loop="{{false}}"
+            object-fit="contain"
+            show-center-play-btn
+          />
+          <cover-view class="video-duration">{{video.durationText}}</cover-view>
+          <cover-view
+            wx:if="{{!isSubmitting && !outcomeUnknown}}"
+            class="remove-video"
+            catchtap="onRemoveVideo"
+          >
+            删除视频
+          </cover-view>
+        </view>
+        <button
+          wx:else
+          class="choose-video"
+          disabled="{{isSubmitting || outcomeUnknown}}"
+          bindtap="onChooseVideo"
+        >
+          <text class="choose-video__icon">▶</text>
+          <text>添加演示视频</text>
+        </button>
       </view>
 
       <view class="form-section">

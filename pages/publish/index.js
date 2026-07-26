@@ -27,7 +27,10 @@ Page({
     condition: '',
     location: '',
     images: [],
+    video: null,
     maxImages: PRODUCT_PUBLISH_LIMITS.MAX_IMAGES,
+    maxVideoSizeMb: PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_SIZE / (1024 * 1024),
+    maxVideoDuration: PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DURATION,
     isSubmitting: false,
     submitStage: '',
     outcomeUnknown: false
@@ -37,6 +40,7 @@ Page({
     this.isPageActive = true;
     this.submissionId = ProductPublishService.createSubmissionId();
     this.pendingFileIds = [];
+    this.pendingVideoFileId = '';
     this.unsubscribeAuth = AuthStore.subscribe((state) => {
       if (!this.isPageActive) {
         return;
@@ -64,6 +68,7 @@ Page({
 
   onUnload() {
     this.isPageActive = false;
+    this.pauseSelectedVideo();
     this.closeSubmissionLoading();
     if (this.successTimer) {
       clearTimeout(this.successTimer);
@@ -73,6 +78,10 @@ Page({
       this.unsubscribeAuth();
       this.unsubscribeAuth = null;
     }
+  },
+
+  onHide() {
+    this.pauseSelectedVideo();
   },
 
   isFormLocked() {
@@ -200,6 +209,60 @@ Page({
     });
   },
 
+  async onChooseVideo() {
+    if (this.isFormLocked()) {
+      return;
+    }
+    try {
+      const result = await ProductFormService.chooseVideo();
+      if (!this.isPageActive) {
+        return;
+      }
+      if (!result.video) {
+        const messages = {
+          VIDEO_TOO_LARGE: `视频不能超过 ${this.data.maxVideoSizeMb}MB`,
+          VIDEO_DURATION_INVALID: `视频时长不能超过 ${this.data.maxVideoDuration} 秒`,
+          VIDEO_INVALID: '请选择有效的视频文件'
+        };
+        wx.showToast({
+          title: messages[result.errorCode] || '视频选择失败，请重试',
+          icon: 'none'
+        });
+        return;
+      }
+      this.pauseSelectedVideo();
+      this.setData({ video: result.video });
+    } catch (error) {
+      const message = error && typeof error.errMsg === 'string'
+        ? error.errMsg.toLowerCase()
+        : '';
+      if (!message.includes('cancel') && this.isPageActive) {
+        wx.showToast({
+          title: '视频选择失败，请重试',
+          icon: 'none'
+        });
+      }
+    }
+  },
+
+  onRemoveVideo() {
+    if (this.isFormLocked()) {
+      return;
+    }
+    this.pauseSelectedVideo();
+    this.setData({ video: null });
+  },
+
+  pauseSelectedVideo() {
+    if (typeof wx === 'undefined' || typeof wx.createVideoContext !== 'function') {
+      return;
+    }
+    const context = wx.createVideoContext('publish-video-preview', this);
+    if (context && typeof context.pause === 'function') {
+      context.pause();
+    }
+  },
+
   buildDraft() {
     return ProductFormService.buildDraft(this.data);
   },
@@ -226,6 +289,7 @@ Page({
   resetForm() {
     this.submissionId = ProductPublishService.createSubmissionId();
     this.pendingFileIds = [];
+    this.pendingVideoFileId = '';
     this.setData({
       title: '',
       description: '',
@@ -235,6 +299,7 @@ Page({
       condition: '',
       location: '',
       images: [],
+      video: null,
       submitStage: '',
       outcomeUnknown: false
     });
@@ -255,7 +320,8 @@ Page({
     try {
       ProductPublishService.validateProductDraft(
         this.buildDraft(),
-        this.data.images
+        this.data.images,
+        this.data.video
       );
     } catch (error) {
       wx.showToast({
@@ -278,9 +344,9 @@ Page({
     let requiresLogin = false;
     this.setData({
       isSubmitting: true,
-      submitStage: this.pendingFileIds.length > 0
+      submitStage: this.pendingFileIds.length > 0 || this.pendingVideoFileId
         ? '正在确认发布结果'
-        : '正在上传商品图片'
+        : '正在上传商品媒体'
     });
     this.showSubmissionLoading();
 
@@ -288,9 +354,11 @@ Page({
       const result = await ProductPublishService.publishProduct({
         draft: this.buildDraft(),
         localImages: this.data.images,
+        localVideo: this.data.video,
         userId: user.id,
         requestId: this.submissionId,
         pendingFileIds: this.pendingFileIds,
+        pendingVideoFileId: this.pendingVideoFileId,
         shouldContinue: () => this.isPageActive,
         onProgress: (progress) => {
           if (!this.isPageActive) {
@@ -299,7 +367,9 @@ Page({
           this.setData({
             submitStage: progress.stage === 'saving'
               ? '正在保存商品'
-              : `正在上传图片 ${progress.completed + 1}/${progress.total}`
+              : (progress.stage === 'uploadingVideo'
+                ? '正在上传商品视频'
+                : `正在上传图片 ${progress.completed + 1}/${progress.total}`)
           });
         }
       });
@@ -315,12 +385,16 @@ Page({
 
       if (Array.isArray(error.uploadedFileIds) && error.uploadedFileIds.length > 0) {
         this.pendingFileIds = error.uploadedFileIds.slice();
+        this.pendingVideoFileId = typeof error.uploadedVideoFileId === 'string'
+          ? error.uploadedVideoFileId
+          : '';
         this.setData({
           outcomeUnknown: true,
           submitStage: '发布结果待确认，请点击按钮重试'
         });
       } else {
         this.pendingFileIds = [];
+        this.pendingVideoFileId = '';
         this.setData({ submitStage: '' });
       }
 

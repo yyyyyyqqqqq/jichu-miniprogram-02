@@ -33,6 +33,9 @@ function isDevelopmentEnvironment() {
 Page({
   data: {
     product: null,
+    mediaImages: [],
+    currentImageIndex: 0,
+    videoLoadFailed: false,
     productId: '',
     viewState: 'loading',
     showErrorState: false,
@@ -73,8 +76,13 @@ Page({
     }
   },
 
+  onHide() {
+    this.pauseProductVideo();
+  },
+
   onUnload() {
     this.isPageActive = false;
+    this.pauseProductVideo();
     this.requestVersion += 1;
   },
 
@@ -90,6 +98,9 @@ Page({
   showInvalidParameter() {
     this.setData({
       product: null,
+      mediaImages: [],
+      currentImageIndex: 0,
+      videoLoadFailed: false,
       viewState: 'invalid',
       showErrorState: true,
       canRetry: false,
@@ -133,8 +144,16 @@ Page({
         return;
       }
 
+      const mediaImages = product.images.map((url, index) => ({
+        key: `product-image-${index}-${url}`,
+        url,
+        failed: false
+      }));
       this.setData({
         product,
+        mediaImages,
+        currentImageIndex: 0,
+        videoLoadFailed: false,
         viewState: 'success',
         showErrorState: false,
         canRetry: false
@@ -156,6 +175,69 @@ Page({
           : '商品服务暂不可用，请稍后重试',
         errorActionText: '重新加载'
       });
+    }
+  },
+
+  onImageSwiperChange(event) {
+    const current = Number(event && event.detail && event.detail.current);
+    if (
+      Number.isInteger(current)
+      && current >= 0
+      && current < this.data.mediaImages.length
+      && current !== this.data.currentImageIndex
+    ) {
+      this.setData({ currentImageIndex: current });
+    }
+  },
+
+  onProductImageError(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    if (!Number.isInteger(index) || !this.data.mediaImages[index]) {
+      return;
+    }
+    this.setData({
+      [`mediaImages[${index}].failed`]: true
+    });
+  },
+
+  onPreviewProductImage(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const selected = this.data.mediaImages[index];
+    if (!Number.isInteger(index) || !selected || selected.failed) {
+      return;
+    }
+    const urls = this.data.mediaImages
+      .filter((item) => item && !item.failed && typeof item.url === 'string' && item.url.trim())
+      .map((item) => item.url.trim());
+    if (urls.length === 0 || !urls.includes(selected.url)) {
+      return;
+    }
+    wx.previewImage({
+      current: selected.url,
+      urls,
+      fail: () => {
+        if (this.isPageActive) {
+          wx.showToast({
+            title: '图片预览失败，请重试',
+            icon: 'none'
+          });
+        }
+      }
+    });
+  },
+
+  onProductVideoError() {
+    this.pauseProductVideo();
+    this.setData({ videoLoadFailed: true });
+  },
+
+  pauseProductVideo() {
+    if (typeof wx === 'undefined' || typeof wx.createVideoContext !== 'function') {
+      return;
+    }
+    const context = wx.createVideoContext('product-demo-video', this);
+    if (context && typeof context.pause === 'function') {
+      context.pause();
     }
   },
 

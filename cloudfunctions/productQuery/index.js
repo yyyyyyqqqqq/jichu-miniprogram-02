@@ -30,6 +30,9 @@ const MAX_PAGE_SIZE = 20;
 const MAX_PAGE = 100;
 const MAX_KEYWORD_LENGTH = 40;
 const MAX_SEARCH_TOKENS = 5;
+const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
+const MAX_VIDEO_DURATION = 60;
+const MAX_VIDEO_DIMENSION = 16384;
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 
 const ERROR_CODES = {
@@ -179,8 +182,80 @@ function applySort(query, sortBy) {
     .orderBy('_id', 'asc');
 }
 
-function toPublicProduct(record) {
+function normalizeMediaStrings(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item, index, list) => (
+    typeof item === 'string'
+    && item.trim()
+    && list.indexOf(item) === index
+  )).map((item) => item.trim());
+}
+
+function getProductImages(record) {
+  const images = normalizeMediaStrings(record.images);
+  if (images.length > 0) {
+    return images;
+  }
+  const legacyArrays = normalizeMediaStrings(record.imageUrls);
+  if (legacyArrays.length > 0) {
+    return legacyArrays;
+  }
+  const fallback = [record.coverImage, record.coverUrl, record.image].find(
+    (value) => typeof value === 'string' && value.trim()
+  );
+  return fallback ? [fallback.trim()] : [];
+}
+
+function getProductCover(record) {
+  const images = getProductImages(record);
+  return images[0] || '';
+}
+
+function normalizeProductVideo(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const fileID = typeof value.fileID === 'string' && value.fileID.startsWith('cloud://')
+    ? value.fileID
+    : '';
+  const duration = Number(value.duration);
+  const size = Number(value.size);
+  const width = Number(value.width);
+  const height = Number(value.height);
+  if (
+    !fileID
+    || !Number.isFinite(duration)
+    || duration <= 0
+    || duration > MAX_VIDEO_DURATION
+    || !Number.isFinite(size)
+    || size <= 0
+    || size > MAX_VIDEO_SIZE
+    || !Number.isFinite(width)
+    || width < 0
+    || width > MAX_VIDEO_DIMENSION
+    || !Number.isFinite(height)
+    || height < 0
+    || height > MAX_VIDEO_DIMENSION
+  ) {
+    return null;
+  }
   return {
+    fileID,
+    posterFileID: typeof value.posterFileID === 'string'
+      && value.posterFileID.startsWith('cloud://')
+      ? value.posterFileID
+      : '',
+    duration,
+    width,
+    height,
+    size
+  };
+}
+
+function toPublicProduct(record, includeMedia = false) {
+  const product = {
     _id: String(record._id || ''),
     title: record.title,
     description: record.description,
@@ -189,8 +264,7 @@ function toPublicProduct(record) {
     categoryId: record.categoryId,
     categoryName: record.categoryName,
     condition: record.condition,
-    images: record.images,
-    coverImage: record.coverImage,
+    coverImage: getProductCover(record),
     coverLabel: record.coverLabel,
     coverTone: record.coverTone,
     location: record.location,
@@ -207,6 +281,11 @@ function toPublicProduct(record) {
     createdAt: record.createdAt,
     updatedAt: record.updatedAt
   };
+  if (includeMedia) {
+    product.images = getProductImages(record);
+    product.video = normalizeProductVideo(record.video);
+  }
+  return product;
 }
 
 function normalizeNonNegativeInteger(value) {
@@ -261,7 +340,7 @@ async function listProducts(data) {
   const query = applySort(products.where(condition), sortBy);
   const result = await query.skip(offset).limit(pageSize).get();
   const list = Array.isArray(result.data)
-    ? result.data.map(toPublicProduct)
+    ? result.data.map((record) => toPublicProduct(record))
     : [];
 
   return success({
@@ -293,7 +372,7 @@ async function getProductDetail(data) {
   }
 
   return success({
-    product: toPublicProduct(product)
+    product: toPublicProduct(product, true)
   });
 }
 

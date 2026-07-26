@@ -24,17 +24,72 @@
 
   <block wx:elif="{{viewState === 'success' && product}}">
     <view class="detail-cover detail-cover--{{product.coverTone}}">
-      <image
-        wx:if="{{product.coverImage}}"
-        class="detail-image"
-        src="{{product.coverImage}}"
-        mode="aspectFill"
-      />
-      <text wx:else class="detail-cover-label">{{product.coverLabel}}</text>
+      <swiper
+        wx:if="{{mediaImages.length > 0}}"
+        class="detail-swiper"
+        current="{{currentImageIndex}}"
+        circular="{{mediaImages.length > 1}}"
+        duration="260"
+        bindchange="onImageSwiperChange"
+      >
+        <swiper-item
+          wx:for="{{mediaImages}}"
+          wx:key="key"
+          class="detail-slide"
+        >
+          <image
+            wx:if="{{!item.failed}}"
+            class="detail-image"
+            src="{{item.url}}"
+            mode="aspectFill"
+            data-index="{{index}}"
+            bindtap="onPreviewProductImage"
+            binderror="onProductImageError"
+          />
+          <view wx:else class="detail-image-fallback">
+            <text class="detail-cover-label">{{product.coverLabel}}</text>
+            <text class="detail-image-fallback__text">图片暂时无法加载</text>
+          </view>
+        </swiper-item>
+      </swiper>
+      <view wx:else class="detail-image-fallback">
+        <text class="detail-cover-label">{{product.coverLabel}}</text>
+        <text class="detail-image-fallback__text">卖家暂未提供有效图片</text>
+      </view>
+      <text wx:if="{{mediaImages.length > 0}}" class="detail-page-indicator">
+        {{currentImageIndex + 1}} / {{mediaImages.length}}
+      </text>
       <text class="detail-status detail-status--{{product.statusClass}}">
         {{product.statusText}}
       </text>
       <text class="detail-condition">{{product.condition}}</text>
+    </view>
+
+    <view wx:if="{{product.video}}" class="surface-card detail-video-card">
+      <view class="detail-video-heading">
+        <view>
+          <view class="section-title">商品演示视频</view>
+          <view class="detail-video-tip">点击播放，默认不会自动播放</view>
+        </view>
+        <text class="detail-video-duration">{{product.video.duration}} 秒</text>
+      </view>
+      <video
+        wx:if="{{!videoLoadFailed}}"
+        id="product-demo-video"
+        class="detail-video"
+        src="{{product.video.fileID}}"
+        poster="{{product.video.posterFileID}}"
+        controls
+        autoplay="{{false}}"
+        loop="{{false}}"
+        object-fit="contain"
+        show-center-play-btn
+        enable-progress-gesture
+        binderror="onProductVideoError"
+      />
+      <view wx:else class="detail-video-error">
+        视频暂时无法播放，不影响查看商品图片和文字信息
+      </view>
     </view>
 
     <view wx:if="{{product.isReserved}}" class="status-notice status-notice--reserved">

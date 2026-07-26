@@ -203,8 +203,11 @@ function toFavoriteProduct(record, favoritedAt) {
     categoryId: record.categoryId,
     categoryName: record.categoryName,
     condition: record.condition,
-    images: record.images,
-    coverImage: record.coverImage,
+    coverImage: record.coverImage
+      || (Array.isArray(record.images) && record.images[0])
+      || record.coverUrl
+      || record.image
+      || '',
     coverLabel: record.coverLabel,
     coverTone: record.coverTone,
     location: record.location,

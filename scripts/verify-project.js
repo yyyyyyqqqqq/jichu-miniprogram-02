@@ -1335,6 +1335,53 @@ async function verifyServiceFlow() {
     assert(detail && detail.id === 'product-001', 'detail lookup failed');
     assert(detail.priceDisplay === '¥129', 'detail price display is incorrect');
 
+    const legacySingleImage = ProductService.normalizeProduct({
+      _id: 'legacy-single-image',
+      title: '旧单图商品',
+      coverUrl: 'cloud://test-env.bucket/products/u_owner/20260718/legacy.jpg',
+      price: 10,
+      status: 'available'
+    });
+    assert(
+      legacySingleImage.images.length === 1
+      && legacySingleImage.coverImage === legacySingleImage.images[0]
+      && legacySingleImage.video === null,
+      'ProductService does not normalize an old single-image product without video'
+    );
+    const multiMediaProduct = ProductService.normalizeProduct({
+      _id: 'multi-media-product',
+      title: '多媒体商品',
+      images: [
+        'cloud://test-env.bucket/products/u_owner/20260718/one.jpg',
+        'cloud://test-env.bucket/products/u_owner/20260718/two.jpg'
+      ],
+      coverImage: 'cloud://test-env.bucket/products/u_owner/20260718/one.jpg',
+      video: {
+        fileID: 'cloud://test-env.bucket/products/u_owner/20260718/demo.mp4',
+        duration: 12,
+        width: 1080,
+        height: 1920,
+        size: 1024
+      },
+      price: 10,
+      status: 'available'
+    });
+    assert(
+      multiMediaProduct.images.length === 2
+      && multiMediaProduct.video
+      && multiMediaProduct.video.fileID.endsWith('/demo.mp4'),
+      'ProductService dropped valid multi-image or video detail media'
+    );
+    const invalidVideoProduct = ProductService.normalizeProduct({
+      _id: 'invalid-video-product',
+      title: '异常视频商品',
+      images: ['cloud://test-env.bucket/products/u_owner/20260718/one.jpg'],
+      video: [{ fileID: 'cloud://invalid/video.mp4' }],
+      price: 10,
+      status: 'available'
+    });
+    assert(invalidVideoProduct.video === null, 'invalid product video does not degrade safely');
+
     const reservedDetail = await ProductService.getProductById('product-005');
     assert(reservedDetail && reservedDetail.isReserved, 'reserved detail is unavailable');
 
@@ -1371,8 +1418,19 @@ async function verifyProductQueryFunctionFlow() {
       categoryId: 'life',
       categoryName: '生活',
       condition: '九成新',
-      images: ['cloud://test-env.bucket/products/u_owner/20260717/public.jpg'],
+      images: [
+        'cloud://test-env.bucket/products/u_owner/20260717/public.jpg',
+        'cloud://test-env.bucket/products/u_owner/20260717/public-2.jpg'
+      ],
       coverImage: 'cloud://test-env.bucket/products/u_owner/20260717/public.jpg',
+      video: {
+        fileID: 'cloud://test-env.bucket/products/u_owner/20260717/public.mp4',
+        posterFileID: '',
+        duration: 12,
+        width: 1080,
+        height: 1920,
+        size: 2048
+      },
       coverLabel: '公开',
       coverTone: 'sand',
       location: '图书馆南门',
@@ -1609,6 +1667,14 @@ async function verifyProductQueryFunctionFlow() {
       'productQuery list leaked sellerOpenid'
     );
     assert(
+      listResult.data.list.every((product) => (
+        !Object.prototype.hasOwnProperty.call(product, 'images')
+        && !Object.prototype.hasOwnProperty.call(product, 'video')
+        && typeof product.coverImage === 'string'
+      )),
+      'productQuery list returns full media instead of the cover-only DTO'
+    );
+    assert(
       !listResult.data.list.some((product) => product.status === 'sold'),
       'productQuery public list still includes sold products'
     );
@@ -1622,6 +1688,18 @@ async function verifyProductQueryFunctionFlow() {
     assert(
       soldDetail.success === true && soldDetail.data.product.status === 'sold',
       'productQuery no longer exposes sold product detail'
+    );
+    const publicDetail = await productQueryFunction.main({
+      action: 'detail',
+      data: {
+        productId: 'product-public'
+      }
+    });
+    assert(
+      publicDetail.success === true
+      && publicDetail.data.product.images.length === 2
+      && publicDetail.data.product.video.fileID.endsWith('/public.mp4'),
+      'productQuery detail does not return the complete valid media DTO'
     );
     const reservedDetail = await productQueryFunction.main({
       action: 'detail',
@@ -1993,6 +2071,14 @@ async function verifyProductEditServiceFlow() {
       size: 1024,
       fileType: 'image'
     };
+    const localVideo = {
+      tempFilePath: '<TEMP_ROOT>\\edit-demo.mp4',
+      size: 2048,
+      duration: 12,
+      width: 1080,
+      height: 1920,
+      fileType: 'video'
+    };
     const updated = await ProductEditService.updateProduct({
       productId: 'product-edit-service',
       expectedVersion: 1,
@@ -2000,10 +2086,11 @@ async function verifyProductEditServiceFlow() {
       draft,
       existingFileIDs: [existingImage],
       localImages: [localImage],
+      localVideo,
       userId: 'u_owner'
     });
     assert(
-      updated.version === 2 && uploadedFileIDs.length === 1,
+      updated.version === 2 && uploadedFileIDs.length === 2,
       'product-edit service did not upload and update the product'
     );
     const updateRequest = requests.find((request) => (
@@ -2013,8 +2100,9 @@ async function verifyProductEditServiceFlow() {
       updateRequest
       && updateRequest.name === 'manageProduct'
       && updateRequest.data.product.images.length === 2
-      && updateRequest.data.product.images[0] === existingImage,
-      'product-edit service did not preserve ordered final images'
+      && updateRequest.data.product.images[0] === existingImage
+      && updateRequest.data.product.video.fileID.endsWith('.mp4'),
+      'product-edit service did not preserve ordered images and upload the video'
     );
     assert(
       !/sellerOpenid|ownerOpenid|\bopenid\b|filesToDelete/i.test(
@@ -2037,6 +2125,7 @@ async function verifyProductEditServiceFlow() {
         draft,
         existingFileIDs: [existingImage],
         localImages: [localImage],
+        localVideo,
         userId: 'u_owner'
       });
     } catch (error) {
@@ -2064,6 +2153,7 @@ async function verifyProductEditServiceFlow() {
         draft,
         existingFileIDs: [],
         localImages: [localImage],
+        localVideo,
         userId: 'u_owner'
       });
     } catch (error) {
@@ -2073,7 +2163,8 @@ async function verifyProductEditServiceFlow() {
       timeoutError
       && timeoutError.code === 'TIMEOUT'
       && timeoutError.outcomeUnknown === true
-      && timeoutError.uploadedFileIds.length === 1,
+      && timeoutError.uploadedFileIds.length === 1
+      && timeoutError.uploadedVideoFileId.endsWith('.mp4'),
       'product-edit service did not preserve an ambiguous update for retry'
     );
     assert(
@@ -2115,6 +2206,8 @@ async function verifyManageProductFunctionFlow() {
   const ownerImageA = 'cloud://test-env.bucket/products/u_owner/20260718/a.jpg';
   const ownerImageB = 'cloud://test-env.bucket/products/u_owner/20260718/b.jpg';
   const ownerImageC = 'cloud://test-env.bucket/products/u_owner/20260718/c.jpg';
+  const ownerVideoOld = 'cloud://test-env.bucket/products/u_owner/20260718/demo-old.mp4';
+  const ownerVideoNew = 'cloud://test-env.bucket/products/u_owner/20260718/demo-new.mp4';
   const cleanupImageA = 'cloud://test-env.bucket/products/u_owner/20260718/cleanup-a.jpg';
   const cleanupImageB = 'cloud://test-env.bucket/products/u_owner/20260718/cleanup-b.jpg';
   const sharedImage = 'cloud://test-env.bucket/products/u_owner/20260718/shared.jpg';
@@ -2142,6 +2235,14 @@ async function verifyManageProductFunctionFlow() {
       location: '图书馆南门',
       images: [ownerImageA, ownerImageB],
       coverImage: ownerImageA,
+      video: {
+        fileID: ownerVideoOld,
+        posterFileID: '',
+        duration: 10,
+        width: 1080,
+        height: 1920,
+        size: 2048
+      },
       createdAt: { original: true }
     }],
     ['product-cleanup', {
@@ -2233,11 +2334,15 @@ async function verifyManageProductFunctionFlow() {
 
   function matches(record, condition) {
     return Object.entries(condition).every(([key, value]) => {
+      const actual = key.split('.').reduce(
+        (result, segment) => result && result[segment],
+        record
+      );
       if (value && Array.isArray(value.$all)) {
-        return Array.isArray(record[key])
-          && value.$all.every((item) => record[key].includes(item));
+        return Array.isArray(actual)
+          && value.$all.every((item) => actual.includes(item));
       }
-      return record[key] === value;
+      return actual === value;
     });
   }
 
@@ -2341,7 +2446,11 @@ async function verifyManageProductFunctionFlow() {
       fileList.forEach((fileID) => {
         deletedFileIDs.push(fileID);
         const referencingProduct = [...products.values()].find((product) => (
-          Array.isArray(product.images) && product.images.includes(fileID)
+          (Array.isArray(product.images) && product.images.includes(fileID))
+          || (product.video && [
+            product.video.fileID,
+            product.video.posterFileID
+          ].includes(fileID))
         ));
         deleteStatusSnapshots.push(
           referencingProduct ? referencingProduct.status : 'unreferenced'
@@ -2466,7 +2575,15 @@ async function verifyManageProductFunctionFlow() {
         categoryName: '伪造分类名',
         condition: '八成新',
         location: '实验楼大厅',
-        images: [ownerImageA, ownerImageC]
+        images: [ownerImageA, ownerImageC],
+        video: {
+          fileID: ownerVideoNew,
+          posterFileID: '',
+          duration: 12,
+          width: 1080,
+          height: 1920,
+          size: 4096
+        }
       }
     };
     const updated = await manageProductFunction.main(updateRequest);
@@ -2475,14 +2592,16 @@ async function verifyManageProductFunctionFlow() {
       && updated.data.version === 2
       && products.get('product-edit').title === '更新后的商品标题'
       && products.get('product-edit').categoryName === '数码'
+      && products.get('product-edit').video.fileID === ownerVideoNew
       && products.get('product-edit').status === 'available'
       && products.get('product-edit').sellerOpenid === 'owner-openid'
       && products.get('product-edit').createdAt.original === true,
       'manageProduct did not update only allowed product fields'
     );
     assert(
-      deletedFileIDs.includes(ownerImageB),
-      'manageProduct did not delete a removed unreferenced old image'
+      deletedFileIDs.includes(ownerImageB)
+      && deletedFileIDs.includes(ownerVideoOld),
+      'manageProduct did not delete removed unreferenced image and video files'
     );
 
     const repeatedUpdate = await manageProductFunction.main(updateRequest);
@@ -2641,12 +2760,16 @@ async function verifyManageProductFunctionFlow() {
       'manageProduct did not soft delete the product'
     );
     assert(
+      [ownerImageA, ownerImageC, ownerVideoNew].every(
+        (fileID) => deletedFileIDs.includes(fileID)
+      )
+      &&
       deleteStatusSnapshots
         .filter((status, index) => (
-          [ownerImageA, ownerImageC].includes(deletedFileIDs[index])
+          [ownerImageA, ownerImageC, ownerVideoNew].includes(deletedFileIDs[index])
         ))
         .every((status) => status === 'deleted'),
-      'manageProduct deleted cloud images before database soft delete'
+      'manageProduct deleted cloud media before database soft delete'
     );
 
     const repeatedDelete = await manageProductFunction.main({
@@ -2703,6 +2826,36 @@ async function verifyManageProductFunctionFlow() {
       forbiddenEdit.success === false
       && forbiddenEdit.code === 'PRODUCT_FORBIDDEN',
       'manageProduct returned another owner editable data'
+    );
+
+    const forbiddenMediaUpdate = await manageProductFunction.main({
+      action: 'updateProduct',
+      productId: 'product-foreign',
+      expectedVersion: 1,
+      mutationId: 'mut_foreign_media_001',
+      product: {
+        title: '越权媒体修改',
+        description: '越权媒体修改不应写入商品',
+        price: 20,
+        categoryId: 'life',
+        condition: '九成新',
+        location: '图书馆南门',
+        images: [ownerImageA],
+        video: {
+          fileID: ownerVideoNew,
+          posterFileID: '',
+          duration: 12,
+          width: 1080,
+          height: 1920,
+          size: 4096
+        }
+      }
+    });
+    assert(
+      forbiddenMediaUpdate.success === false
+      && forbiddenMediaUpdate.code === 'PRODUCT_FORBIDDEN'
+      && !products.get('product-foreign').video,
+      'manageProduct allowed a non-owner to replace product media'
     );
 
     const forbiddenDelete = await manageProductFunction.main({
@@ -2837,6 +2990,14 @@ async function verifyPublishServiceFlow() {
       fileType: 'image'
     }
   ];
+  const localVideo = {
+    tempFilePath: '<TEMP_ROOT>\\lamp-demo.mp4',
+    size: 4096,
+    duration: 15,
+    width: 1080,
+    height: 1920,
+    fileType: 'video'
+  };
 
   try {
     let missingImageError;
@@ -2891,21 +3052,41 @@ async function verifyPublishServiceFlow() {
     const normalized = ProductPublishService.validateProductDraft(draft, localImages);
     assert(normalized.title === '校园二手台灯', 'publish validation does not normalize the title');
     assert(normalized.price === 29.9 && typeof normalized.price === 'number', 'publish validation does not produce a numeric price');
+    let oversizedVideoError;
+    try {
+      ProductPublishService.validateProductDraft(
+        draft,
+        localImages,
+        Object.assign({}, localVideo, { size: 51 * 1024 * 1024 })
+      );
+    } catch (error) {
+      oversizedVideoError = error;
+    }
+    assert(
+      oversizedVideoError && oversizedVideoError.code === 'VIDEO_TOO_LARGE',
+      'publish validation accepts an oversized product video'
+    );
 
     const requestId = 'req_verification_0001';
     const result = await ProductPublishService.publishProduct({
       draft,
       localImages,
+      localVideo,
       userId: 'u_test',
       requestId
     });
     assert(result.productId === 'p_verification', 'publish service did not return the product id');
-    assert(uploadedPaths.length === 2, 'publish service did not upload every selected image');
+    assert(uploadedPaths.length === 3, 'publish service did not upload every selected image and video');
     assert(uploadedPaths.every((cloudPath) => cloudPath.startsWith('products/u_test/')), 'publish upload paths are not user-scoped');
     assert(functionRequests.length === 1, 'publish service called createProduct an unexpected number of times');
     assert(functionRequests[0].name === 'createProduct', 'publish service called the wrong cloud function');
     assert(functionRequests[0].data.requestId === requestId, 'publish service dropped the idempotency key');
     assert(functionRequests[0].data.product.price === 29.9, 'publish service sent a non-numeric price');
+    assert(
+      functionRequests[0].data.product.images.length === 2
+      && functionRequests[0].data.product.video.fileID.endsWith('.mp4'),
+      'publish service did not send the complete product media payload'
+    );
     [
       'sellerId',
       'sellerOpenid',
@@ -2920,15 +3101,18 @@ async function verifyPublishServiceFlow() {
 
     functionMode = 'reused';
     const pendingFileIds = functionRequests[0].data.product.images.slice();
+    const pendingVideoFileId = functionRequests[0].data.product.video.fileID;
     const reused = await ProductPublishService.publishProduct({
       draft,
       localImages,
+      localVideo,
       userId: 'u_test',
       requestId,
-      pendingFileIds
+      pendingFileIds,
+      pendingVideoFileId
     });
     assert(reused.reused === true, 'publish retry did not preserve server idempotency');
-    assert(uploadedPaths.length === 2, 'publish retry uploaded the same images again');
+    assert(uploadedPaths.length === 3, 'publish retry uploaded the same media again');
 
     functionMode = 'failure';
     let databaseError;
@@ -2936,6 +3120,7 @@ async function verifyPublishServiceFlow() {
       await ProductPublishService.publishProduct({
         draft,
         localImages: [localImages[0]],
+        localVideo,
         userId: 'u_test',
         requestId: 'req_verification_0002'
       });
@@ -2944,7 +3129,7 @@ async function verifyPublishServiceFlow() {
     }
     assert(databaseError && databaseError.code === 'DATABASE_ERROR', 'publish service did not preserve the business error');
     assert(deletedFileLists.length === 1, 'publish failure did not clean its uploaded image');
-    assert(deletedFileLists[0].length === 1, 'publish cleanup targeted the wrong image count');
+    assert(deletedFileLists[0].length === 2, 'publish cleanup did not include the uploaded image and video');
     const refusedForeignDelete = await ProductPublishService.deleteCloudFiles([
       'cloud://test-env.bucket/products/u_other/20260717/foreign.jpg'
     ], 'u_test');
@@ -3061,6 +3246,14 @@ async function verifyCreateProductFunctionFlow() {
       images: [
         `cloud://test-env.bucket/products/${userId}/20260717/lamp.jpg`
       ],
+      video: {
+        fileID: `cloud://test-env.bucket/products/${userId}/20260717/lamp-demo.mp4`,
+        posterFileID: '',
+        duration: 12,
+        width: 1080,
+        height: 1920,
+        size: 2048
+      },
       sellerId: 'u_spoofed',
       sellerOpenid: 'spoofed-openid',
       sellerName: '伪造卖家',
@@ -3080,6 +3273,11 @@ async function verifyCreateProductFunctionFlow() {
     const storedProduct = products.get(created.data.productId);
     assert(storedProduct.price === 29.9 && typeof storedProduct.price === 'number', 'createProduct did not store a numeric price');
     assert(storedProduct.coverImage === validProduct.images[0], 'createProduct cover image is not the first cloud file');
+    assert(
+      storedProduct.images.length === 1
+      && storedProduct.video.fileID === validProduct.video.fileID,
+      'createProduct did not save the complete image and video media fields'
+    );
     assert(storedProduct.sellerId === userId, 'createProduct trusted a spoofed seller id');
     assert(storedProduct.sellerOpenid === openId, 'createProduct trusted a spoofed seller openid');
     assert(storedProduct.sellerName === '验收同学', 'createProduct trusted a spoofed seller name');
@@ -3120,6 +3318,42 @@ async function verifyCreateProductFunctionFlow() {
       })
     });
     assert(tooManyImages.success === false && tooManyImages.code === 'INVALID_PARAMS', 'createProduct accepts too many images');
+
+    const extraVideos = await createProductFunction.main({
+      requestId: 'req_server_verification_video_array',
+      product: Object.assign({}, validProduct, {
+        video: [validProduct.video, validProduct.video]
+      })
+    });
+    assert(
+      extraVideos.success === false && extraVideos.code === 'INVALID_PARAMS',
+      'createProduct accepts more than one product video'
+    );
+
+    const oversizedVideo = await createProductFunction.main({
+      requestId: 'req_server_verification_video_size',
+      product: Object.assign({}, validProduct, {
+        video: Object.assign({}, validProduct.video, {
+          size: 51 * 1024 * 1024
+        })
+      })
+    });
+    assert(
+      oversizedVideo.success === false && oversizedVideo.code === 'INVALID_PARAMS',
+      'createProduct accepts an oversized product video'
+    );
+
+    const noVideo = await createProductFunction.main({
+      requestId: 'req_server_verification_no_video',
+      product: Object.assign({}, validProduct, {
+        video: undefined
+      })
+    });
+    const noVideoRecord = products.get(noVideo.data && noVideo.data.productId);
+    assert(
+      noVideo.success === true && noVideoRecord && noVideoRecord.video === null,
+      'createProduct is not backward compatible with an image-only product'
+    );
 
     const embeddedUserFolder = await createProductFunction.main({
       requestId: 'req_server_verification_0005',
@@ -5248,6 +5482,30 @@ record('public placeholders and local private configurations are isolated', () =
       'config/cloud.private.js does not contain a valid local environment ID'
     );
   }
+});
+
+record('product media UI and DTO boundaries are wired', () => {
+  const detailPageSource = readText(path.join(root, 'pages/product-detail/index.js'));
+  const detailTemplateSource = readText(path.join(root, 'pages/product-detail/index.wxml'));
+  const publishPageSource = readText(path.join(root, 'pages/publish/index.js'));
+  const editPageSource = readText(path.join(root, 'pages/product-edit/index.js'));
+  const formServiceSource = readText(path.join(root, 'services/product-form-service.js'));
+  const publishServiceSource = readText(path.join(root, 'services/product-publish-service.js'));
+  const querySource = readText(path.join(root, 'cloudfunctions/productQuery/index.js'));
+  const favoriteSource = readText(path.join(root, 'cloudfunctions/favoriteProduct/index.js'));
+  const userQuerySource = readText(path.join(root, 'cloudfunctions/userQuery/index.js'));
+
+  assert(/<swiper\b/.test(detailTemplateSource), 'product detail does not use a native image swiper');
+  assert(/bindchange="onImageSwiperChange"/.test(detailTemplateSource), 'product detail swiper does not track the current image');
+  assert(/bindtap="onPreviewProductImage"/.test(detailTemplateSource), 'product detail images cannot be previewed');
+  assert(/<video\b/.test(detailTemplateSource), 'product detail does not render the optional product video');
+  assert(/onHide\(\)[\s\S]*pauseProductVideo/.test(detailPageSource), 'product detail does not pause video when hidden');
+  assert(/chooseVideo/.test(publishPageSource) && /chooseVideo/.test(editPageSource), 'publish or edit page cannot choose a product video');
+  assert(/wx\.chooseMedia/.test(formServiceSource) && /mediaType:\s*\['video'\]/.test(formServiceSource), 'video selection does not use the guarded media picker');
+  assert(/uploadLocalVideo/.test(publishServiceSource), 'product video upload flow is missing');
+  assert(/includeMedia/.test(querySource), 'product query does not separate list and detail media DTOs');
+  assert(!/\bimages:\s*record\.images/.test(favoriteSource), 'favorite list still returns all product images');
+  assert(!/\bimages:\s*record\.images/.test(userQuerySource), 'public profile list still returns all product images');
 });
 
 async function runAsyncChecks() {

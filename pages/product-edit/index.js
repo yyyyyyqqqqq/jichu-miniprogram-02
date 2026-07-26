@@ -27,7 +27,10 @@ Page({
     condition: '',
     location: '',
     images: [],
+    video: null,
     maxImages: ProductFormService.PRODUCT_PUBLISH_LIMITS.MAX_IMAGES,
+    maxVideoSizeMb: ProductFormService.PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_SIZE / (1024 * 1024),
+    maxVideoDuration: ProductFormService.PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DURATION,
     productStatus: '',
     version: 0,
     isSubmitting: false,
@@ -42,6 +45,7 @@ Page({
     this.loginGuardPromise = null;
     this.submitPromise = null;
     this.pendingFileIds = [];
+    this.pendingVideoFileId = '';
     this.mutationId = ProductEditService.createMutationId();
     this.initialSnapshot = '';
     this.unloadAlertEnabled = false;
@@ -99,6 +103,7 @@ Page({
 
   onUnload() {
     this.isPageActive = false;
+    this.pauseSelectedVideo();
     this.requestVersion += 1;
     this.closeLoading();
     this.disableUnloadAlert();
@@ -110,6 +115,10 @@ Page({
       this.unsubscribeAuth();
       this.unsubscribeAuth = null;
     }
+  },
+
+  onHide() {
+    this.pauseSelectedVideo();
   },
 
   normalizeProductId(value) {
@@ -155,7 +164,9 @@ Page({
       }
       const product = result.product;
       const images = ProductFormService.createExistingImages(product.images);
+      const video = ProductFormService.createExistingVideo(product.video);
       this.pendingFileIds = [];
+      this.pendingVideoFileId = '';
       this.mutationId = ProductEditService.createMutationId();
       this.setData({
         title: product.title,
@@ -166,6 +177,7 @@ Page({
         condition: product.condition,
         location: product.location,
         images,
+        video,
         productStatus: product.status,
         version: result.version,
         viewState: 'success',
@@ -315,6 +327,60 @@ Page({
     });
   },
 
+  async onChooseVideo() {
+    if (this.isFormLocked()) {
+      return;
+    }
+    try {
+      const result = await ProductFormService.chooseVideo();
+      if (!this.isPageActive) {
+        return;
+      }
+      if (!result.video) {
+        const messages = {
+          VIDEO_TOO_LARGE: `视频不能超过 ${this.data.maxVideoSizeMb}MB`,
+          VIDEO_DURATION_INVALID: `视频时长不能超过 ${this.data.maxVideoDuration} 秒`,
+          VIDEO_INVALID: '请选择有效的视频文件'
+        };
+        wx.showToast({
+          title: messages[result.errorCode] || '视频选择失败，请重试',
+          icon: 'none'
+        });
+        return;
+      }
+      this.pauseSelectedVideo();
+      this.updateForm({ video: result.video });
+    } catch (error) {
+      const message = error && typeof error.errMsg === 'string'
+        ? error.errMsg.toLowerCase()
+        : '';
+      if (!message.includes('cancel') && this.isPageActive) {
+        wx.showToast({
+          title: '视频选择失败，请重试',
+          icon: 'none'
+        });
+      }
+    }
+  },
+
+  onRemoveVideo() {
+    if (this.isFormLocked()) {
+      return;
+    }
+    this.pauseSelectedVideo();
+    this.updateForm({ video: null });
+  },
+
+  pauseSelectedVideo() {
+    if (typeof wx === 'undefined' || typeof wx.createVideoContext !== 'function') {
+      return;
+    }
+    const context = wx.createVideoContext('edit-video-preview', this);
+    if (context && typeof context.pause === 'function') {
+      context.pause();
+    }
+  },
+
   hasUnsavedChanges() {
     return this.data.viewState === 'success'
       && Boolean(this.initialSnapshot)
@@ -385,6 +451,7 @@ Page({
     }
 
     const split = ProductFormService.splitImages(this.data.images);
+    const videoSplit = ProductFormService.splitVideo(this.data.video);
     try {
       ProductPublishService.validateProductFields(
         ProductFormService.buildDraft(this.data)
@@ -393,6 +460,7 @@ Page({
         split.localImages,
         { allowEmpty: true }
       );
+      ProductPublishService.validateLocalVideo(videoSplit.localVideo);
       if (this.data.images.length < 1 || this.data.images.length > this.data.maxImages) {
         throw new ProductEditService.ProductEditError(
           'INVALID_IMAGE_LIST',
@@ -416,9 +484,11 @@ Page({
 
     this.setData({
       isSubmitting: true,
-      submitStage: this.pendingFileIds.length > 0
+      submitStage: this.pendingFileIds.length > 0 || this.pendingVideoFileId
         ? '正在确认编辑结果'
-        : (split.localImages.length > 0 ? '正在上传新图片' : '正在保存商品')
+        : (split.localImages.length > 0 || videoSplit.localVideo
+          ? '正在上传新媒体'
+          : '正在保存商品')
     });
     this.disableUnloadAlert();
     this.showLoading('正在保存');
@@ -430,13 +500,18 @@ Page({
       draft: ProductFormService.buildDraft(this.data),
       existingFileIDs: split.existingFileIDs,
       localImages: split.localImages,
+      existingVideo: videoSplit.existingVideo,
+      localVideo: videoSplit.localVideo,
       pendingFileIds: this.pendingFileIds,
+      pendingVideoFileId: this.pendingVideoFileId,
       userId: user.id,
       shouldContinue: () => this.isPageActive,
       onProgress: (progress) => {
         if (this.isPageActive) {
           this.setData({
-            submitStage: `正在上传图片 ${progress.completed + 1}/${progress.total}`
+            submitStage: progress.stage === 'uploadingVideo'
+              ? '正在上传商品视频'
+              : `正在上传图片 ${progress.completed + 1}/${progress.total}`
           });
         }
       }
@@ -458,7 +533,7 @@ Page({
       AppStore.markProductsChanged();
       wx.showToast({
         title: result.cleanupPending
-          ? '商品已更新，部分旧图片正在清理'
+          ? '商品已更新，部分旧媒体正在清理'
           : '商品已更新',
         icon: result.cleanupPending ? 'none' : 'success',
         duration: 1800
@@ -471,14 +546,18 @@ Page({
       if (!this.isPageActive || error.code === 'OPERATION_CANCELLED') {
         return;
       }
-      if (error.outcomeUnknown && error.uploadedFileIds.length > 0) {
+      if (error.outcomeUnknown) {
         this.pendingFileIds = error.uploadedFileIds.slice();
+        this.pendingVideoFileId = typeof error.uploadedVideoFileId === 'string'
+          ? error.uploadedVideoFileId
+          : '';
         this.setData({
           outcomeUnknown: true,
           submitStage: '编辑结果待确认，请保持表单不变并重试'
         });
       } else {
         this.pendingFileIds = [];
+        this.pendingVideoFileId = '';
         this.setData({ submitStage: '' });
       }
       if (error.code === 'UNAUTHORIZED') {

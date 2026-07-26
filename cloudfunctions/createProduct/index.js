@@ -34,8 +34,20 @@ const VALID_CONDITIONS = new Set([
 ]);
 const MAX_PRICE = 999999.99;
 const MAX_IMAGES = 6;
+const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
+const MAX_VIDEO_DURATION = 60;
+const MAX_VIDEO_DIMENSION = 16384;
 const REQUEST_ID_PATTERN = /^[a-zA-Z0-9_-]{12,80}$/;
 const IMAGE_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:jpg|jpeg|png|gif|webp)$/i;
+const VIDEO_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:mp4|mov|m4v)$/i;
+const VIDEO_FIELDS = new Set([
+  'fileID',
+  'posterFileID',
+  'duration',
+  'width',
+  'height',
+  'size'
+]);
 
 const ERROR_CODES = {
   OK: 'OK',
@@ -113,6 +125,16 @@ function isOwnedProductImage(fileID, userId) {
     && IMAGE_FILE_NAME_PATTERN.test(segments[3]);
 }
 
+function isOwnedProductVideo(fileID, userId) {
+  const filePath = getCloudFilePath(fileID);
+  const segments = filePath.split('/');
+  return segments.length === 4
+    && segments[0] === 'products'
+    && segments[1] === userId
+    && /^\d{8}$/.test(segments[2])
+    && VIDEO_FILE_NAME_PATTERN.test(segments[3]);
+}
+
 function normalizeImages(value, userId) {
   if (!Array.isArray(value) || value.length < 1 || value.length > MAX_IMAGES) {
     return [];
@@ -123,6 +145,53 @@ function normalizeImages(value, userId) {
     && list.indexOf(fileID) === index
   ));
   return images.length === value.length ? images : [];
+}
+
+function normalizeVideo(value, userId) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (
+    typeof value !== 'object'
+    || Array.isArray(value)
+    || Object.keys(value).some((field) => !VIDEO_FIELDS.has(field))
+  ) {
+    return undefined;
+  }
+  const fileID = typeof value.fileID === 'string' ? value.fileID : '';
+  const posterFileID = typeof value.posterFileID === 'string'
+    ? value.posterFileID
+    : '';
+  const duration = Number(value.duration);
+  const width = Number(value.width);
+  const height = Number(value.height);
+  const size = Number(value.size);
+  if (
+    !isOwnedProductVideo(fileID, userId)
+    || (posterFileID && !isOwnedProductImage(posterFileID, userId))
+    || !Number.isFinite(duration)
+    || duration <= 0
+    || duration > MAX_VIDEO_DURATION
+    || !Number.isFinite(size)
+    || size <= 0
+    || size > MAX_VIDEO_SIZE
+    || !Number.isFinite(width)
+    || width < 0
+    || width > MAX_VIDEO_DIMENSION
+    || !Number.isFinite(height)
+    || height < 0
+    || height > MAX_VIDEO_DIMENSION
+  ) {
+    return undefined;
+  }
+  return {
+    fileID,
+    posterFileID,
+    duration: Math.ceil(duration),
+    width: Math.floor(width),
+    height: Math.floor(height),
+    size: Math.floor(size)
+  };
 }
 
 function createUserId(appId, openId) {
@@ -180,6 +249,7 @@ function validateProduct(value, userId) {
   const condition = normalizeText(value.condition);
   const location = normalizeText(value.location);
   const images = normalizeImages(value.images, userId);
+  const video = normalizeVideo(value.video, userId);
 
   if (
     title.length < 2
@@ -192,6 +262,7 @@ function validateProduct(value, userId) {
     || location.length < 2
     || location.length > 80
     || images.length === 0
+    || video === undefined
   ) {
     return null;
   }
@@ -206,6 +277,7 @@ function validateProduct(value, userId) {
     condition,
     images,
     coverImage: images[0],
+    video,
     coverLabel: title.slice(0, 4),
     coverTone: CATEGORY_TONES[categoryId] || 'mint',
     location,

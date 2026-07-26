@@ -23,7 +23,13 @@ const ALLOWED_IMAGE_EXTENSIONS = new Set([
   'gif',
   'webp'
 ]);
+const ALLOWED_VIDEO_EXTENSIONS = new Set([
+  'mp4',
+  'mov',
+  'm4v'
+]);
 const IMAGE_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:jpg|jpeg|png|gif|webp)$/i;
+const VIDEO_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:mp4|mov|m4v)$/i;
 
 const ERROR_MESSAGES = {
   TITLE_REQUIRED: '请填写商品标题',
@@ -42,6 +48,10 @@ const ERROR_MESSAGES = {
   IMAGE_TYPE_INVALID: '请选择有效的图片文件',
   IMAGE_SIZE_INVALID: '图片文件大小无效，请重新选择',
   IMAGE_TOO_LARGE: '单张图片不能超过 10MB',
+  VIDEO_TYPE_INVALID: '请选择有效的视频文件',
+  VIDEO_SIZE_INVALID: '视频文件大小无效，请重新选择',
+  VIDEO_TOO_LARGE: '商品视频不能超过 50MB',
+  VIDEO_DURATION_INVALID: '商品视频时长应在 60 秒以内',
   INVALID_PARAMS: '商品信息不完整，请检查后重试',
   AUTH_CONTEXT_MISSING: '登录状态已失效，请重新登录',
   USER_NOT_FOUND: '用户记录不存在，请重新登录',
@@ -49,6 +59,8 @@ const ERROR_MESSAGES = {
   DUPLICATE_REQUEST: '该商品已经发布，请勿重复提交',
   UPLOAD_FAILED: '图片上传失败，请稍后重试',
   UPLOAD_TIMEOUT: '图片上传超时，请检查网络后重试',
+  VIDEO_UPLOAD_FAILED: '视频上传失败，请稍后重试',
+  VIDEO_UPLOAD_TIMEOUT: '视频上传超时，请检查网络后重试',
   NETWORK_ERROR: '网络连接失败，请稍后重试',
   TIMEOUT: '发布请求超时，请确认发布结果后重试',
   CLOUD_NOT_READY: '商品发布服务暂不可用',
@@ -65,6 +77,7 @@ class ProductPublishError extends Error {
     this.name = 'ProductPublishError';
     this.code = code || 'UNKNOWN_ERROR';
     this.uploadedFileIds = [];
+    this.uploadedVideoFileId = '';
   }
 }
 
@@ -193,9 +206,60 @@ function validateLocalImages(localImages, options = {}) {
   return localImages;
 }
 
-function validateProductDraft(draft, localImages) {
+function validateLocalVideo(localVideo, options = {}) {
+  const allowEmpty = options.allowEmpty !== false;
+  if (!localVideo) {
+    if (allowEmpty) {
+      return null;
+    }
+    throw createError('VIDEO_TYPE_INVALID');
+  }
+  if (typeof localVideo !== 'object' || Array.isArray(localVideo)) {
+    throw createError('VIDEO_TYPE_INVALID');
+  }
+  const tempFilePath = typeof localVideo.tempFilePath === 'string'
+    ? localVideo.tempFilePath
+    : '';
+  const mediaType = typeof localVideo.fileType === 'string'
+    ? localVideo.fileType.toLowerCase()
+    : '';
+  const size = Number(localVideo.size);
+  const duration = Number(localVideo.duration);
+  const width = Number(localVideo.width);
+  const height = Number(localVideo.height);
+  if (
+    !tempFilePath
+    || (mediaType && mediaType !== 'video')
+    || !normalizeVideoFileExtension(tempFilePath)
+  ) {
+    throw createError('VIDEO_TYPE_INVALID');
+  }
+  if (!Number.isFinite(size) || size <= 0) {
+    throw createError('VIDEO_SIZE_INVALID');
+  }
+  if (size > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_SIZE) {
+    throw createError('VIDEO_TOO_LARGE');
+  }
+  if (
+    !Number.isFinite(duration)
+    || duration <= 0
+    || duration > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DURATION
+  ) {
+    throw createError('VIDEO_DURATION_INVALID');
+  }
+  if (
+    (Number.isFinite(width) && width > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DIMENSION)
+    || (Number.isFinite(height) && height > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DIMENSION)
+  ) {
+    throw createError('VIDEO_TYPE_INVALID');
+  }
+  return localVideo;
+}
+
+function validateProductDraft(draft, localImages, localVideo) {
   const normalized = validateProductFields(draft);
   validateLocalImages(localImages);
+  validateLocalVideo(localVideo);
   return normalized;
 }
 
@@ -225,6 +289,15 @@ function normalizeFileExtension(tempFilePath) {
   return ALLOWED_IMAGE_EXTENSIONS.has(extension) ? extension : '';
 }
 
+function normalizeVideoFileExtension(tempFilePath) {
+  const path = typeof tempFilePath === 'string'
+    ? tempFilePath.split('?')[0]
+    : '';
+  const match = path.match(/\.([a-zA-Z0-9]{2,5})$/);
+  const extension = match ? match[1].toLowerCase() : '';
+  return ALLOWED_VIDEO_EXTENSIONS.has(extension) ? extension : '';
+}
+
 function formatDateFolder(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -242,6 +315,19 @@ function buildCloudPath(userId, tempFilePath, index) {
     userId,
     formatDateFolder(),
     `${Date.now()}-${index}-${randomToken(10)}.${extension}`
+  ].join('/');
+}
+
+function buildVideoCloudPath(userId, tempFilePath) {
+  const extension = normalizeVideoFileExtension(tempFilePath);
+  if (!extension) {
+    throw createError('VIDEO_TYPE_INVALID');
+  }
+  return [
+    'products',
+    userId,
+    formatDateFolder(),
+    `${Date.now()}-video-${randomToken(10)}.${extension}`
   ].join('/');
 }
 
@@ -266,6 +352,17 @@ function isOwnedProductImage(fileID, userId) {
     && segments[1] === normalizedUserId
     && /^\d{8}$/.test(segments[2])
     && IMAGE_FILE_NAME_PATTERN.test(segments[3]);
+}
+
+function isOwnedProductVideo(fileID, userId) {
+  const normalizedUserId = normalizeUserId(userId);
+  const segments = getCloudFilePath(fileID).split('/');
+  return Boolean(normalizedUserId)
+    && segments.length === 4
+    && segments[0] === 'products'
+    && segments[1] === normalizedUserId
+    && /^\d{8}$/.test(segments[2])
+    && VIDEO_FILE_NAME_PATTERN.test(segments[3]);
 }
 
 function validateImageDecoding(tempFilePath) {
@@ -322,7 +419,13 @@ function mapTransportError(error, fallbackCode) {
     ? error.errMsg.toLowerCase()
     : '';
   if (message.includes('timeout')) {
-    return createError(fallbackCode === 'UPLOAD_FAILED' ? 'UPLOAD_TIMEOUT' : 'TIMEOUT');
+    if (fallbackCode === 'UPLOAD_FAILED') {
+      return createError('UPLOAD_TIMEOUT');
+    }
+    if (fallbackCode === 'VIDEO_UPLOAD_FAILED') {
+      return createError('VIDEO_UPLOAD_TIMEOUT');
+    }
+    return createError('TIMEOUT');
   }
   if (
     message.includes('network')
@@ -341,7 +444,12 @@ function mapTransportError(error, fallbackCode) {
   return createError(fallbackCode || 'UNKNOWN_ERROR');
 }
 
-async function uploadSingleImage(tempFilePath, cloudPath) {
+async function uploadSingleFile(options) {
+  const tempFilePath = options.tempFilePath;
+  const cloudPath = options.cloudPath;
+  const failureCode = options.failureCode;
+  const timeoutCode = options.timeoutCode;
+  const timeoutMs = options.timeoutMs;
   try {
     await CloudService.ensureCloudReady();
   } catch (error) {
@@ -375,13 +483,13 @@ async function uploadSingleImage(tempFilePath, cloudPath) {
           ? response.fileID
           : '';
         if (!fileID || getCloudFilePath(fileID) !== cloudPath) {
-          finish(reject, createError('UPLOAD_FAILED'));
+          finish(reject, createError(failureCode));
           return;
         }
         finish(resolve, fileID);
       },
       fail(error) {
-        finish(reject, mapTransportError(error, 'UPLOAD_FAILED'));
+        finish(reject, mapTransportError(error, failureCode));
       }
     });
 
@@ -389,11 +497,31 @@ async function uploadSingleImage(tempFilePath, cloudPath) {
       if (uploadTask && typeof uploadTask.abort === 'function') {
         uploadTask.abort();
       }
-      finish(reject, createError('UPLOAD_TIMEOUT'));
-    }, CLOUD_CONFIG.productUploadTimeoutMs);
+      finish(reject, createError(timeoutCode));
+    }, timeoutMs);
     if (settled) {
       clearTimeout(timeoutId);
     }
+  });
+}
+
+function uploadSingleImage(tempFilePath, cloudPath) {
+  return uploadSingleFile({
+    tempFilePath,
+    cloudPath,
+    failureCode: 'UPLOAD_FAILED',
+    timeoutCode: 'UPLOAD_TIMEOUT',
+    timeoutMs: CLOUD_CONFIG.productUploadTimeoutMs
+  });
+}
+
+function uploadSingleVideo(tempFilePath, cloudPath) {
+  return uploadSingleFile({
+    tempFilePath,
+    cloudPath,
+    failureCode: 'VIDEO_UPLOAD_FAILED',
+    timeoutCode: 'VIDEO_UPLOAD_TIMEOUT',
+    timeoutMs: CLOUD_CONFIG.productVideoUploadTimeoutMs
   });
 }
 
@@ -448,6 +576,43 @@ async function uploadLocalImages(options = {}) {
   }
 }
 
+async function uploadLocalVideo(options = {}) {
+  const localVideo = validateLocalVideo(options.localVideo);
+  if (!localVideo) {
+    return null;
+  }
+  const userId = normalizeUserId(options.userId);
+  if (!userId) {
+    throw createError('AUTH_CONTEXT_MISSING');
+  }
+  const shouldContinue = typeof options.shouldContinue === 'function'
+    ? options.shouldContinue
+    : () => true;
+  const onProgress = typeof options.onProgress === 'function'
+    ? options.onProgress
+    : () => {};
+  if (!shouldContinue()) {
+    throw createError('OPERATION_CANCELLED');
+  }
+  onProgress({
+    stage: 'uploadingVideo',
+    completed: 0,
+    total: 1
+  });
+  const fileID = await uploadSingleVideo(
+    localVideo.tempFilePath,
+    buildVideoCloudPath(userId, localVideo.tempFilePath)
+  );
+  return {
+    fileID,
+    posterFileID: '',
+    duration: Math.ceil(Number(localVideo.duration)),
+    width: Math.floor(Number(localVideo.width)) || 0,
+    height: Math.floor(Number(localVideo.height)) || 0,
+    size: Math.floor(Number(localVideo.size))
+  };
+}
+
 function normalizeCloudFileIds(value, userId) {
   if (!Array.isArray(value)) {
     return [];
@@ -458,8 +623,58 @@ function normalizeCloudFileIds(value, userId) {
   ));
 }
 
+function normalizeCloudVideo(value, userId) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const fileID = typeof value.fileID === 'string' ? value.fileID : '';
+  const posterFileID = typeof value.posterFileID === 'string'
+    ? value.posterFileID
+    : '';
+  const duration = Number(value.duration);
+  const width = Number(value.width);
+  const height = Number(value.height);
+  const size = Number(value.size);
+  if (
+    !isOwnedProductVideo(fileID, userId)
+    || (posterFileID && !isOwnedProductImage(posterFileID, userId))
+    || !Number.isFinite(duration)
+    || duration <= 0
+    || duration > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DURATION
+    || !Number.isFinite(size)
+    || size <= 0
+    || size > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_SIZE
+    || !Number.isFinite(width)
+    || width < 0
+    || width > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DIMENSION
+    || !Number.isFinite(height)
+    || height < 0
+    || height > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DIMENSION
+  ) {
+    return null;
+  }
+  return {
+    fileID,
+    posterFileID,
+    duration: Math.ceil(duration),
+    width: Math.floor(width),
+    height: Math.floor(height),
+    size: Math.floor(size)
+  };
+}
+
+function normalizeOwnedProductFiles(value, userId) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((fileID, index, list) => (
+    (isOwnedProductImage(fileID, userId) || isOwnedProductVideo(fileID, userId))
+    && list.indexOf(fileID) === index
+  ));
+}
+
 async function deleteCloudFiles(fileIDs, userId) {
-  const safeFileIDs = normalizeCloudFileIds(fileIDs, userId);
+  const safeFileIDs = normalizeOwnedProductFiles(fileIDs, userId);
   try {
     await CloudService.ensureCloudReady();
   } catch (error) {
@@ -562,7 +777,11 @@ async function callCreateProduct(data) {
 }
 
 async function publishProduct(options = {}) {
-  const normalized = validateProductDraft(options.draft, options.localImages);
+  const normalized = validateProductDraft(
+    options.draft,
+    options.localImages,
+    options.localVideo
+  );
   const userId = normalizeUserId(options.userId);
   if (!userId) {
     throw createError('AUTH_CONTEXT_MISSING');
@@ -582,8 +801,15 @@ async function publishProduct(options = {}) {
     ? options.onProgress
     : () => {};
   const pendingFileIds = normalizeCloudFileIds(options.pendingFileIds, userId);
+  const localVideo = validateLocalVideo(options.localVideo);
+  const pendingVideoFileId = typeof options.pendingVideoFileId === 'string'
+    && isOwnedProductVideo(options.pendingVideoFileId, userId)
+    ? options.pendingVideoFileId
+    : '';
   const uploadedThisAttempt = [];
+  let uploadedVideoThisAttempt = '';
   let fileIDs = pendingFileIds;
+  let video = null;
 
   try {
     if (fileIDs.length === 0) {
@@ -594,6 +820,26 @@ async function publishProduct(options = {}) {
         onProgress
       });
       uploadedThisAttempt.push(...fileIDs);
+    }
+
+    if (localVideo) {
+      if (pendingVideoFileId) {
+        video = normalizeCloudVideo(Object.assign({}, localVideo, {
+          fileID: pendingVideoFileId,
+          posterFileID: ''
+        }), userId);
+      } else {
+        video = await uploadLocalVideo({
+          localVideo,
+          userId,
+          shouldContinue,
+          onProgress
+        });
+        uploadedVideoThisAttempt = video.fileID;
+      }
+      if (!video) {
+        throw createError('VIDEO_TYPE_INVALID');
+      }
     }
 
     if (!shouldContinue()) {
@@ -608,12 +854,19 @@ async function publishProduct(options = {}) {
     const result = await callCreateProduct({
       requestId,
       product: Object.assign({}, normalized, {
-        images: fileIDs
+        images: fileIDs,
+        video
       })
     });
 
-    if (result.reused && uploadedThisAttempt.length > 0) {
-      await deleteCloudFiles(uploadedThisAttempt, userId);
+    if (
+      result.reused
+      && (uploadedThisAttempt.length > 0 || uploadedVideoThisAttempt)
+    ) {
+      await deleteCloudFiles(
+        uploadedThisAttempt.concat(uploadedVideoThisAttempt || []),
+        userId
+      );
     }
     return result;
   } catch (error) {
@@ -634,8 +887,14 @@ async function publishProduct(options = {}) {
       && AMBIGUOUS_ERROR_CODES.has(normalizedError.code)
     ) {
       normalizedError.uploadedFileIds = fileIDs.slice();
-    } else if (uploadedThisAttempt.length > 0) {
-      await deleteCloudFiles(uploadedThisAttempt, userId);
+      normalizedError.uploadedVideoFileId = video && video.fileID
+        ? video.fileID
+        : '';
+    } else if (uploadedThisAttempt.length > 0 || uploadedVideoThisAttempt) {
+      await deleteCloudFiles(
+        uploadedThisAttempt.concat(uploadedVideoThisAttempt || []),
+        userId
+      );
     }
     throw normalizedError;
   }
@@ -646,9 +905,12 @@ module.exports = {
   createSubmissionId,
   validateProductFields,
   validateLocalImages,
+  validateLocalVideo,
   validateProductDraft,
   uploadLocalImages,
+  uploadLocalVideo,
   normalizeCloudFileIds,
+  normalizeCloudVideo,
   publishProduct,
   deleteCloudFiles
 };

@@ -4,6 +4,7 @@
   "private": true,
   "main": "index.js",
   "dependencies": {
+    "ws": "^8.21.1",
     "wx-server-sdk": "^4.0.2"
   }
 }

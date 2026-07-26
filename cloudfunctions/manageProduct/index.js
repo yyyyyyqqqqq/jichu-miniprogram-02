@@ -11,7 +11,11 @@ const products = db.collection('products');
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const MUTATION_ID_PATTERN = /^[a-zA-Z0-9_-]{12,80}$/;
 const IMAGE_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:jpg|jpeg|png|gif|webp)$/i;
+const VIDEO_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:mp4|mov|m4v)$/i;
 const MAX_IMAGES = 6;
+const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
+const MAX_VIDEO_DURATION = 60;
+const MAX_VIDEO_DIMENSION = 16384;
 const MAX_PRICE = 999999.99;
 const CATEGORY_MAP = {
   digital: '数码',
@@ -46,7 +50,16 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'categoryName',
   'condition',
   'location',
-  'images'
+  'images',
+  'video'
+]);
+const VIDEO_FIELDS = new Set([
+  'fileID',
+  'posterFileID',
+  'duration',
+  'width',
+  'height',
+  'size'
 ]);
 
 const ACTIONS = {
@@ -195,6 +208,17 @@ function isOwnedProductImage(fileID, userId) {
     && IMAGE_FILE_NAME_PATTERN.test(segments[3]);
 }
 
+function isOwnedProductVideo(fileID, userId) {
+  const segments = getCloudFilePath(fileID).split('/');
+  return typeof userId === 'string'
+    && /^[a-zA-Z0-9_-]{3,64}$/.test(userId)
+    && segments.length === 4
+    && segments[0] === 'products'
+    && segments[1] === userId
+    && /^\d{8}$/.test(segments[2])
+    && VIDEO_FILE_NAME_PATTERN.test(segments[3]);
+}
+
 function normalizeImages(value, userId) {
   if (!Array.isArray(value) || value.length < 1 || value.length > MAX_IMAGES) {
     return [];
@@ -204,6 +228,84 @@ function normalizeImages(value, userId) {
     && list.indexOf(fileID) === index
   ));
   return images.length === value.length ? images : [];
+}
+
+function normalizeVideo(value, userId) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (
+    typeof value !== 'object'
+    || Array.isArray(value)
+    || Object.keys(value).some((field) => !VIDEO_FIELDS.has(field))
+  ) {
+    return undefined;
+  }
+  const fileID = typeof value.fileID === 'string' ? value.fileID : '';
+  const posterFileID = typeof value.posterFileID === 'string'
+    ? value.posterFileID
+    : '';
+  const duration = Number(value.duration);
+  const width = Number(value.width);
+  const height = Number(value.height);
+  const size = Number(value.size);
+  if (
+    !isOwnedProductVideo(fileID, userId)
+    || (posterFileID && !isOwnedProductImage(posterFileID, userId))
+    || !Number.isFinite(duration)
+    || duration <= 0
+    || duration > MAX_VIDEO_DURATION
+    || !Number.isFinite(size)
+    || size <= 0
+    || size > MAX_VIDEO_SIZE
+    || !Number.isFinite(width)
+    || width < 0
+    || width > MAX_VIDEO_DIMENSION
+    || !Number.isFinite(height)
+    || height < 0
+    || height > MAX_VIDEO_DIMENSION
+  ) {
+    return undefined;
+  }
+  return {
+    fileID,
+    posterFileID,
+    duration: Math.ceil(duration),
+    width: Math.floor(width),
+    height: Math.floor(height),
+    size: Math.floor(size)
+  };
+}
+
+function normalizeStoredImages(product) {
+  const candidates = [];
+  if (Array.isArray(product && product.images)) {
+    candidates.push(...product.images);
+  }
+  if (Array.isArray(product && product.imageUrls)) {
+    candidates.push(...product.imageUrls);
+  }
+  [
+    product && product.coverImage,
+    product && product.coverUrl,
+    product && product.image
+  ].forEach((fileID) => candidates.push(fileID));
+  return candidates.filter((fileID, index, list) => (
+    typeof fileID === 'string'
+    && fileID.startsWith('cloud://')
+    && list.indexOf(fileID) === index
+  ));
+}
+
+function getVideoFiles(video) {
+  if (!video || typeof video !== 'object' || Array.isArray(video)) {
+    return [];
+  }
+  return [video.fileID, video.posterFileID].filter((fileID, index, list) => (
+    typeof fileID === 'string'
+    && fileID.startsWith('cloud://')
+    && list.indexOf(fileID) === index
+  ));
 }
 
 function normalizeCleanupFiles(value) {
@@ -242,6 +344,7 @@ function assertProductAccess(product, openId) {
 }
 
 function toEditableProduct(product) {
+  const video = normalizeVideo(product.video, product.sellerId);
   return {
     id: String(product._id || ''),
     title: product.title,
@@ -250,7 +353,8 @@ function toEditableProduct(product) {
     categoryId: product.categoryId,
     condition: product.condition,
     location: product.location,
-    images: Array.isArray(product.images) ? product.images.slice() : [],
+    images: normalizeStoredImages(product),
+    video: video === undefined ? null : video,
     status: product.status
   };
 }
@@ -272,6 +376,7 @@ function validateProductUpdate(value, userId) {
   const condition = normalizeText(value.condition);
   const location = normalizeText(value.location);
   const images = normalizeImages(value.images, userId);
+  const video = normalizeVideo(value.video, userId);
 
   if (
     title.length < 2
@@ -283,6 +388,7 @@ function validateProductUpdate(value, userId) {
     || !VALID_CONDITIONS.has(condition)
     || location.length < 2
     || location.length > 80
+    || video === undefined
   ) {
     businessError(
       ERROR_CODES.INVALID_PRODUCT_FIELD,
@@ -306,6 +412,7 @@ function validateProductUpdate(value, userId) {
     condition,
     images,
     coverImage: images[0],
+    video,
     coverLabel: title.slice(0, 4),
     coverTone: CATEGORY_TONES[categoryId] || 'mint',
     location,
@@ -441,9 +548,13 @@ async function updateProduct(productId, openId, request) {
     }
 
     const updateData = validateProductUpdate(request.product, product.sellerId);
-    const oldImages = normalizeCleanupFiles(product.images);
-    const finalImageSet = new Set(updateData.images);
-    const cleanupFiles = oldImages.filter((fileID) => !finalImageSet.has(fileID));
+    const oldMediaFiles = normalizeCleanupFiles(
+      normalizeStoredImages(product).concat(getVideoFiles(product.video))
+    );
+    const finalMediaSet = new Set(
+      updateData.images.concat(getVideoFiles(updateData.video))
+    );
+    const cleanupFiles = oldMediaFiles.filter((fileID) => !finalMediaSet.has(fileID));
     const nextVersion = version + 1;
 
     await document.update({
@@ -501,7 +612,9 @@ async function softDeleteProduct(productId, openId, request) {
       );
     }
 
-    const cleanupFiles = normalizeCleanupFiles(product.images);
+    const cleanupFiles = normalizeCleanupFiles(
+      normalizeStoredImages(product).concat(getVideoFiles(product.video))
+    );
     const nextVersion = version + 1;
     await document.update({
       data: {
@@ -531,17 +644,25 @@ async function softDeleteProduct(productId, openId, request) {
 }
 
 async function isFileStillReferenced(fileID, productId) {
-  const result = await products.where({
-    images: command.all([fileID])
-  }).limit(100).get();
-  const records = result && Array.isArray(result.data) ? result.data : [];
-  return records.some((record) => (
-    record
-    && (
-      record._id !== productId
-      || record.status !== 'deleted'
-    )
-  ));
+  const conditions = [
+    { images: command.all([fileID]) },
+    { 'video.fileID': fileID },
+    { 'video.posterFileID': fileID }
+  ];
+  for (const condition of conditions) {
+    const result = await products.where(condition).limit(100).get();
+    const records = result && Array.isArray(result.data) ? result.data : [];
+    if (records.some((record) => (
+      record
+      && (
+        record._id !== productId
+        || record.status !== 'deleted'
+      )
+    ))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function deleteCloudFile(fileID) {
@@ -593,7 +714,10 @@ async function cleanupImages(options) {
   let retainedReferenceCount = 0;
 
   for (const fileID of candidates) {
-    if (!isOwnedProductImage(fileID, options.sellerId)) {
+    if (
+      !isOwnedProductImage(fileID, options.sellerId)
+      && !isOwnedProductVideo(fileID, options.sellerId)
+    ) {
       failedFiles.push(fileID);
       continue;
     }
@@ -624,7 +748,7 @@ async function cleanupImages(options) {
   }
 
   if (failedFiles.length > 0) {
-    console.warn('[manageProduct] image cleanup incomplete', {
+    console.warn('[manageProduct] media cleanup incomplete', {
       failedCount: failedFiles.length,
       retainedReferenceCount
     });

@@ -31,6 +31,68 @@ function createLocalImage(file) {
   };
 }
 
+function normalizeVideoNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function createLocalVideo(file) {
+  const tempFilePath = file && typeof file.tempFilePath === 'string'
+    ? file.tempFilePath
+    : '';
+  const duration = normalizeVideoNumber(file && file.duration);
+  return {
+    key: `local-video-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    kind: 'local',
+    tempFilePath,
+    previewUrl: tempFilePath,
+    fileType: file && typeof file.fileType === 'string'
+      ? file.fileType.toLowerCase()
+      : 'video',
+    size: normalizeVideoNumber(file && file.size),
+    duration,
+    durationText: formatVideoDuration(duration),
+    width: normalizeVideoNumber(file && file.width),
+    height: normalizeVideoNumber(file && file.height)
+  };
+}
+
+function createExistingVideo(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const fileID = typeof value.fileID === 'string' && value.fileID.startsWith('cloud://')
+    ? value.fileID
+    : '';
+  if (!fileID) {
+    return null;
+  }
+  const duration = normalizeVideoNumber(value.duration);
+  return {
+    key: `existing-video-${fileID}`,
+    kind: 'existing',
+    fileID,
+    tempFilePath: fileID,
+    previewUrl: fileID,
+    fileType: 'video',
+    size: normalizeVideoNumber(value.size),
+    duration,
+    durationText: formatVideoDuration(duration),
+    width: normalizeVideoNumber(value.width),
+    height: normalizeVideoNumber(value.height),
+    posterFileID: typeof value.posterFileID === 'string'
+      ? value.posterFileID
+      : ''
+  };
+}
+
+function formatVideoDuration(value) {
+  const seconds = Math.max(0, Math.ceil(normalizeVideoNumber(value)));
+  const minutes = Math.floor(seconds / 60);
+  const remainder = String(seconds % 60).padStart(2, '0');
+  return `${minutes}:${remainder}`;
+}
+
 function createExistingImages(fileIDs) {
   if (!Array.isArray(fileIDs)) {
     return [];
@@ -111,6 +173,62 @@ async function chooseImages(currentImages, maximum) {
   };
 }
 
+async function chooseVideo() {
+  const result = await new Promise((resolve, reject) => {
+    wx.chooseMedia({
+      count: PRODUCT_PUBLISH_LIMITS.MAX_VIDEOS,
+      mediaType: ['video'],
+      sourceType: ['album', 'camera'],
+      maxDuration: PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DURATION,
+      camera: 'back',
+      success: resolve,
+      fail: reject
+    });
+  });
+  const selected = Array.isArray(result.tempFiles) ? result.tempFiles : [];
+  if (selected.length !== 1) {
+    return {
+      video: null,
+      errorCode: 'VIDEO_INVALID'
+    };
+  }
+  const video = createLocalVideo(selected[0]);
+  if (!video.tempFilePath || video.fileType !== 'video' || video.size <= 0) {
+    return {
+      video: null,
+      errorCode: 'VIDEO_INVALID'
+    };
+  }
+  if (video.size > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_SIZE) {
+    return {
+      video: null,
+      errorCode: 'VIDEO_TOO_LARGE'
+    };
+  }
+  if (
+    video.duration <= 0
+    || video.duration > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DURATION
+  ) {
+    return {
+      video: null,
+      errorCode: 'VIDEO_DURATION_INVALID'
+    };
+  }
+  if (
+    video.width > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DIMENSION
+    || video.height > PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DIMENSION
+  ) {
+    return {
+      video: null,
+      errorCode: 'VIDEO_INVALID'
+    };
+  }
+  return {
+    video,
+    errorCode: ''
+  };
+}
+
 function previewImages(images, index) {
   const list = Array.isArray(images) ? images : [];
   if (!Number.isInteger(index) || !list[index]) {
@@ -158,8 +276,31 @@ function splitImages(images) {
   };
 }
 
+function splitVideo(video) {
+  if (video && video.kind === 'existing' && video.fileID) {
+    return {
+      existingVideo: {
+        fileID: video.fileID,
+        posterFileID: video.posterFileID || '',
+        duration: normalizeVideoNumber(video.duration),
+        width: normalizeVideoNumber(video.width),
+        height: normalizeVideoNumber(video.height),
+        size: normalizeVideoNumber(video.size)
+      },
+      localVideo: null
+    };
+  }
+  return {
+    existingVideo: null,
+    localVideo: video && video.kind === 'local' ? video : null
+  };
+}
+
 function createFormSnapshot(data = {}) {
   const images = Array.isArray(data.images) ? data.images : [];
+  const video = data.video && typeof data.video === 'object'
+    ? data.video
+    : null;
   return JSON.stringify({
     title: typeof data.title === 'string' ? data.title : '',
     description: typeof data.description === 'string' ? data.description : '',
@@ -171,7 +312,12 @@ function createFormSnapshot(data = {}) {
       image && image.kind === 'existing'
         ? `cloud:${image.fileID}`
         : `local:${image && image.tempFilePath || ''}`
-    ))
+    )),
+    video: video
+      ? (video.kind === 'existing'
+        ? `cloud:${video.fileID}`
+        : `local:${video.tempFilePath || ''}`)
+      : ''
   });
 }
 
@@ -181,8 +327,12 @@ module.exports = {
   PRODUCT_PUBLISH_CATEGORIES,
   buildDraft,
   chooseImages,
+  chooseVideo,
   createExistingImages,
+  createExistingVideo,
+  formatVideoDuration,
   previewImages,
   splitImages,
+  splitVideo,
   createFormSnapshot
 };
