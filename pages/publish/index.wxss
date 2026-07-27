@@ -254,6 +254,118 @@
   background: #f1f4f2;
 }
 
+.location-selector {
+  width: 100%;
+  min-height: 82rpx;
+  display: grid;
+  grid-template-columns: 48rpx minmax(0, 1fr) 48rpx;
+  align-items: center;
+  margin: 16rpx 0 0;
+  padding: 18rpx 22rpx;
+  border: 1rpx solid #e4ebe7;
+  border-radius: 17rpx;
+  background: #f8faf9;
+  color: #26342d;
+  line-height: normal;
+  text-align: left;
+}
+
+.location-selector--selected {
+  grid-template-columns: minmax(0, 1fr) 48rpx;
+}
+
+.location-selector--pressed {
+  background: #edf6f1;
+}
+
+.location-selector[disabled] {
+  background: #f1f4f2;
+  color: #78827d;
+}
+
+.location-selector__spacer {
+  width: 48rpx;
+  height: 1rpx;
+}
+
+.location-selector--selected .location-selector__spacer {
+  display: none;
+}
+
+.location-selector__copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  justify-content: center;
+}
+
+.location-selector--empty .location-selector__copy {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.location-selector--selected .location-selector__copy {
+  align-items: stretch;
+  text-align: left;
+}
+
+.location-selector__name {
+  width: 100%;
+  display: block;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  font-size: 26rpx;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.location-selector__placeholder-wrap {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.location-selector__placeholder {
+  width: 100%;
+  display: block;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  color: #98a19c;
+  font-size: 26rpx;
+  line-height: 32rpx;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.location-selector__address {
+  overflow: hidden;
+  margin-top: 7rpx;
+  color: #7b8680;
+  font-size: 21rpx;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.location-selector__arrow {
+  width: 48rpx;
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+  justify-content: flex-end;
+  color: #99a39e;
+  font-size: 38rpx;
+  font-weight: 300;
+  line-height: 1;
+}
+
 .price-input-wrap {
   display: flex;
   align-items: center;

@@ -37,6 +37,8 @@ const MAX_IMAGES = 6;
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 const MAX_VIDEO_DURATION = 60;
 const MAX_VIDEO_DIMENSION = 16384;
+const MAX_LOCATION_NAME_LENGTH = 80;
+const MAX_LOCATION_ADDRESS_LENGTH = 120;
 const REQUEST_ID_PATTERN = /^[a-zA-Z0-9_-]{12,80}$/;
 const IMAGE_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:jpg|jpeg|png|gif|webp)$/i;
 const VIDEO_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:mp4|mov|m4v)$/i;
@@ -48,10 +50,17 @@ const VIDEO_FIELDS = new Set([
   'height',
   'size'
 ]);
+const LOCATION_DETAIL_FIELDS = new Set([
+  'name',
+  'address',
+  'latitude',
+  'longitude'
+]);
 
 const ERROR_CODES = {
   OK: 'OK',
   INVALID_PARAMS: 'INVALID_PARAMS',
+  INVALID_LOCATION_DETAIL: 'INVALID_LOCATION_DETAIL',
   AUTH_CONTEXT_MISSING: 'AUTH_CONTEXT_MISSING',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
   USER_DISABLED: 'USER_DISABLED',
@@ -194,6 +203,66 @@ function normalizeVideo(value, userId) {
   };
 }
 
+function normalizeLocationDetail(value, location) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (
+    typeof value !== 'object'
+    || Array.isArray(value)
+    || Object.keys(value).some((field) => !LOCATION_DETAIL_FIELDS.has(field))
+  ) {
+    return undefined;
+  }
+  const name = normalizeText(value.name);
+  const address = normalizeText(value.address);
+  const latitude = typeof value.latitude === 'number' ? value.latitude : NaN;
+  const longitude = typeof value.longitude === 'number' ? value.longitude : NaN;
+  if (
+    !name
+    || name !== location
+    || name.length > MAX_LOCATION_NAME_LENGTH
+    || !address
+    || address.length > MAX_LOCATION_ADDRESS_LENGTH
+    || !Number.isFinite(latitude)
+    || latitude < -90
+    || latitude > 90
+    || !Number.isFinite(longitude)
+    || longitude < -180
+    || longitude > 180
+    || (latitude === 0 && longitude === 0)
+  ) {
+    return undefined;
+  }
+  return {
+    name,
+    address,
+    latitude,
+    longitude
+  };
+}
+
+function normalizeProductLocation(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const location = normalizeText(value.location);
+  if (location.length < 2 || location.length > MAX_LOCATION_NAME_LENGTH) {
+    return null;
+  }
+  const locationDetail = normalizeLocationDetail(
+    value.locationDetail,
+    location
+  );
+  if (!locationDetail) {
+    return null;
+  }
+  return {
+    location,
+    locationDetail
+  };
+}
+
 function createUserId(appId, openId) {
   const digest = crypto
     .createHash('sha256')
@@ -247,7 +316,7 @@ function validateProduct(value, userId) {
   const categoryId = normalizeText(value.categoryId);
   const categoryName = CATEGORY_MAP[categoryId];
   const condition = normalizeText(value.condition);
-  const location = normalizeText(value.location);
+  const productLocation = normalizeProductLocation(value);
   const images = normalizeImages(value.images, userId);
   const video = normalizeVideo(value.video, userId);
 
@@ -259,8 +328,7 @@ function validateProduct(value, userId) {
     || !isValidPrice(value.price)
     || !categoryName
     || !VALID_CONDITIONS.has(condition)
-    || location.length < 2
-    || location.length > 80
+    || !productLocation
     || images.length === 0
     || video === undefined
   ) {
@@ -280,7 +348,8 @@ function validateProduct(value, userId) {
     video,
     coverLabel: title.slice(0, 4),
     coverTone: CATEGORY_TONES[categoryId] || 'mint',
-    location,
+    location: productLocation.location,
+    locationDetail: productLocation.locationDetail,
     distanceText: '校内面交',
     tags: []
   };
@@ -323,6 +392,18 @@ exports.main = async (event = {}) => {
     }
     if (user.status !== 'active') {
       return failure(ERROR_CODES.USER_DISABLED, '当前账户暂不可发布商品');
+    }
+
+    if (
+      request.product
+      && typeof request.product === 'object'
+      && !Array.isArray(request.product)
+      && !normalizeProductLocation(request.product)
+    ) {
+      return failure(
+        ERROR_CODES.INVALID_LOCATION_DETAIL,
+        '交易地点信息无效，请重新选择'
+      );
     }
 
     const product = validateProduct(request.product, userId);

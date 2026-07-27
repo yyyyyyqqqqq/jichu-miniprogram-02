@@ -189,15 +189,27 @@
           <text class="field-label">交易地点</text>
           <text class="required-mark">*</text>
         </view>
-        <input
-          class="form-input"
-          value="{{location}}"
-          maxlength="80"
-          disabled="{{isSubmitting || outcomeUnknown}}"
-          placeholder="例如：图书馆南门"
-          bindinput="onLocationInput"
-        />
-        <view class="section-tip">请填写校内公共区域，不要填写宿舍门牌等敏感地址</view>
+        <button
+          class="location-selector {{location ? 'location-selector--selected' : 'location-selector--empty'}}"
+          hover-class="location-selector--pressed"
+          disabled="{{isSubmitting || outcomeUnknown || isChoosingLocation}}"
+          bindtap="onChooseLocation"
+        >
+          <view class="location-selector__spacer"></view>
+          <view class="location-selector__copy">
+            <view wx:if="{{!location}}" class="location-selector__placeholder-wrap">
+              <text class="location-selector__placeholder">请选择校内面交地点</text>
+            </view>
+            <block wx:else>
+              <text class="location-selector__name">{{location}}</text>
+              <text wx:if="{{locationDetail}}" class="location-selector__address">
+                {{locationDetail.address}}
+              </text>
+            </block>
+          </view>
+          <view class="location-selector__arrow">›</view>
+        </button>
+        <view class="section-tip">请选择校内公共区域，不要选择宿舍门牌等敏感地址</view>
       </view>
     </view>
 

@@ -193,11 +193,16 @@
 .action-button {
   min-width: 0;
   height: 74rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: 1;
   margin: 0;
+  padding-top: 0;
+  padding-bottom: 0;
   border-radius: 18rpx;
   font-size: 23rpx;
-  line-height: 74rpx;
+  line-height: normal;
 }
 
 .action-button--primary {

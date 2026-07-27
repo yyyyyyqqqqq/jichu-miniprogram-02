@@ -235,6 +235,16 @@
   line-height: 86rpx;
 }
 
+.wechat-login-button--profile-save {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 0;
+  padding-bottom: 0;
+  box-sizing: border-box;
+  line-height: normal;
+}
+
 .wechat-login-button[disabled] {
   background: #a8d7c2;
   color: rgba(255, 255, 255, 0.88);

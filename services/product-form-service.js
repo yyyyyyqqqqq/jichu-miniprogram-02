@@ -3,6 +3,7 @@ const {
   PRODUCT_CONDITIONS,
   PRODUCT_PUBLISH_CATEGORIES
 } = require('../constants/product-publish');
+const LocationService = require('./location-service');
 
 function buildDraft(data = {}) {
   return {
@@ -11,7 +12,8 @@ function buildDraft(data = {}) {
     price: data.price,
     categoryId: data.categoryId,
     condition: data.condition,
-    location: data.location
+    location: data.location,
+    locationDetail: LocationService.normalizeLocation(data.locationDetail)
   };
 }
 
@@ -308,6 +310,7 @@ function createFormSnapshot(data = {}) {
     categoryId: typeof data.categoryId === 'string' ? data.categoryId : '',
     condition: typeof data.condition === 'string' ? data.condition : '',
     location: typeof data.location === 'string' ? data.location : '',
+    locationDetail: LocationService.normalizeLocation(data.locationDetail),
     images: images.map((image) => (
       image && image.kind === 'existing'
         ? `cloud:${image.fileID}`

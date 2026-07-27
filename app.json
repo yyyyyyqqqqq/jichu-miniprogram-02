@@ -29,7 +29,7 @@
       "desc": "用于在聊天中录制并发送语音消息"
     },
     "scope.userLocation": {
-      "desc": "用于在聊天中选择并发送位置消息"
+      "desc": "用于选择校园面交地点及在聊天中发送位置消息"
     }
   },
   "requiredPrivateInfos": [

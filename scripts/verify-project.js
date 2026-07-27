@@ -2350,6 +2350,12 @@ async function verifyProductEditServiceFlow() {
                   categoryId: 'life',
                   condition: '九成新',
                   location: '图书馆南门',
+                  locationDetail: {
+                    name: '图书馆南门',
+                    address: '示例大学图书馆南侧公共区域',
+                    latitude: 31.2304,
+                    longitude: 121.4737
+                  },
                   images: [existingImage],
                   status: 'available'
                 },
@@ -2416,6 +2422,11 @@ async function verifyProductEditServiceFlow() {
       && loaded.product.images[0] === existingImage,
       'product-edit service did not normalize editable product data'
     );
+    assert(
+      loaded.product.locationDetail
+      && loaded.product.locationDetail.name === loaded.product.location,
+      'product-edit service did not preserve the editable map location'
+    );
 
     const draft = {
       title: '编辑后的商品',
@@ -2423,7 +2434,13 @@ async function verifyProductEditServiceFlow() {
       price: '29.90',
       categoryId: 'digital',
       condition: '八成新',
-      location: '实验楼大厅'
+      location: '实验楼大厅',
+      locationDetail: {
+        name: '实验楼大厅',
+        address: '示例大学实验楼一层公共大厅',
+        latitude: 31.231,
+        longitude: 121.474
+      }
     };
     const localImage = {
       tempFilePath: '<TEMP_ROOT>\\edit-new.jpg',
@@ -2460,7 +2477,8 @@ async function verifyProductEditServiceFlow() {
       && updateRequest.name === 'manageProduct'
       && updateRequest.data.product.images.length === 2
       && updateRequest.data.product.images[0] === existingImage
-      && updateRequest.data.product.video.fileID.endsWith('.mp4'),
+      && updateRequest.data.product.video.fileID.endsWith('.mp4')
+      && updateRequest.data.product.locationDetail.name === draft.location,
       'product-edit service did not preserve ordered images and upload the video'
     );
     assert(
@@ -2573,6 +2591,8 @@ async function verifyManageProductFunctionFlow() {
   const retainImage = 'cloud://test-env.bucket/products/u_owner/20260718/retain.jpg';
   const replaceOldImage = 'cloud://test-env.bucket/products/u_owner/20260718/replace-old.jpg';
   const replaceNewImage = 'cloud://test-env.bucket/products/u_owner/20260718/replace-new.jpg';
+  const legacyLocationImage = 'cloud://test-env.bucket/products/u_owner/20260718/legacy-location.jpg';
+  const modernLocationImage = 'cloud://test-env.bucket/products/u_owner/20260718/modern-location.jpg';
   const products = new Map([
     ['product-state', {
       _id: 'product-state',
@@ -2592,6 +2612,12 @@ async function verifyManageProductFunctionFlow() {
       categoryName: '生活',
       condition: '九成新',
       location: '图书馆南门',
+      locationDetail: {
+        name: '图书馆南门',
+        address: '示例大学图书馆南侧公共区域',
+        latitude: 31.2304,
+        longitude: 121.4737
+      },
       images: [ownerImageA, ownerImageB],
       coverImage: ownerImageA,
       video: {
@@ -2678,6 +2704,42 @@ async function verifyManageProductFunctionFlow() {
       location: '教学楼门口',
       images: [sharedImage],
       coverImage: sharedImage
+    }],
+    ['product-legacy-location', {
+      _id: 'product-legacy-location',
+      sellerOpenid: 'owner-openid',
+      sellerId: 'u_owner',
+      status: 'available',
+      version: 1,
+      title: '旧地点商品',
+      description: '只有地点字符串的旧商品描述',
+      price: 18,
+      categoryId: 'life',
+      condition: '八成新',
+      location: '旧图书馆门口',
+      images: [legacyLocationImage],
+      coverImage: legacyLocationImage
+    }],
+    ['product-modern-location', {
+      _id: 'product-modern-location',
+      sellerOpenid: 'owner-openid',
+      sellerId: 'u_owner',
+      status: 'available',
+      version: 1,
+      title: '新版地点商品',
+      description: '已有结构化地点的新版商品描述',
+      price: 28,
+      categoryId: 'life',
+      condition: '九成新',
+      location: '体育馆入口',
+      locationDetail: {
+        name: '体育馆入口',
+        address: '示例大学体育馆公共入口',
+        latitude: 31.231,
+        longitude: 121.474
+      },
+      images: [modernLocationImage],
+      coverImage: modernLocationImage
     }],
     ['product-foreign', {
       _id: 'product-foreign',
@@ -2849,6 +2911,145 @@ async function verifyManageProductFunctionFlow() {
       ),
       'manageProduct failed to return safe owner-only editable data'
     );
+    assert(
+      editable.data.product.locationDetail
+      && editable.data.product.locationDetail.name === '图书馆南门',
+      'manageProduct dropped a modern product location during edit loading'
+    );
+
+    const legacyEditable = await manageProductFunction.main({
+      action: 'getEditableProduct',
+      productId: 'product-legacy-location'
+    });
+    assert(
+      legacyEditable.success === true
+      && legacyEditable.data.product.location === '旧图书馆门口'
+      && legacyEditable.data.product.locationDetail === null,
+      'manageProduct cannot safely load a legacy string-only location'
+    );
+
+    const preservedLegacyLocation = await manageProductFunction.main({
+      action: 'updateProduct',
+      productId: 'product-legacy-location',
+      expectedVersion: 1,
+      mutationId: 'mut_legacy_location_keep_01',
+      product: {
+        title: '旧地点商品文字更新',
+        description: '只修改其他字段并继续保留旧地点字符串',
+        price: 19,
+        categoryId: 'life',
+        condition: '八成新',
+        location: '旧图书馆门口',
+        images: [legacyLocationImage]
+      }
+    });
+    assert(
+      preservedLegacyLocation.success === true
+      && products.get('product-legacy-location').location === '旧图书馆门口'
+      && products.get('product-legacy-location').locationDetail === null,
+      'manageProduct requires a migration when a legacy location was unchanged'
+    );
+
+    const changedLegacyLocationWithoutDetail = await manageProductFunction.main({
+      action: 'updateProduct',
+      productId: 'product-legacy-location',
+      expectedVersion: 2,
+      mutationId: 'mut_legacy_location_missing_02',
+      product: {
+        title: '旧地点商品文字更新',
+        description: '尝试只改变地点字符串但不提交结构化地点',
+        price: 19,
+        categoryId: 'life',
+        condition: '八成新',
+        location: '新图书馆南门',
+        images: [legacyLocationImage]
+      }
+    });
+    assert(
+      changedLegacyLocationWithoutDetail.success === false
+      && changedLegacyLocationWithoutDetail.code === 'INVALID_PRODUCT_FIELD'
+      && products.get('product-legacy-location').location === '旧图书馆门口',
+      'manageProduct accepts a changed legacy location without locationDetail'
+    );
+
+    const selectedLegacyLocation = await manageProductFunction.main({
+      action: 'updateProduct',
+      productId: 'product-legacy-location',
+      expectedVersion: 2,
+      mutationId: 'mut_legacy_location_select_03',
+      product: {
+        title: '旧地点商品文字更新',
+        description: '重新选择地图地点后保存结构化地点信息',
+        price: 19,
+        categoryId: 'life',
+        condition: '八成新',
+        location: '新图书馆南门',
+        locationDetail: {
+          name: '新图书馆南门',
+          address: '示例大学新图书馆南侧公共区域',
+          latitude: 31.232,
+          longitude: 121.475
+        },
+        images: [legacyLocationImage]
+      }
+    });
+    assert(
+      selectedLegacyLocation.success === true
+      && products.get('product-legacy-location').locationDetail.name
+        === '新图书馆南门',
+      'manageProduct did not store a newly selected location for a legacy product'
+    );
+
+    const preservedModernLocation = await manageProductFunction.main({
+      action: 'updateProduct',
+      productId: 'product-modern-location',
+      expectedVersion: 1,
+      mutationId: 'mut_modern_location_keep_01',
+      product: {
+        title: '新版地点商品文字更新',
+        description: '普通编辑时不应丢失已有结构化地点',
+        price: 29,
+        categoryId: 'life',
+        condition: '九成新',
+        location: '体育馆入口',
+        images: [modernLocationImage]
+      }
+    });
+    assert(
+      preservedModernLocation.success === true
+      && products.get('product-modern-location').locationDetail.address
+        === '示例大学体育馆公共入口',
+      'manageProduct dropped an existing locationDetail during ordinary editing'
+    );
+
+    const invalidModernLocation = await manageProductFunction.main({
+      action: 'updateProduct',
+      productId: 'product-modern-location',
+      expectedVersion: 2,
+      mutationId: 'mut_modern_location_invalid_02',
+      product: {
+        title: '新版地点商品文字更新',
+        description: '非法地点对象不应覆盖已有结构化地点',
+        price: 29,
+        categoryId: 'life',
+        condition: '九成新',
+        location: '体育馆入口',
+        locationDetail: {
+          name: '体育馆入口',
+          address: '示例大学体育馆公共入口',
+          latitude: 0,
+          longitude: 0
+        },
+        images: [modernLocationImage]
+      }
+    });
+    assert(
+      invalidModernLocation.success === false
+      && invalidModernLocation.code === 'INVALID_PRODUCT_FIELD'
+      && products.get('product-modern-location').locationDetail.latitude
+        === 31.231,
+      'manageProduct accepted an invalid location or damaged the stored location'
+    );
 
     const offline = await manageProductFunction.main({
       action: 'takeOffline',
@@ -2934,6 +3135,12 @@ async function verifyManageProductFunctionFlow() {
         categoryName: '伪造分类名',
         condition: '八成新',
         location: '实验楼大厅',
+        locationDetail: {
+          name: '实验楼大厅',
+          address: '示例大学实验楼一层公共大厅',
+          latitude: 31.231,
+          longitude: 121.474
+        },
         images: [ownerImageA, ownerImageC],
         video: {
           fileID: ownerVideoNew,
@@ -2951,6 +3158,7 @@ async function verifyManageProductFunctionFlow() {
       && updated.data.version === 2
       && products.get('product-edit').title === '更新后的商品标题'
       && products.get('product-edit').categoryName === '数码'
+      && products.get('product-edit').locationDetail.name === '实验楼大厅'
       && products.get('product-edit').video.fileID === ownerVideoNew
       && products.get('product-edit').status === 'available'
       && products.get('product-edit').sellerOpenid === 'owner-openid'
@@ -3303,6 +3511,17 @@ async function verifyPublishServiceFlow() {
       },
       callFunction({ name, data, success }) {
         functionRequests.push({ name, data });
+        if (functionMode === 'invalid-location') {
+          success({
+            result: {
+              success: false,
+              code: 'INVALID_LOCATION_DETAIL',
+              message: 'Error: raw cloud stack must not be displayed',
+              data: null
+            }
+          });
+          return;
+        }
         if (functionMode === 'failure') {
           success({
             result: {
@@ -3335,7 +3554,13 @@ async function verifyPublishServiceFlow() {
     price: '29.90',
     categoryId: 'life',
     condition: '九成新',
-    location: '图书馆南门'
+    location: '图书馆南门',
+    locationDetail: {
+      name: '图书馆南门',
+      address: '示例大学图书馆南侧公共区域',
+      latitude: 31.2304,
+      longitude: 121.4737
+    }
   };
   const localImages = [
     {
@@ -3359,6 +3584,20 @@ async function verifyPublishServiceFlow() {
   };
 
   try {
+    let missingLocationError;
+    try {
+      ProductPublishService.validateProductDraft(
+        Object.assign({}, draft, { locationDetail: null }),
+        localImages
+      );
+    } catch (error) {
+      missingLocationError = error;
+    }
+    assert(
+      missingLocationError && missingLocationError.code === 'LOCATION_REQUIRED',
+      'publish validation accepts a product without a selected map location'
+    );
+
     let missingImageError;
     try {
       ProductPublishService.validateProductDraft(draft, []);
@@ -3446,6 +3685,11 @@ async function verifyPublishServiceFlow() {
       && functionRequests[0].data.product.video.fileID.endsWith('.mp4'),
       'publish service did not send the complete product media payload'
     );
+    assert(
+      functionRequests[0].data.product.location === draft.location
+      && functionRequests[0].data.product.locationDetail.name === draft.location,
+      'publish service dropped or mismatched the selected map location'
+    );
     [
       'sellerId',
       'sellerOpenid',
@@ -3494,6 +3738,28 @@ async function verifyPublishServiceFlow() {
     ], 'u_test');
     assert(refusedForeignDelete === false, 'publish cleanup accepted another user directory');
     assert(deletedFileLists.length === 1, 'publish cleanup attempted to delete another user file');
+
+    functionMode = 'invalid-location';
+    let locationBusinessError;
+    try {
+      await ProductPublishService.publishProduct({
+        draft,
+        localImages,
+        localVideo,
+        userId: 'u_test',
+        requestId: 'req_verification_location_error',
+        pendingFileIds,
+        pendingVideoFileId
+      });
+    } catch (error) {
+      locationBusinessError = error;
+    }
+    assert(
+      locationBusinessError
+      && locationBusinessError.code === 'INVALID_LOCATION_DETAIL'
+      && locationBusinessError.message === '交易地点信息无效，请重新选择',
+      'publish service exposes a raw cloud error or lacks a friendly location error'
+    );
   } finally {
     if (originalWx === undefined) {
       delete global.wx;
@@ -3602,6 +3868,12 @@ async function verifyCreateProductFunctionFlow() {
       categoryId: 'life',
       condition: '九成新',
       location: '图书馆南门',
+      locationDetail: {
+        name: '图书馆南门',
+        address: '示例大学图书馆南侧公共区域',
+        latitude: 31.2304,
+        longitude: 121.4737
+      },
       images: [
         `cloud://test-env.bucket/products/${userId}/20260717/lamp.jpg`
       ],
@@ -3632,6 +3904,11 @@ async function verifyCreateProductFunctionFlow() {
     const storedProduct = products.get(created.data.productId);
     assert(storedProduct.price === 29.9 && typeof storedProduct.price === 'number', 'createProduct did not store a numeric price');
     assert(storedProduct.coverImage === validProduct.images[0], 'createProduct cover image is not the first cloud file');
+    assert(
+      storedProduct.location === validProduct.location
+      && storedProduct.locationDetail.name === validProduct.location,
+      'createProduct did not validate and store the selected map location'
+    );
     assert(
       storedProduct.images.length === 1
       && storedProduct.video.fileID === validProduct.video.fileID,
@@ -3712,6 +3989,112 @@ async function verifyCreateProductFunctionFlow() {
     assert(
       noVideo.success === true && noVideoRecord && noVideoRecord.video === null,
       'createProduct is not backward compatible with an image-only product'
+    );
+
+    const productCountBeforeInvalidLocations = products.size;
+    const invalidLocationCases = [
+      {
+        label: 'missing locationDetail',
+        patch: { locationDetail: undefined }
+      },
+      {
+        label: 'mismatched location name',
+        patch: {
+          locationDetail: Object.assign({}, validProduct.locationDetail, {
+            name: '体育馆入口'
+          })
+        }
+      },
+      {
+        label: 'out-of-range latitude',
+        patch: {
+          locationDetail: Object.assign({}, validProduct.locationDetail, {
+            latitude: 91
+          })
+        }
+      },
+      {
+        label: 'out-of-range longitude',
+        patch: {
+          locationDetail: Object.assign({}, validProduct.locationDetail, {
+            longitude: -181
+          })
+        }
+      },
+      {
+        label: 'zero coordinate pair',
+        patch: {
+          locationDetail: Object.assign({}, validProduct.locationDetail, {
+            latitude: 0,
+            longitude: 0
+          })
+        }
+      },
+      {
+        label: 'extra location field',
+        patch: {
+          locationDetail: Object.assign({}, validProduct.locationDetail, {
+            accuracy: 10
+          })
+        }
+      },
+      {
+        label: 'non-numeric coordinate',
+        patch: {
+          locationDetail: Object.assign({}, validProduct.locationDetail, {
+            latitude: '31.2304'
+          })
+        }
+      },
+      {
+        label: 'overlong address',
+        patch: {
+          locationDetail: Object.assign({}, validProduct.locationDetail, {
+            address: '地'.repeat(121)
+          })
+        }
+      }
+    ];
+    for (let index = 0; index < invalidLocationCases.length; index += 1) {
+      const testCase = invalidLocationCases[index];
+      const invalidLocation = await createProductFunction.main({
+        requestId: `req_server_location_invalid_${index}`,
+        product: Object.assign({}, validProduct, testCase.patch)
+      });
+      assert(
+        invalidLocation.success === false
+        && invalidLocation.code === 'INVALID_LOCATION_DETAIL'
+        && invalidLocation.message === '交易地点信息无效，请重新选择'
+        && invalidLocation.data === null
+        && !Object.prototype.hasOwnProperty.call(invalidLocation, 'stack'),
+        `createProduct accepts ${testCase.label} or exposes an unsafe error`
+      );
+    }
+    assert(
+      products.size === productCountBeforeInvalidLocations,
+      'createProduct wrote a product after invalid location validation'
+    );
+
+    const trimmedLocation = await createProductFunction.main({
+      requestId: 'req_server_location_trimmed_valid',
+      product: Object.assign({}, validProduct, {
+        location: '  图书馆南门  ',
+        locationDetail: Object.assign({}, validProduct.locationDetail, {
+          name: '  图书馆南门  ',
+          address: '  示例大学图书馆南侧  公共区域  '
+        })
+      })
+    });
+    const trimmedLocationRecord = products.get(
+      trimmedLocation.data && trimmedLocation.data.productId
+    );
+    assert(
+      trimmedLocation.success === true
+      && trimmedLocationRecord.location === '图书馆南门'
+      && trimmedLocationRecord.locationDetail.name === '图书馆南门'
+      && trimmedLocationRecord.locationDetail.address
+        === '示例大学图书馆南侧 公共区域',
+      'createProduct does not trim and store a valid location safely'
     );
 
     const embeddedUserFolder = await createProductFunction.main({
@@ -7312,6 +7695,9 @@ async function runAsyncChecks() {
   checks.push('PASS ProductPublishService validation, upload, idempotency and cleanup flow');
   await verifyCreateProductFunctionFlow();
   checks.push('PASS createProduct identity, protected fields, validation and idempotency flow');
+  const { verifyProductLocationFlow } = require('./verify-product-locations');
+  await verifyProductLocationFlow(root);
+  checks.push('PASS strict new-product map validation, legacy data editing and privacy boundaries');
   await verifyFavoriteProductFunctionFlow();
   checks.push('PASS favoriteProduct transactions, idempotency, status rules, pagination and privacy flow');
   await verifyUserQueryFunctionFlow();

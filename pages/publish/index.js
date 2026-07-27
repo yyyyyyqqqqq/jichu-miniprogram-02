@@ -4,6 +4,7 @@ const AuthGuard = require('../../services/auth-guard');
 const NavigationService = require('../../services/navigation-service');
 const ProductPublishService = require('../../services/product-publish-service');
 const ProductFormService = require('../../services/product-form-service');
+const LocationService = require('../../services/location-service');
 const {
   PRODUCT_PUBLISH_LIMITS,
   PRODUCT_CONDITIONS,
@@ -26,12 +27,14 @@ Page({
     categoryId: '',
     condition: '',
     location: '',
+    locationDetail: null,
     images: [],
     video: null,
     maxImages: PRODUCT_PUBLISH_LIMITS.MAX_IMAGES,
     maxVideoSizeMb: PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_SIZE / (1024 * 1024),
     maxVideoDuration: PRODUCT_PUBLISH_LIMITS.MAX_VIDEO_DURATION,
     isSubmitting: false,
+    isChoosingLocation: false,
     submitStage: '',
     outcomeUnknown: false
   },
@@ -111,9 +114,31 @@ Page({
     }
   },
 
-  onLocationInput(event) {
-    if (!this.isFormLocked()) {
-      this.setData({ location: event.detail.value });
+  async onChooseLocation() {
+    if (this.isFormLocked() || this.data.isChoosingLocation) {
+      return;
+    }
+    this.setData({ isChoosingLocation: true });
+    try {
+      const result = await LocationService.chooseLocation();
+      if (!this.isPageActive || result.cancelled) {
+        return;
+      }
+      this.setData({
+        location: result.location.name,
+        locationDetail: result.location
+      });
+    } catch (error) {
+      if (this.isPageActive) {
+        wx.showToast({
+          title: LocationService.getErrorMessage(error),
+          icon: 'none'
+        });
+      }
+    } finally {
+      if (this.isPageActive) {
+        this.setData({ isChoosingLocation: false });
+      }
     }
   },
 
@@ -298,6 +323,7 @@ Page({
       categoryId: '',
       condition: '',
       location: '',
+      locationDetail: null,
       images: [],
       video: null,
       submitStage: '',

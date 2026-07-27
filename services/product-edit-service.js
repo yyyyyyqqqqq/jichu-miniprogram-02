@@ -222,6 +222,10 @@ async function getEditableProduct(productId) {
   ) {
     throw createError('INVALID_RESPONSE');
   }
+  const location = typeof product.location === 'string' ? product.location : '';
+  const locationDetail = ProductPublishService.normalizeLocationDetail(
+    product.locationDetail
+  );
 
   return {
     product: {
@@ -237,7 +241,10 @@ async function getEditableProduct(productId) {
       condition: typeof product.condition === 'string'
         ? product.condition
         : '',
-      location: typeof product.location === 'string' ? product.location : '',
+      location,
+      locationDetail: locationDetail && locationDetail.name === location.trim()
+        ? locationDetail
+        : null,
       images: product.images.slice(),
       video: normalizeEditableVideo(product.video),
       status: product.status

@@ -85,7 +85,7 @@
 
     <button
       wx:if="{{showProfileForm}}"
-      class="wechat-login-button"
+      class="wechat-login-button {{isEditing ? 'wechat-login-button--profile-save' : ''}}"
       loading="{{isSubmitting || isLoggingIn || isUpdatingProfile}}"
       disabled="{{isSubmitting || isLoggingIn || isUpdatingProfile || isReturning}}"
       bindtap="onLoginTap"

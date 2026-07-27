@@ -5,6 +5,7 @@ const NavigationService = require('../../services/navigation-service');
 const ProductEditService = require('../../services/product-edit-service');
 const ProductFormService = require('../../services/product-form-service');
 const ProductPublishService = require('../../services/product-publish-service');
+const LocationService = require('../../services/location-service');
 const {
   ROUTES,
   AUTH_TARGETS
@@ -26,6 +27,7 @@ Page({
     categoryId: '',
     condition: '',
     location: '',
+    locationDetail: null,
     images: [],
     video: null,
     maxImages: ProductFormService.PRODUCT_PUBLISH_LIMITS.MAX_IMAGES,
@@ -34,6 +36,7 @@ Page({
     productStatus: '',
     version: 0,
     isSubmitting: false,
+    isChoosingLocation: false,
     submitStage: '',
     outcomeUnknown: false
   },
@@ -176,6 +179,7 @@ Page({
         categoryId: product.categoryId,
         condition: product.condition,
         location: product.location,
+        locationDetail: product.locationDetail,
         images,
         video,
         productStatus: product.status,
@@ -237,8 +241,32 @@ Page({
     this.updateForm({ price: event.detail.value });
   },
 
-  onLocationInput(event) {
-    this.updateForm({ location: event.detail.value });
+  async onChooseLocation() {
+    if (this.isFormLocked() || this.data.isChoosingLocation) {
+      return;
+    }
+    this.setData({ isChoosingLocation: true });
+    try {
+      const result = await LocationService.chooseLocation();
+      if (!this.isPageActive || result.cancelled) {
+        return;
+      }
+      this.updateForm({
+        location: result.location.name,
+        locationDetail: result.location
+      });
+    } catch (error) {
+      if (this.isPageActive) {
+        wx.showToast({
+          title: LocationService.getErrorMessage(error),
+          icon: 'none'
+        });
+      }
+    } finally {
+      if (this.isPageActive) {
+        this.setData({ isChoosingLocation: false });
+      }
+    }
   },
 
   onCategoryTap(event) {

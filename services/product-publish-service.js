@@ -1,5 +1,6 @@
 const { CLOUD_CONFIG } = require('../config/cloud');
 const CloudService = require('./cloud-service');
+const LocationService = require('./location-service');
 const {
   PRODUCT_PUBLISH_LIMITS,
   PRODUCT_CONDITIONS,
@@ -41,8 +42,10 @@ const ERROR_MESSAGES = {
   PRICE_TOO_LARGE: '商品价格不能超过 999999.99 元',
   CATEGORY_REQUIRED: '请选择商品分类',
   CONDITION_REQUIRED: '请选择新旧程度',
-  LOCATION_REQUIRED: '请填写交易地点',
+  LOCATION_REQUIRED: '请选择交易地点',
   LOCATION_LENGTH_INVALID: '交易地点应为 2～80 个字符',
+  LOCATION_DETAIL_INVALID: '所选交易地点信息不完整，请重新选择',
+  INVALID_LOCATION_DETAIL: '交易地点信息无效，请重新选择',
   IMAGE_REQUIRED: '请至少选择一张商品图片',
   IMAGE_COUNT_INVALID: '商品图片最多选择 6 张',
   IMAGE_TYPE_INVALID: '请选择有效的图片文件',
@@ -117,7 +120,11 @@ function validatePrice(value) {
   return price;
 }
 
-function validateProductFields(draft) {
+function normalizeLocationDetail(value) {
+  return LocationService.normalizeLocation(value);
+}
+
+function validateProductFields(draft, options = {}) {
   const value = draft && typeof draft === 'object' ? draft : {};
   const title = normalizeText(value.title);
   if (!title) {
@@ -162,6 +169,20 @@ function validateProductFields(draft) {
   ) {
     throw createError('LOCATION_LENGTH_INVALID');
   }
+  const locationDetail = normalizeLocationDetail(value.locationDetail);
+  if (
+    value.locationDetail !== undefined
+    && value.locationDetail !== null
+    && !locationDetail
+  ) {
+    throw createError('LOCATION_DETAIL_INVALID');
+  }
+  if (options.requireLocationDetail === true && !locationDetail) {
+    throw createError('LOCATION_REQUIRED');
+  }
+  if (locationDetail && locationDetail.name !== location) {
+    throw createError('LOCATION_DETAIL_INVALID');
+  }
 
   return {
     title,
@@ -170,7 +191,8 @@ function validateProductFields(draft) {
     categoryId,
     categoryName,
     condition,
-    location
+    location,
+    locationDetail
   };
 }
 
@@ -257,7 +279,9 @@ function validateLocalVideo(localVideo, options = {}) {
 }
 
 function validateProductDraft(draft, localImages, localVideo) {
-  const normalized = validateProductFields(draft);
+  const normalized = validateProductFields(draft, {
+    requireLocationDetail: true
+  });
   validateLocalImages(localImages);
   validateLocalVideo(localVideo);
   return normalized;
@@ -753,7 +777,7 @@ async function callCreateProduct(data) {
         throw createError('INVALID_RESPONSE');
       }
       if (!payload.success) {
-        throw createError(payload.code || 'UNKNOWN_ERROR', payload.message);
+        throw createError(payload.code || 'UNKNOWN_ERROR');
       }
       const productId = payload.data && typeof payload.data.productId === 'string'
         ? payload.data.productId
@@ -903,6 +927,7 @@ async function publishProduct(options = {}) {
 module.exports = {
   ProductPublishError,
   createSubmissionId,
+  normalizeLocationDetail,
   validateProductFields,
   validateLocalImages,
   validateLocalVideo,

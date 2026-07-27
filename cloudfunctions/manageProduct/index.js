@@ -16,6 +16,8 @@ const MAX_IMAGES = 6;
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 const MAX_VIDEO_DURATION = 60;
 const MAX_VIDEO_DIMENSION = 16384;
+const MAX_LOCATION_NAME_LENGTH = 80;
+const MAX_LOCATION_ADDRESS_LENGTH = 120;
 const MAX_PRICE = 999999.99;
 const CATEGORY_MAP = {
   digital: '数码',
@@ -50,6 +52,7 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'categoryName',
   'condition',
   'location',
+  'locationDetail',
   'images',
   'video'
 ]);
@@ -60,6 +63,12 @@ const VIDEO_FIELDS = new Set([
   'width',
   'height',
   'size'
+]);
+const LOCATION_DETAIL_FIELDS = new Set([
+  'name',
+  'address',
+  'latitude',
+  'longitude'
 ]);
 
 const ACTIONS = {
@@ -175,6 +184,45 @@ function normalizeText(value) {
 
 function normalizeDescription(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeLocationDetail(value, location) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (
+    typeof value !== 'object'
+    || Array.isArray(value)
+    || Object.keys(value).some((field) => !LOCATION_DETAIL_FIELDS.has(field))
+  ) {
+    return undefined;
+  }
+  const name = normalizeText(value.name);
+  const address = normalizeText(value.address);
+  const latitude = typeof value.latitude === 'number' ? value.latitude : NaN;
+  const longitude = typeof value.longitude === 'number' ? value.longitude : NaN;
+  if (
+    !name
+    || name !== location
+    || name.length > MAX_LOCATION_NAME_LENGTH
+    || !address
+    || address.length > MAX_LOCATION_ADDRESS_LENGTH
+    || !Number.isFinite(latitude)
+    || latitude < -90
+    || latitude > 90
+    || !Number.isFinite(longitude)
+    || longitude < -180
+    || longitude > 180
+    || (latitude === 0 && longitude === 0)
+  ) {
+    return undefined;
+  }
+  return {
+    name,
+    address,
+    latitude,
+    longitude
+  };
 }
 
 function isValidPrice(value) {
@@ -345,6 +393,11 @@ function assertProductAccess(product, openId) {
 
 function toEditableProduct(product) {
   const video = normalizeVideo(product.video, product.sellerId);
+  const location = normalizeText(product.location);
+  const locationDetail = normalizeLocationDetail(
+    product.locationDetail,
+    location
+  );
   return {
     id: String(product._id || ''),
     title: product.title,
@@ -352,14 +405,15 @@ function toEditableProduct(product) {
     price: product.price,
     categoryId: product.categoryId,
     condition: product.condition,
-    location: product.location,
+    location,
+    locationDetail: locationDetail === undefined ? null : locationDetail,
     images: normalizeStoredImages(product),
     video: video === undefined ? null : video,
     status: product.status
   };
 }
 
-function validateProductUpdate(value, userId) {
+function validateProductUpdate(value, userId, existingProduct) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     businessError(ERROR_CODES.INVALID_PRODUCT_FIELD, '商品信息格式不正确');
   }
@@ -375,8 +429,30 @@ function validateProductUpdate(value, userId) {
   const categoryName = CATEGORY_MAP[categoryId];
   const condition = normalizeText(value.condition);
   const location = normalizeText(value.location);
+  const existingLocation = normalizeText(
+    existingProduct && existingProduct.location
+  );
+  const locationChanged = location !== existingLocation;
+  const requestedLocationDetail = normalizeLocationDetail(
+    value.locationDetail,
+    location
+  );
+  const existingLocationDetail = normalizeLocationDetail(
+    existingProduct && existingProduct.locationDetail,
+    existingLocation
+  );
   const images = normalizeImages(value.images, userId);
   const video = normalizeVideo(value.video, userId);
+
+  if (
+    requestedLocationDetail === undefined
+    || (locationChanged && requestedLocationDetail === null)
+  ) {
+    businessError(
+      ERROR_CODES.INVALID_PRODUCT_FIELD,
+      '交易地点信息无效，请重新选择'
+    );
+  }
 
   if (
     title.length < 2
@@ -416,6 +492,9 @@ function validateProductUpdate(value, userId) {
     coverLabel: title.slice(0, 4),
     coverTone: CATEGORY_TONES[categoryId] || 'mint',
     location,
+    locationDetail: requestedLocationDetail === null
+      ? (existingLocationDetail === undefined ? null : existingLocationDetail)
+      : requestedLocationDetail,
     distanceText: '校内面交',
     tags: []
   };
@@ -547,7 +626,11 @@ async function updateProduct(productId, openId, request) {
       );
     }
 
-    const updateData = validateProductUpdate(request.product, product.sellerId);
+    const updateData = validateProductUpdate(
+      request.product,
+      product.sellerId,
+      product
+    );
     const oldMediaFiles = normalizeCleanupFiles(
       normalizeStoredImages(product).concat(getVideoFiles(product.video))
     );

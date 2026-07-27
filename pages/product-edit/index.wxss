@@ -22,3 +22,10 @@
   line-height: 1.6;
   text-align: center;
 }
+
+.location-selector__legacy {
+  margin-top: 7rpx;
+  color: #9a7b43;
+  font-size: 21rpx;
+  line-height: 1.45;
+}

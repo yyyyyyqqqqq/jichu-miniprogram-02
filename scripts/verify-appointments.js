@@ -1091,6 +1091,10 @@ async function verifyAppointmentFlow(root) {
       path.join(root, 'pages/location-picker/index.js'),
       'utf8'
     );
+    const locationServiceSource = fs.readFileSync(
+      path.join(root, 'services/location-service.js'),
+      'utf8'
+    );
     const createPageSource = fs.readFileSync(
       path.join(root, 'pages/appointment-create/index.js'),
       'utf8'
@@ -1116,8 +1120,9 @@ async function verifyAppointmentFlow(root) {
       'utf8'
     );
     assert(
-      locationPickerSource.includes('wx.chooseLocation')
-      && locationPickerSource.includes("message.includes('cancel')")
+      locationPickerSource.includes('LocationService.chooseLocation')
+      && locationServiceSource.includes('wx.chooseLocation')
+      && locationServiceSource.includes("message.includes('cancel')")
       && createPageSource.includes('locationSelected')
       && !createPageSource.includes('latitude: 0')
       && !createPageSource.includes('longitude: 0'),
