@@ -60,6 +60,8 @@ const CLOUD_CONFIG = {
   appointmentQueryTimeoutMs: 15000,
   appointmentActionFunctionName: 'appointmentAction',
   appointmentActionTimeoutMs: 15000,
+  schoolQueryFunctionName: 'schoolQuery',
+  schoolQueryTimeoutMs: 15000,
   productImageValidationTimeoutMs: 5000,
   productUploadTimeoutMs: 30000,
   productVideoUploadTimeoutMs: 120000,

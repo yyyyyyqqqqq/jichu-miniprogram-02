@@ -1,0 +1,38 @@
+[
+  {
+    "_id": "s_0700d6147d46d645ca4ef8dcff6d8fea",
+    "name": "测试大学甲",
+    "nameNormalized": "测试大学甲",
+    "officialCode": "9900000001",
+    "province": "北京市",
+    "city": "北京市",
+    "educationLevel": "本科",
+    "authority": "测试主管部门",
+    "remark": "",
+    "sourceYear": 2026,
+    "sourceVersion": "测试 fixture",
+    "dataSource": "FIXTURE",
+    "sourceRow": 1,
+    "officialStatus": "valid",
+    "platformStatus": "active",
+    "fixtureOnly": true
+  },
+  {
+    "_id": "s_1851e43982f9f0bf09cc3502d128ca48",
+    "name": "测试职业学院乙",
+    "nameNormalized": "测试职业学院乙",
+    "officialCode": "9900000002",
+    "province": "广东省",
+    "city": "广州市",
+    "educationLevel": "专科",
+    "authority": "测试主管部门",
+    "remark": "",
+    "sourceYear": 2026,
+    "sourceVersion": "测试 fixture",
+    "dataSource": "FIXTURE",
+    "sourceRow": 2,
+    "officialStatus": "valid",
+    "platformStatus": "active",
+    "fixtureOnly": true
+  }
+]

@@ -4,6 +4,12 @@
   "private": true,
   "description": "即出——校园闲置物品线下面交平台",
   "scripts": {
+    "schools:build": "node scripts/schools/build.js",
+    "schools:dry-run": "node scripts/schools/import.js --local-only",
+    "schools:verify": "node scripts/verify-schools.js",
     "verify": "node scripts/verify-project.js"
+  },
+  "dependencies": {
+    "@e965/xlsx": "0.20.3"
   }
 }

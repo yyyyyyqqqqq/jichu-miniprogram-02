@@ -7747,6 +7747,18 @@ async function runAsyncChecks() {
   checks.push('PASS AvatarService decoding, size, type and user-scoped upload flow');
   await verifyAuthStateFlow();
   checks.push('PASS AuthStore bootstrap, login, profile update, cache, concurrency and logout flow');
+  const { verifySchoolFlow } = require('./verify-schools');
+  const schoolResult = await verifySchoolFlow(root);
+  assert(schoolResult.source, 'school source verification did not finish');
+  checks.push('PASS official XLS source inspection, immutable parsing and complete data profile');
+  assert(schoolResult.normalization, 'school normalization verification did not finish');
+  checks.push('PASS school normalization, deterministic IDs, stable outputs and P0/P1 validation');
+  assert(schoolResult.import, 'school import verification did not finish');
+  checks.push('PASS school dry-run, confirmation gate, idempotent import and operations-field preservation');
+  assert(schoolResult.query, 'school query verification did not finish');
+  checks.push('PASS schoolQuery active-only list, prefix/code search, stable cursors and safe detail fields');
+  assert(schoolResult.service, 'school service verification did not finish');
+  checks.push('PASS SchoolService parameter, response and error normalization without user binding');
 }
 
 runAsyncChecks()

@@ -1,0 +1,28 @@
+{
+  "mode": "apply",
+  "target": "cloud:cloud1***6d8e",
+  "batchId": "school-import-2026-863404a90d6f-cf69adbecbed",
+  "sourceYear": 2026,
+  "sourceSha256": "863404a90d6faed6ea2ea4c45df0c9e44e42378933893a9be7594d084a32d437",
+  "planned": {
+    "sourceRecords": 2952,
+    "additionsBeforeFinalRun": 2850,
+    "updates": 0,
+    "alreadyPresentFromSameValidatedBatch": 102
+  },
+  "result": {
+    "insertedBeforeFinalRun": 102,
+    "insertedInFinalRun": 2850,
+    "totalMatchingAfterImport": 2952,
+    "updated": 0,
+    "failed": 0,
+    "failures": [],
+    "postImportDryRun": {
+      "additions": 0,
+      "updates": 0,
+      "identical": 2952,
+      "conflicts": 0,
+      "invalid": 0
+    }
+  }
+}

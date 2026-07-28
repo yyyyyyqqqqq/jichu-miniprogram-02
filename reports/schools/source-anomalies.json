@@ -1,0 +1,29 @@
+{
+  "sourceSha256": "863404a90d6faed6ea2ea4c45df0c9e44e42378933893a9be7594d084a32d437",
+  "normalizationErrors": [],
+  "validationP0": [],
+  "validationP1": [],
+  "anomalies": {
+    "abnormalWhitespaceRows": [
+      1370
+    ],
+    "fullWidthDifferenceRows": [
+      56,
+      57,
+      58,
+      102,
+      758,
+      1396,
+      1753,
+      2096,
+      2097,
+      2100,
+      2114,
+      2411
+    ],
+    "invisibleCharacterRows": [],
+    "provinceSectionMismatches": [],
+    "suspiciousNonSchoolRows": []
+  },
+  "excludedRecords": []
+}

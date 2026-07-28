@@ -1,0 +1,592 @@
+{
+  "generatedFrom": "list of universities.xls",
+  "sourceSha256": "863404a90d6faed6ea2ea4c45df0c9e44e42378933893a9be7594d084a32d437",
+  "inspection": {
+    "file": {
+      "name": "list of universities.xls",
+      "size": 464896,
+      "sha256": "863404a90d6faed6ea2ea4c45df0c9e44e42378933893a9be7594d084a32d437",
+      "format": "OLE Compound File / Excel 97-2003 BIFF (.xls)",
+      "signature": "D0CF11E0A1B11AE1",
+      "sourcePage": "https://www.moe.gov.cn/jyb_xxgk/s5743/s5744/202606/t20260618_1441074.html",
+      "sourceDownload": "https://www.moe.gov.cn/jyb_xxgk/s5743/s5744/202606/W020260618416094865984.xls"
+    },
+    "workbook": {
+      "sheetCount": 1,
+      "sheetNames": [
+        "全国普通高等学校名单"
+      ],
+      "hiddenSheetCount": 0,
+      "hasFormulas": false,
+      "hasMerges": true,
+      "hasComments": false,
+      "hasDetectedImages": false,
+      "properties": {
+        "application": "WPS 表格",
+        "author": "z",
+        "lastAuthor": "zjy",
+        "createdDate": "2016-05-04T12:35:49Z",
+        "modifiedDate": "2026-06-18T03:27:17Z"
+      }
+    },
+    "sheets": [
+      {
+        "name": "全国普通高等学校名单",
+        "hidden": false,
+        "ref": "A1:G2986",
+        "rowCount": 2986,
+        "columnCount": 7,
+        "headerRow": 3,
+        "dataStartRow": 5,
+        "dataEndRow": 2986,
+        "trailingRows": 0,
+        "emptyRows": 0,
+        "partialRows": 2129,
+        "merges": [
+          "A2879:G2879",
+          "A2893:G2893",
+          "A2918:G2918",
+          "A2401:G2401",
+          "A2548:G2548",
+          "A2629:G2629",
+          "A2721:G2721",
+          "A2730:G2730",
+          "A2829:G2829",
+          "A1747:G1747",
+          "A1882:G1882",
+          "A2031:G2031",
+          "A2199:G2199",
+          "A2293:G2293",
+          "A2323:G2323",
+          "A941:G941",
+          "A1053:G1053",
+          "A1180:G1180",
+          "A1271:G1271",
+          "A1392:G1392",
+          "A1564:G1564",
+          "A373:G373",
+          "A428:G428",
+          "A544:G544",
+          "A613:G613",
+          "A695:G695",
+          "A765:G765",
+          "A1:G1",
+          "A2:G2",
+          "A4:G4",
+          "A97:G97",
+          "A154:G154",
+          "A288:G288"
+        ],
+        "formulaCount": 0,
+        "formulas": [],
+        "commentCount": 0,
+        "comments": [],
+        "imageCount": 0,
+        "imageDetection": "SheetJS cell model; embedded BIFF drawings are not surfaced when absent from !images",
+        "typeDistribution": {
+          "s": 12768,
+          "z": 2294,
+          "n": 5840
+        },
+        "first20Rows": [
+          [
+            "附件1：",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          [
+            "全国普通高等学校名单\n（截至2026年6月17日）",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          [
+            "序号",
+            "学校名称",
+            "学校标识码",
+            "主管部门",
+            "所在地",
+            "办学层次",
+            "备注"
+          ],
+          [
+            "北京市（92所）",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          [
+            1,
+            "北京大学",
+            4111010001,
+            "教育部",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            2,
+            "中国人民大学",
+            4111010002,
+            "教育部",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            3,
+            "清华大学",
+            4111010003,
+            "教育部",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            4,
+            "北京交通大学",
+            4111010004,
+            "教育部",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            5,
+            "北京工业大学",
+            4111010005,
+            "北京市",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            6,
+            "北京航空航天大学",
+            4111010006,
+            "工业和信息化部",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            7,
+            "北京理工大学",
+            4111010007,
+            "工业和信息化部",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            8,
+            "北京科技大学",
+            4111010008,
+            "教育部",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            9,
+            "北方工业大学",
+            4111010009,
+            "北京市",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            10,
+            "北京化工大学",
+            4111010010,
+            "教育部",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            11,
+            "北京工商大学",
+            4111010011,
+            "北京市",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            12,
+            "北京服装学院",
+            4111010012,
+            "北京市",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            13,
+            "北京邮电大学",
+            4111010013,
+            "教育部",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            14,
+            "北京印刷学院",
+            4111010015,
+            "北京市",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            15,
+            "北京建筑大学",
+            4111010016,
+            "北京市",
+            "北京市",
+            "本科",
+            null
+          ],
+          [
+            16,
+            "北京石油化工学院",
+            4111010017,
+            "北京市",
+            "北京市",
+            "本科",
+            null
+          ]
+        ]
+      }
+    ]
+  },
+  "profile": {
+    "sourceRecordCount": 2952,
+    "includedRecords": 2952,
+    "excludedRecords": 0,
+    "excludedReasons": {},
+    "schoolTypes": {
+      "ordinaryHigherEducation": 2952,
+      "adultHigherEducation": 0,
+      "note": "附件1仅包含全国普通高等学校；成人高校位于官方公告的独立附件2，未混入本源文件"
+    },
+    "educationLevels": {
+      "本科": 1412,
+      "专科": 1540
+    },
+    "provinceCounts": {
+      "安徽省": 126,
+      "北京市": 92,
+      "重庆市": 77,
+      "福建省": 90,
+      "甘肃省": 49,
+      "广东省": 167,
+      "广西壮族自治区": 93,
+      "贵州省": 80,
+      "海南省": 29,
+      "河北省": 133,
+      "河南省": 182,
+      "黑龙江省": 81,
+      "湖北省": 134,
+      "湖南省": 148,
+      "吉林省": 68,
+      "江苏省": 175,
+      "江西省": 120,
+      "辽宁省": 115,
+      "内蒙古自治区": 54,
+      "宁夏回族自治区": 24,
+      "青海省": 13,
+      "山东省": 171,
+      "山西省": 84,
+      "陕西省": 98,
+      "上海市": 69,
+      "四川省": 146,
+      "天津市": 56,
+      "西藏自治区": 8,
+      "新疆维吾尔自治区": 68,
+      "云南省": 91,
+      "浙江省": 111
+    },
+    "cityFieldPresent": true,
+    "officialCodePresent": true,
+    "officialCodeFormats": {
+      "digits:10": 2952
+    },
+    "missing": {
+      "name": 0,
+      "officialCode": 0,
+      "province": 0,
+      "city": 0,
+      "authority": 0,
+      "educationLevel": 0
+    },
+    "duplicates": {
+      "officialCode": 0,
+      "name": 0,
+      "sameNameDifferentCode": 0,
+      "sameCodeDifferentName": 0
+    },
+    "anomalies": {
+      "abnormalWhitespaceRows": [
+        1370
+      ],
+      "fullWidthDifferenceRows": [
+        56,
+        57,
+        58,
+        102,
+        758,
+        1396,
+        1753,
+        2096,
+        2097,
+        2100,
+        2114,
+        2411
+      ],
+      "invisibleCharacterRows": [],
+      "provinceSectionMismatches": [],
+      "suspiciousNonSchoolRows": []
+    },
+    "remarks": {
+      "nonEmptyCount": 856,
+      "values": {
+        "境外高等教育机构在海南自由贸易港设立的实施理工农医类学科专业教育的学校": 2,
+        "民办": 840,
+        "中外合作办学及内地与港澳合作办学": 14
+      }
+    }
+  },
+  "provinceSections": [
+    {
+      "province": "北京市",
+      "expectedCount": 92,
+      "observedCount": 92,
+      "matches": true,
+      "endRow": 96
+    },
+    {
+      "province": "天津市",
+      "expectedCount": 56,
+      "observedCount": 56,
+      "matches": true,
+      "endRow": 153
+    },
+    {
+      "province": "河北省",
+      "expectedCount": 133,
+      "observedCount": 133,
+      "matches": true,
+      "endRow": 287
+    },
+    {
+      "province": "山西省",
+      "expectedCount": 84,
+      "observedCount": 84,
+      "matches": true,
+      "endRow": 372
+    },
+    {
+      "province": "内蒙古自治区",
+      "expectedCount": 54,
+      "observedCount": 54,
+      "matches": true,
+      "endRow": 427
+    },
+    {
+      "province": "辽宁省",
+      "expectedCount": 115,
+      "observedCount": 115,
+      "matches": true,
+      "endRow": 543
+    },
+    {
+      "province": "吉林省",
+      "expectedCount": 68,
+      "observedCount": 68,
+      "matches": true,
+      "endRow": 612
+    },
+    {
+      "province": "黑龙江省",
+      "expectedCount": 81,
+      "observedCount": 81,
+      "matches": true,
+      "endRow": 694
+    },
+    {
+      "province": "上海市",
+      "expectedCount": 69,
+      "observedCount": 69,
+      "matches": true,
+      "endRow": 764
+    },
+    {
+      "province": "江苏省",
+      "expectedCount": 175,
+      "observedCount": 175,
+      "matches": true,
+      "endRow": 940
+    },
+    {
+      "province": "浙江省",
+      "expectedCount": 111,
+      "observedCount": 111,
+      "matches": true,
+      "endRow": 1052
+    },
+    {
+      "province": "安徽省",
+      "expectedCount": 126,
+      "observedCount": 126,
+      "matches": true,
+      "endRow": 1179
+    },
+    {
+      "province": "福建省",
+      "expectedCount": 90,
+      "observedCount": 90,
+      "matches": true,
+      "endRow": 1270
+    },
+    {
+      "province": "江西省",
+      "expectedCount": 120,
+      "observedCount": 120,
+      "matches": true,
+      "endRow": 1391
+    },
+    {
+      "province": "山东省",
+      "expectedCount": 171,
+      "observedCount": 171,
+      "matches": true,
+      "endRow": 1563
+    },
+    {
+      "province": "河南省",
+      "expectedCount": 182,
+      "observedCount": 182,
+      "matches": true,
+      "endRow": 1746
+    },
+    {
+      "province": "湖北省",
+      "expectedCount": 134,
+      "observedCount": 134,
+      "matches": true,
+      "endRow": 1881
+    },
+    {
+      "province": "湖南省",
+      "expectedCount": 148,
+      "observedCount": 148,
+      "matches": true,
+      "endRow": 2030
+    },
+    {
+      "province": "广东省",
+      "expectedCount": 167,
+      "observedCount": 167,
+      "matches": true,
+      "endRow": 2198
+    },
+    {
+      "province": "广西壮族自治区",
+      "expectedCount": 93,
+      "observedCount": 93,
+      "matches": true,
+      "endRow": 2292
+    },
+    {
+      "province": "海南省",
+      "expectedCount": 29,
+      "observedCount": 29,
+      "matches": true,
+      "endRow": 2322
+    },
+    {
+      "province": "重庆市",
+      "expectedCount": 77,
+      "observedCount": 77,
+      "matches": true,
+      "endRow": 2400
+    },
+    {
+      "province": "四川省",
+      "expectedCount": 146,
+      "observedCount": 146,
+      "matches": true,
+      "endRow": 2547
+    },
+    {
+      "province": "贵州省",
+      "expectedCount": 80,
+      "observedCount": 80,
+      "matches": true,
+      "endRow": 2628
+    },
+    {
+      "province": "云南省",
+      "expectedCount": 91,
+      "observedCount": 91,
+      "matches": true,
+      "endRow": 2720
+    },
+    {
+      "province": "西藏自治区",
+      "expectedCount": 8,
+      "observedCount": 8,
+      "matches": true,
+      "endRow": 2729
+    },
+    {
+      "province": "陕西省",
+      "expectedCount": 98,
+      "observedCount": 98,
+      "matches": true,
+      "endRow": 2828
+    },
+    {
+      "province": "甘肃省",
+      "expectedCount": 49,
+      "observedCount": 49,
+      "matches": true,
+      "endRow": 2878
+    },
+    {
+      "province": "青海省",
+      "expectedCount": 13,
+      "observedCount": 13,
+      "matches": true,
+      "endRow": 2892
+    },
+    {
+      "province": "宁夏回族自治区",
+      "expectedCount": 24,
+      "observedCount": 24,
+      "matches": true,
+      "endRow": 2917
+    },
+    {
+      "province": "新疆维吾尔自治区",
+      "expectedCount": 68,
+      "observedCount": 68,
+      "matches": true,
+      "endRow": 2986
+    }
+  ]
+}
