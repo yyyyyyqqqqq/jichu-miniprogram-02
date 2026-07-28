@@ -138,7 +138,17 @@ function buildFindCommand(skip, limit = QUERY_PAGE_SIZE) {
         sourceYear: 1,
         sourceVersion: 1,
         sourceRow: 1,
-        remark: 1
+        note: 1,
+        remark: 1,
+        platformStatusPrevious: 1,
+        platformStatusReason: 1,
+        platformStatusOperationId: 1,
+        platformStatusToolVersion: 1,
+        platformStatusUpdatedAt: 1,
+        activatedAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        lastSeenAt: 1
       },
       sort: { _id: 1 },
       skip,
@@ -279,6 +289,51 @@ function buildOfficialUpdate(record) {
   };
 }
 
+function buildPlatformStatusUpdateCommand(changes, operation) {
+  if (!Array.isArray(changes) || changes.length < 1 || changes.length > 2) {
+    const error = new Error('platform status update requires one or two explicit schools');
+    error.code = 'STATUS_BATCH_LIMIT';
+    throw error;
+  }
+  return {
+    TableName: COLLECTION,
+    CommandType: 'UPDATE',
+    Command: JSON.stringify({
+      update: COLLECTION,
+      updates: changes.map((change) => ({
+        q: {
+          _id: change.schoolId,
+          officialCode: change.officialCode,
+          officialStatus: change.officialStatus,
+          platformStatus: change.fromStatus
+        },
+        u: {
+          $set: {
+            platformStatus: operation.status,
+            platformStatusPrevious: change.fromStatus,
+            platformStatusReason: operation.reason,
+            platformStatusOperationId: operation.operationId,
+            platformStatusToolVersion: operation.toolVersion
+          },
+          $currentDate: {
+            updatedAt: true,
+            platformStatusUpdatedAt: true,
+            ...(operation.status === 'active' ? { activatedAt: true } : {})
+          }
+        },
+        multi: false,
+        upsert: false
+      })),
+      ordered: true
+    })
+  };
+}
+
+function applyPlatformStatusOperation(environmentId, changes, operation) {
+  const command = buildPlatformStatusUpdateCommand(changes, operation);
+  return runWithRetry(() => runNoSql(environmentId, [command]));
+}
+
 function chunk(values, size) {
   const result = [];
   for (let index = 0; index < values.length; index += size) {
@@ -412,6 +467,8 @@ module.exports = {
   readAllSchools,
   buildInsertDocuments,
   buildOfficialUpdate,
+  buildPlatformStatusUpdateCommand,
+  applyPlatformStatusOperation,
   applyChanges,
   parseJsonOutput,
   extractCommandResults,

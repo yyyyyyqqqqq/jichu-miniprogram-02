@@ -35,4 +35,16 @@ npm run schools:verify
 - `generated/manifest.json`：源文件、解析器、记录数和产物哈希。
 - `../../reports/schools/`：源结构、异常、校验、dry-run 和导入报告。
 
-所有导入记录默认是 `platformStatus: pending`，不会因进入基础库而自动成为平台可选学校。真实激活必须经过独立人工确认。
+规范化产物继续把所有记录声明为导入默认值 `platformStatus: pending`，年度重建不会覆盖云端运营状态。2026-07-28 经人工明确并通过受控状态工具激活上海工程技术大学、上海财经大学浙江学院；当前云端为 active 2、pending 2950。
+
+状态工具默认 dry-run、最多两所学校，正式操作需要确认与目标、状态和原因绑定的操作 ID：
+
+```powershell
+npm run schools:set-status -- `
+  --school-id <schoolId> `
+  --status active `
+  --reason "明确原因" `
+  --dry-run
+```
+
+学校原始“备注”字段从解析、规范化、CSV 到云端统一命名为 `remark`，不存在同义的业务 `note` 字段。激活审计、线上验证和回滚计划见 `../../reports/schools/phase-15-*.json`。

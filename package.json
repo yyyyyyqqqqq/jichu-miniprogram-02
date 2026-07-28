@@ -5,7 +5,11 @@
   "description": "即出——校园闲置物品线下面交平台",
   "scripts": {
     "schools:build": "node scripts/schools/build.js",
+    "schools:deploy-query": "node scripts/schools/deploy-query.js",
     "schools:dry-run": "node scripts/schools/import.js --local-only",
+    "schools:set-status": "node scripts/schools/set-platform-status.js",
+    "schools:verify-online": "node scripts/schools/verify-online.js",
+    "schools:verify-cloud-state": "node scripts/schools/verify-cloud-state.js",
     "schools:verify": "node scripts/verify-schools.js",
     "verify": "node scripts/verify-project.js"
   },

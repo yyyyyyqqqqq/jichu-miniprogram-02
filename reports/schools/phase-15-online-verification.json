@@ -1,0 +1,62 @@
+{
+  "target": "cloud:cloud1***6d8e",
+  "functionName": "schoolQuery",
+  "activeSchools": [
+    "上海工程技术大学",
+    "上海财经大学浙江学院"
+  ],
+  "list": {
+    "count": 2,
+    "names": [
+      "上海工程技术大学",
+      "上海财经大学浙江学院"
+    ],
+    "stableOrder": true,
+    "safePublicFields": true,
+    "pendingExcluded": true
+  },
+  "provinceFilters": {
+    "shanghai": [
+      "上海工程技术大学"
+    ],
+    "zhejiang": [
+      "上海财经大学浙江学院"
+    ],
+    "emptyProvinceCount": 0
+  },
+  "search": {
+    "casesPassed": 6,
+    "pendingExcluded": true,
+    "specialCharactersSafe": true,
+    "longKeywordCode": "INVALID_KEYWORD"
+  },
+  "detail": {
+    "activePassed": 2,
+    "pendingCode": "SCHOOL_NOT_ACTIVE",
+    "missingCode": "SCHOOL_NOT_FOUND",
+    "invalidCode": "INVALID_ARGUMENT",
+    "safePublicFields": true
+  },
+  "pagination": {
+    "firstPageCount": 1,
+    "secondPageCount": 1,
+    "noDuplicates": true,
+    "noOmissions": true,
+    "finalHasMore": false,
+    "invalidCursorCode": "INVALID_ARGUMENT",
+    "crossScopeCursorCode": "INVALID_ARGUMENT"
+  },
+  "clientService": {
+    "listCount": 2,
+    "searchNames": [
+      "上海工程技术大学",
+      "上海财经大学浙江学院"
+    ],
+    "detailCount": 2,
+    "pendingError": "SCHOOL_NOT_ACTIVE",
+    "timeoutError": "CLOUD_TIMEOUT",
+    "directDatabaseAccess": false,
+    "userOrAuthWrites": false,
+    "newPages": false
+  }
+}

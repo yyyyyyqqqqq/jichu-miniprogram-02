@@ -1,0 +1,75 @@
+{
+  "mode": "apply",
+  "target": "cloud:cloud1***6d8e",
+  "operationId": "school-status-d0bb73feb64b8ba9b7b31d0a",
+  "toolVersion": "school-platform-status-v1",
+  "status": "active",
+  "reason": "phase-15 test school activation",
+  "targetCount": 2,
+  "maxBatchSize": 2,
+  "targets": [
+    {
+      "schoolId": "s_2639dd...6f30",
+      "officialCode": "4133014207",
+      "name": "上海财经大学浙江学院",
+      "province": "浙江省",
+      "city": "金华市",
+      "educationLevel": "本科",
+      "officialStatus": "valid",
+      "fromStatus": "pending",
+      "toStatus": "active",
+      "action": "update",
+      "eligible": true,
+      "conflicts": [],
+      "plannedFields": [
+        "platformStatus",
+        "platformStatusPrevious",
+        "platformStatusReason",
+        "platformStatusOperationId",
+        "platformStatusToolVersion",
+        "updatedAt",
+        "platformStatusUpdatedAt",
+        "activatedAt"
+      ]
+    },
+    {
+      "schoolId": "s_e5ca12...b898",
+      "officialCode": "4131010856",
+      "name": "上海工程技术大学",
+      "province": "上海市",
+      "city": "上海市",
+      "educationLevel": "本科",
+      "officialStatus": "valid",
+      "fromStatus": "pending",
+      "toStatus": "active",
+      "action": "update",
+      "eligible": true,
+      "conflicts": [],
+      "plannedFields": [
+        "platformStatus",
+        "platformStatusPrevious",
+        "platformStatusReason",
+        "platformStatusOperationId",
+        "platformStatusToolVersion",
+        "updatedAt",
+        "platformStatusUpdatedAt",
+        "activatedAt"
+      ]
+    }
+  ],
+  "conflicts": [],
+  "risks": [
+    "Only officialStatus=valid, platformStatus=pending records may be activated"
+  ],
+  "result": {
+    "updated": 2,
+    "skipped": 0,
+    "conflicts": 0,
+    "failed": 0,
+    "failures": []
+  },
+  "statusCounts": {
+    "pending": 2950,
+    "active": 2
+  }
+}

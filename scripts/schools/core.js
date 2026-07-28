@@ -505,7 +505,7 @@ function buildProfile(parsed, normalized, validation) {
     schoolTypes: {
       ordinaryHigherEducation: normalized.length,
       adultHigherEducation: 0,
-      note: '附件1仅包含全国普通高等学校；成人高校位于官方公告的独立附件2，未混入本源文件'
+      scopeNote: '附件1仅包含全国普通高等学校；成人高校位于官方公告的独立附件2，未混入本源文件'
     },
     educationLevels: countBy(normalized, 'educationLevel'),
     provinceCounts: countBy(normalized, 'province'),

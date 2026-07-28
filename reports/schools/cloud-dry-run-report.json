@@ -14,7 +14,14 @@
   "statusPlan": {
     "pending": 2952
   },
-  "activeSchools": [],
+  "existingStatusCounts": {
+    "active": 2,
+    "pending": 2950
+  },
+  "activeSchools": [
+    "上海财经大学浙江学院",
+    "上海工程技术大学"
+  ],
   "diff": {
     "additions": [],
     "updates": [],

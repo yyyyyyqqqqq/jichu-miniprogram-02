@@ -73,7 +73,8 @@ function buildImportReport(records, existing, sourceChecksum, target) {
     conflicts: diff.conflicts.length,
     invalid: diff.invalid.length,
     statusPlan: countBy(records, 'platformStatus'),
-    activeSchools: records.filter((record) => record.platformStatus === 'active').map((record) => record.name),
+    existingStatusCounts: countBy(existing, 'platformStatus'),
+    activeSchools: existing.filter((record) => record.platformStatus === 'active').map((record) => record.name),
     diff
   };
 }
@@ -128,7 +129,7 @@ function main() {
     conflicts: report.conflicts,
     invalid: report.invalid,
     defaultStatus: 'pending',
-    active: report.statusPlan.active || 0
+    currentActive: report.existingStatusCounts.active || 0
   }, null, 2)}\n`);
   if (report.conflicts > 0 || report.invalid > 0) {
     const error = new Error('dry-run contains conflicts or invalid records');

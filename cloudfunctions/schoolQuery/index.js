@@ -194,15 +194,17 @@ async function queryActiveSchools(options) {
     })
     .orderBy('nameNormalized', 'asc')
     .orderBy('_id', 'asc')
-    .limit(options.pageSize)
+    .limit(options.pageSize + 1)
     .get();
   const records = Array.isArray(response.data) ? response.data : [];
+  const pageRecords = records.slice(0, options.pageSize);
+  const hasMore = records.length > options.pageSize;
   return {
-    items: records.map(toPublicSchool),
-    nextCursor: records.length === options.pageSize
-      ? encodeCursor(records[records.length - 1], options)
+    items: pageRecords.map(toPublicSchool),
+    nextCursor: hasMore
+      ? encodeCursor(pageRecords[pageRecords.length - 1], options)
       : '',
-    hasMore: records.length === options.pageSize
+    hasMore
   };
 }
 

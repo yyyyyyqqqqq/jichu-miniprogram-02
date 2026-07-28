@@ -131,8 +131,15 @@ function verifyDryRunAndImport(core, records, sourceChecksum) {
   const { parseArguments, buildImportReport } = require('./schools/import');
   const {
     buildInsertDocuments,
-    buildOfficialUpdate
+    buildOfficialUpdate,
+    buildPlatformStatusUpdateCommand
   } = require('./schools/cloud-cli');
+  const {
+    TOOL_VERSION,
+    parseArguments: parseStatusArguments,
+    buildOperationId,
+    buildPlan: buildStatusPlan
+  } = require('./schools/set-platform-status');
 
   const report = buildReport(records, [], sourceChecksum, 'test-empty');
   assert(report.additions === 2952 && report.updates === 0, 'empty dry-run counts are incorrect');
@@ -165,6 +172,83 @@ function verifyDryRunAndImport(core, records, sourceChecksum) {
   const update = buildOfficialUpdate(records[0], new Date('2026-07-28T00:00:00.000Z'));
   assert(!Object.prototype.hasOwnProperty.call(update, 'platformStatus'), 'official update overwrites platformStatus');
   assert(!Object.prototype.hasOwnProperty.call(update, 'isHot'), 'official update overwrites isHot');
+
+  const targetRecords = records.filter((record) => (
+    record.name === '上海工程技术大学'
+    || record.name === '上海财经大学浙江学院'
+  ));
+  const reason = 'phase-15 test school activation';
+  const statusOptions = parseStatusArguments([
+    '--school-id', targetRecords[0]._id,
+    '--school-id', targetRecords[1]._id,
+    '--status', 'active',
+    '--reason', reason
+  ]);
+  assert(!statusOptions.apply, 'platform status tool does not default to dry-run');
+  const operationId = buildOperationId(statusOptions.schoolIds, 'active', reason);
+  assert(
+    operationId === buildOperationId([...statusOptions.schoolIds].reverse(), 'active', reason),
+    'platform status operation ID depends on argument order'
+  );
+  const cloudTargets = targetRecords.map((record) => ({
+    ...record,
+    createdAt: 'created',
+    updatedAt: 'updated',
+    lastSeenAt: 'seen'
+  }));
+  const statusPlan = buildStatusPlan({
+    ...statusOptions,
+    normalizedRecords: targetRecords,
+    cloudRecords: cloudTargets,
+    target: 'cloud:masked'
+  });
+  assert(statusPlan.conflicts.length === 0, 'eligible school activation has conflicts');
+  assert(statusPlan.targets.every((target) => target.fromStatus === 'pending'), 'activation source status changed');
+  const statusCommand = buildPlatformStatusUpdateCommand(statusPlan.targets, {
+    operationId,
+    toolVersion: TOOL_VERSION,
+    status: 'active',
+    reason
+  });
+  const rawStatusCommand = JSON.parse(statusCommand.Command);
+  assert(rawStatusCommand.updates.length === 2, 'status update batch scope changed');
+  assert(
+    rawStatusCommand.updates.every((item) => (
+      item.q.platformStatus === 'pending'
+      && item.q.officialStatus === 'valid'
+      && item.u.$set.platformStatus === 'active'
+      && !Object.prototype.hasOwnProperty.call(item.u.$set, 'officialCode')
+      && item.u.$currentDate.updatedAt === true
+      && item.u.$currentDate.activatedAt === true
+    )),
+    'platform status update is not conditional or changes protected fields'
+  );
+  const invalidOfficial = cloudTargets.map((record, index) => ({
+    ...record,
+    officialStatus: index === 0 ? 'inactive' : record.officialStatus
+  }));
+  assert(
+    buildStatusPlan({
+      ...statusOptions,
+      normalizedRecords: targetRecords,
+      cloudRecords: invalidOfficial,
+      target: 'cloud:masked'
+    }).conflicts.some((item) => item.code === 'OFFICIAL_STATUS_NOT_VALID'),
+    'activation accepts a non-valid official status'
+  );
+  let batchRejected = false;
+  try {
+    parseStatusArguments([
+      '--school-id', targetRecords[0]._id,
+      '--school-id', targetRecords[1]._id,
+      '--school-id', records[2]._id,
+      '--status', 'active',
+      '--reason', reason
+    ]);
+  } catch (error) {
+    batchRejected = error.code === 'STATUS_BATCH_LIMIT';
+  }
+  assert(batchRejected, 'platform status tool accepts more than two schools');
 }
 
 function createSchoolQueryMock(records) {
@@ -298,6 +382,7 @@ async function verifySchoolQuery(root) {
     assert(list.success && list.data.items.length === 1 && list.data.hasMore, 'list pagination failed');
     const next = await schoolQuery.main({ action: 'list', pageSize: 1, cursor: list.data.nextCursor });
     assert(next.success && next.data.items.length === 1, 'stable cursor failed');
+    assert(!next.data.hasMore && !next.data.nextCursor, 'final school page exposes a phantom cursor');
     assert(
       [...list.data.items, ...next.data.items].every((record) => record.platformStatus === 'active'),
       'list exposed non-active schools'
