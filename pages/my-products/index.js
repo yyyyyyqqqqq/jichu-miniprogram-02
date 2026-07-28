@@ -88,9 +88,7 @@ Page({
         return;
       }
 
-      const isLoggedIn = state.status === 'authenticated'
-        && Boolean(state.user)
-        && state.user.profileCompleted === true;
+      const isLoggedIn = AuthStore.isSchoolReady();
       this.setData({
         authStatus: state.status,
         isLoggedIn,
@@ -109,16 +107,14 @@ Page({
       }
     });
 
-    if (!AuthStore.isLoggedIn()) {
-      this.ensureLogin();
-    }
+    this.ensureLogin();
   },
 
   onShow() {
     const productsVersion = AppStore.getProductsVersion();
     if (
       this.isPageActive
-      && AuthStore.isLoggedIn()
+      && AuthStore.isSchoolReady()
       && this.initialLoadStarted
       && productsVersion !== this.observedProductsVersion
     ) {
@@ -128,7 +124,7 @@ Page({
     }
     if (
       this.isPageActive
-      && AuthStore.isLoggedIn()
+      && AuthStore.isSchoolReady()
       && !this.initialLoadStarted
     ) {
       this.initialLoadStarted = true;
@@ -197,7 +193,7 @@ Page({
   },
 
   async loadProducts({ mode }) {
-    if (!this.isPageActive || !AuthStore.isLoggedIn()) {
+    if (!this.isPageActive || !AuthStore.isSchoolReady()) {
       return false;
     }
 

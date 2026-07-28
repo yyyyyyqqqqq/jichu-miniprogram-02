@@ -10,6 +10,12 @@ const AUTH_ERROR_MESSAGES = {
   INVALID_NICKNAME: '昵称应为 1～20 个字符',
   INVALID_AVATAR: '请选择有效的头像图片',
   INVALID_CAMPUS: '校园信息不能超过 40 个字符',
+  INVALID_SCHOOL_ID: '请选择有效的学校',
+  SCHOOL_NOT_FOUND: '学校信息不存在，请刷新后重试',
+  SCHOOL_NOT_ACTIVE: '该学校暂未开放',
+  SCHOOL_ALREADY_SELECTED: '你已经完成学校选择',
+  SCHOOL_SELECTION_REQUIRED: '请先选择学校',
+  SCHOOL_UNAVAILABLE: '当前学校暂不可用，请重新选择',
   USER_DISABLED: '当前账户暂不可用',
   USER_NOT_FOUND: '当前微信身份尚未登录',
   DATABASE_ERROR: '认证服务暂不可用，请稍后重试',
@@ -50,6 +56,10 @@ function normalizeUser(value) {
     ? value.nickname.trim()
     : '';
   const nickname = rawNickname === '微信用户' ? '' : rawNickname;
+  const schoolId = typeof value.schoolId === 'string'
+    ? value.schoolId.trim()
+    : '';
+  const schoolVersion = Number(value.schoolVersion);
 
   return {
     id,
@@ -61,6 +71,21 @@ function normalizeUser(value) {
     role: 'user',
     status,
     profileCompleted: value.profileCompleted === true,
+    schoolId,
+    schoolName: typeof value.schoolName === 'string'
+      ? value.schoolName.trim()
+      : '',
+    schoolSelectedAt: typeof value.schoolSelectedAt === 'string'
+      ? value.schoolSelectedAt
+      : '',
+    schoolUpdatedAt: typeof value.schoolUpdatedAt === 'string'
+      ? value.schoolUpdatedAt
+      : '',
+    schoolVersion: Number.isInteger(schoolVersion) && schoolVersion > 0
+      ? schoolVersion
+      : 0,
+    schoolRequired: value.schoolRequired !== false,
+    schoolUnavailable: value.schoolUnavailable === true,
     createdAt: typeof value.createdAt === 'string' ? value.createdAt : '',
     updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : '',
     lastLoginAt: typeof value.lastLoginAt === 'string' ? value.lastLoginAt : ''
@@ -149,12 +174,6 @@ function normalizeProfileInput(value, options = {}) {
   if (!nickname || nickname.length > 20) {
     throw createAuthError('INVALID_NICKNAME');
   }
-  const campus = typeof profile.campus === 'string'
-    ? profile.campus.trim().replace(/\s+/g, ' ')
-    : '';
-  if (campus.length > 40) {
-    throw createAuthError('INVALID_CAMPUS');
-  }
   const avatarUrl = typeof profile.avatarUrl === 'string'
     ? profile.avatarUrl.trim()
     : '';
@@ -163,8 +182,7 @@ function normalizeProfileInput(value, options = {}) {
   }
   return {
     nickname,
-    avatarUrl,
-    campus
+    avatarUrl
   };
 }
 
@@ -203,6 +221,22 @@ async function updateProfile(profile) {
   return normalizeUser(payload.data && payload.data.user);
 }
 
+async function selectSchool(schoolId) {
+  const normalizedSchoolId = typeof schoolId === 'string'
+    ? schoolId.trim()
+    : '';
+  if (!/^s_[0-9a-f]{32}$/.test(normalizedSchoolId)) {
+    throw createAuthError('INVALID_SCHOOL_ID');
+  }
+  const payload = await callCloudFunction('selectSchool', {
+    schoolId: normalizedSchoolId
+  });
+  if (!payload.success) {
+    throw createAuthError(payload.code || 'AUTH_FAILED');
+  }
+  return normalizeUser(payload.data && payload.data.user);
+}
+
 function isLoggedIn() {
   const AuthStore = require('../store/auth-store');
   return AuthStore.isLoggedIn();
@@ -217,7 +251,12 @@ module.exports = {
   AuthError,
   login,
   updateProfile,
+  selectSchool,
   getCurrentUser,
   isLoggedIn,
-  clearLocalSession
+  clearLocalSession,
+  __test: {
+    normalizeUser,
+    normalizeProfileInput
+  }
 };

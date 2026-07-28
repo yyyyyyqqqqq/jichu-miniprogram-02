@@ -7,9 +7,11 @@ cloud.init({
 
 const db = cloud.database();
 const users = db.collection('users');
+const schools = db.collection('schools');
 
 const NICKNAME_MAX_LENGTH = 20;
 const CAMPUS_MAX_LENGTH = 40;
+const SCHOOL_ID_PATTERN = /^s_[0-9a-f]{32}$/;
 const LEGACY_DEFAULT_NICKNAMES = new Set(['微信用户']);
 const AVATAR_FILE_NAME_PATTERN =
   /^[a-zA-Z0-9_-]{1,160}\.(?:jpg|jpeg|png|gif|webp)$/i;
@@ -20,6 +22,10 @@ const ERROR_CODES = {
   INVALID_NICKNAME: 'INVALID_NICKNAME',
   INVALID_AVATAR: 'INVALID_AVATAR',
   INVALID_CAMPUS: 'INVALID_CAMPUS',
+  INVALID_SCHOOL_ID: 'INVALID_SCHOOL_ID',
+  SCHOOL_NOT_FOUND: 'SCHOOL_NOT_FOUND',
+  SCHOOL_NOT_ACTIVE: 'SCHOOL_NOT_ACTIVE',
+  SCHOOL_ALREADY_SELECTED: 'SCHOOL_ALREADY_SELECTED',
   AUTH_FAILED: 'AUTH_FAILED',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
   USER_DISABLED: 'USER_DISABLED',
@@ -83,12 +89,31 @@ function toIsoString(value) {
   return Number.isNaN(date.getTime()) ? '' : date.toISOString();
 }
 
-function toSafeUser(record) {
+function normalizeSchoolId(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const schoolId = value.trim();
+  return SCHOOL_ID_PATTERN.test(schoolId) ? schoolId : '';
+}
+
+function normalizeSchoolVersion(value) {
+  const version = Number(value);
+  return Number.isInteger(version) && version > 0 ? version : 0;
+}
+
+function toSafeUser(record, schoolState = {}) {
   const publicUserId = String(record._id || '');
   const nickname = normalizeNickname(record.nickname);
   const avatarUrl = typeof record.avatarUrl === 'string'
     ? record.avatarUrl
     : '';
+  const schoolId = typeof schoolState.schoolId === 'string'
+    ? schoolState.schoolId
+    : normalizeText(record.schoolId);
+  const schoolName = typeof schoolState.schoolName === 'string'
+    ? schoolState.schoolName
+    : normalizeText(record.schoolName);
 
   return {
     id: publicUserId,
@@ -104,6 +129,13 @@ function toSafeUser(record) {
       && nickname
       && avatarUrl
     ),
+    schoolId,
+    schoolName,
+    schoolSelectedAt: toIsoString(record.schoolSelectedAt),
+    schoolUpdatedAt: toIsoString(record.schoolUpdatedAt),
+    schoolVersion: normalizeSchoolVersion(record.schoolVersion),
+    schoolRequired: schoolState.schoolRequired !== false,
+    schoolUnavailable: schoolState.schoolUnavailable === true,
     createdAt: toIsoString(record.createdAt),
     updatedAt: toIsoString(record.updatedAt),
     lastLoginAt: toIsoString(record.lastLoginAt)
@@ -156,24 +188,6 @@ function validateProfile(value, userId, options = {}) {
     );
   }
 
-  if (
-    profile.campus !== undefined
-    && profile.campus !== null
-    && typeof profile.campus !== 'string'
-  ) {
-    businessError(ERROR_CODES.INVALID_CAMPUS, '校园信息格式不正确');
-  }
-  const campus = normalizeText(profile.campus);
-  if (
-    campus.length > CAMPUS_MAX_LENGTH
-    || /[\u0000-\u001f\u007f]/.test(campus)
-  ) {
-    businessError(
-      ERROR_CODES.INVALID_CAMPUS,
-      `校园信息不能超过 ${CAMPUS_MAX_LENGTH} 个字符`
-    );
-  }
-
   const avatarUrl = typeof profile.avatarUrl === 'string'
     ? profile.avatarUrl.trim()
     : '';
@@ -186,8 +200,7 @@ function validateProfile(value, userId, options = {}) {
 
   return {
     nickname,
-    avatarUrl,
-    campus
+    avatarUrl
   };
 }
 
@@ -199,6 +212,117 @@ async function findUser(userId) {
   return result.data && result.data.length > 0
     ? result.data[0]
     : null;
+}
+
+function isMissingDocumentError(error) {
+  const message = [
+    error && error.message,
+    error && error.errMsg
+  ].filter(Boolean).join(' ').toLowerCase();
+  return (
+    message.includes('does not exist')
+    || message.includes('document not found')
+    || message.includes('document.get:fail')
+  );
+}
+
+function extractDocument(response) {
+  if (!response || typeof response !== 'object') {
+    return null;
+  }
+  if (response.data && !Array.isArray(response.data)) {
+    return response.data;
+  }
+  return Array.isArray(response.data) ? response.data[0] || null : null;
+}
+
+async function getDocumentOrNull(document) {
+  try {
+    return extractDocument(await document.get());
+  } catch (error) {
+    if (isMissingDocumentError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function findSchool(schoolId, collection = schools) {
+  if (!normalizeSchoolId(schoolId)) {
+    return null;
+  }
+  if (collection && typeof collection.doc === 'function') {
+    return getDocumentOrNull(collection.doc(schoolId));
+  }
+  const result = await collection.where({
+    _id: schoolId
+  }).limit(1).get();
+  return Array.isArray(result.data) ? result.data[0] || null : null;
+}
+
+function isSchoolActive(school) {
+  return Boolean(
+    school
+    && school.platformStatus === 'active'
+    && school.officialStatus === 'valid'
+    && normalizeText(school.name)
+  );
+}
+
+async function resolveSchoolState(record, collection = schools) {
+  const storedSchoolId = normalizeText(record && record.schoolId);
+  const schoolId = normalizeSchoolId(storedSchoolId);
+  const fallbackName = normalizeText(record && record.schoolName);
+  if (!storedSchoolId) {
+    return {
+      schoolId: '',
+      schoolName: '',
+      schoolRequired: true,
+      schoolUnavailable: false
+    };
+  }
+  if (!schoolId) {
+    return {
+      schoolId: storedSchoolId,
+      schoolName: fallbackName,
+      schoolRequired: true,
+      schoolUnavailable: true
+    };
+  }
+  const school = await findSchool(schoolId, collection);
+  if (!isSchoolActive(school)) {
+    return {
+      schoolId,
+      schoolName: fallbackName,
+      schoolRequired: true,
+      schoolUnavailable: true
+    };
+  }
+  return {
+    schoolId,
+    schoolName: normalizeText(school.name),
+    schoolRequired: false,
+    schoolUnavailable: false
+  };
+}
+
+async function toResolvedSafeUser(record, collection = schools) {
+  const schoolState = await resolveSchoolState(record, collection);
+  return toSafeUser(record, schoolState);
+}
+
+async function runTransaction(callback) {
+  const response = await db.runTransaction(
+    async (transaction) => callback(transaction)
+  );
+  if (
+    response
+    && typeof response === 'object'
+    && Object.prototype.hasOwnProperty.call(response, 'result')
+  ) {
+    return response.result;
+  }
+  return response;
 }
 
 function getIdentity() {
@@ -244,7 +368,7 @@ async function login(identity, input) {
       nickname: profile.nickname,
       avatarUrl: profile.avatarUrl,
       bio: '',
-      campus: profile.campus,
+      campus: '',
       role: 'user',
       status: 'active',
       profileCompleted: Boolean(profile.nickname && profile.avatarUrl),
@@ -258,7 +382,7 @@ async function login(identity, input) {
       data: record
     });
 
-    return success(toSafeUser({
+    return success(await toResolvedSafeUser({
       ...record,
       _id: userId,
       createdAt: now,
@@ -270,7 +394,6 @@ async function login(identity, input) {
   const finalAvatarUrl = profile.avatarUrl || existing.avatarUrl || '';
   const updateData = {
     nickname: profile.nickname,
-    campus: profile.campus,
     profileCompleted: Boolean(profile.nickname && finalAvatarUrl),
     updatedAt: db.serverDate(),
     lastLoginAt: db.serverDate()
@@ -283,7 +406,7 @@ async function login(identity, input) {
     data: updateData
   });
 
-  return success(toSafeUser({
+  return success(await toResolvedSafeUser({
     ...existing,
     ...updateData,
     avatarUrl: finalAvatarUrl,
@@ -300,7 +423,7 @@ async function current(identity) {
     return failure(ERROR_CODES.USER_NOT_FOUND, '当前微信身份尚未登录');
   }
   assertExistingUser(existing, identity);
-  return success(toSafeUser(existing));
+  return success(await toResolvedSafeUser(existing));
 }
 
 async function updateProfile(identity, input) {
@@ -318,7 +441,6 @@ async function updateProfile(identity, input) {
   const updateData = {
     nickname: profile.nickname,
     avatarUrl: profile.avatarUrl,
-    campus: profile.campus,
     profileCompleted: true,
     updatedAt: db.serverDate()
   };
@@ -326,11 +448,88 @@ async function updateProfile(identity, input) {
     data: updateData
   });
 
-  return success(toSafeUser({
+  return success(await toResolvedSafeUser({
     ...existing,
     ...updateData,
     updatedAt: now
   }));
+}
+
+async function selectSchool(identity, input) {
+  const requestedSchoolId = normalizeSchoolId(input && input.schoolId);
+  if (!requestedSchoolId) {
+    businessError(ERROR_CODES.INVALID_SCHOOL_ID, '请选择有效的学校');
+  }
+
+  const userId = createUserId(identity.appId, identity.openId);
+  const now = new Date();
+  const result = await runTransaction(async (transaction) => {
+    const userDocument = transaction.collection('users').doc(userId);
+    const existing = await getDocumentOrNull(userDocument);
+    if (!existing) {
+      businessError(ERROR_CODES.USER_NOT_FOUND, '当前微信身份尚未登录');
+    }
+    assertExistingUser(existing, identity);
+
+    const schoolCollection = transaction.collection('schools');
+    const existingState = await resolveSchoolState(existing, schoolCollection);
+    if (!existingState.schoolRequired) {
+      if (existingState.schoolId === requestedSchoolId) {
+        return {
+          record: existing,
+          schoolState: existingState
+        };
+      }
+      businessError(
+        ERROR_CODES.SCHOOL_ALREADY_SELECTED,
+        '你已经完成学校选择'
+      );
+    }
+
+    const selectedSchool = await findSchool(
+      requestedSchoolId,
+      schoolCollection
+    );
+    if (!selectedSchool) {
+      businessError(ERROR_CODES.SCHOOL_NOT_FOUND, '学校信息不存在');
+    }
+    if (!isSchoolActive(selectedSchool)) {
+      businessError(ERROR_CODES.SCHOOL_NOT_ACTIVE, '该学校暂未开放');
+    }
+
+    const previousVersion = normalizeSchoolVersion(existing.schoolVersion);
+    const hasPreviousSelection = Boolean(normalizeText(existing.schoolId));
+    const updateData = {
+      schoolId: requestedSchoolId,
+      schoolName: normalizeText(selectedSchool.name),
+      schoolSelectedAt: existing.schoolSelectedAt || db.serverDate(),
+      schoolUpdatedAt: db.serverDate(),
+      schoolVersion: hasPreviousSelection
+        ? Math.max(previousVersion, 1) + 1
+        : 1,
+      updatedAt: db.serverDate()
+    };
+    await userDocument.update({
+      data: updateData
+    });
+    return {
+      record: {
+        ...existing,
+        ...updateData,
+        schoolSelectedAt: existing.schoolSelectedAt || now,
+        schoolUpdatedAt: now,
+        updatedAt: now
+      },
+      schoolState: {
+        schoolId: requestedSchoolId,
+        schoolName: updateData.schoolName,
+        schoolRequired: false,
+        schoolUnavailable: false
+      }
+    };
+  });
+
+  return success(toSafeUser(result.record, result.schoolState));
 }
 
 function classifyFailure(error) {
@@ -361,7 +560,7 @@ exports.main = async (event = {}) => {
     && !Array.isArray(request.data)
     ? request.data
     : {};
-  const allowedActions = ['login', 'current', 'updateProfile'];
+  const allowedActions = ['login', 'current', 'updateProfile', 'selectSchool'];
 
   if (!allowedActions.includes(action)) {
     return failure(ERROR_CODES.INVALID_ACTION, '不支持的认证操作');
@@ -378,6 +577,9 @@ exports.main = async (event = {}) => {
     }
     if (action === 'updateProfile') {
       return await updateProfile(identity, data.profile);
+    }
+    if (action === 'selectSchool') {
+      return await selectSchool(identity, data);
     }
     return await current(identity);
   } catch (error) {

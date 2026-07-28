@@ -31,9 +31,7 @@ Page({
       if (!this.isPageActive) {
         return;
       }
-      const isLoggedIn = state.status === 'authenticated'
-        && Boolean(state.user)
-        && state.user.profileCompleted === true;
+      const isLoggedIn = AuthStore.isSchoolReady();
       const wasLoggedIn = this.data.isLoggedIn;
       this.setData({
         isLoggedIn,
@@ -43,13 +41,14 @@ Page({
         this.loadFavorites({ reset: true });
       }
     });
-    if (!AuthStore.isLoggedIn()) {
-      AuthGuard.requireLogin({ target: AUTH_TARGETS.FAVORITES });
-    }
+    AuthGuard.requireLogin({ target: AUTH_TARGETS.FAVORITES });
   },
 
-  onShow() {
-    if (!AuthStore.isLoggedIn()) {
+  async onShow() {
+    const allowed = await AuthGuard.requireLogin({
+      target: AUTH_TARGETS.FAVORITES
+    });
+    if (!allowed) {
       return;
     }
     const version = AppStore.getFavoritesVersion();
@@ -78,7 +77,7 @@ Page({
   },
 
   async loadFavorites(options = {}) {
-    if (!this.isPageActive || !AuthStore.isLoggedIn()) {
+    if (!this.isPageActive || !AuthStore.isSchoolReady()) {
       return;
     }
     const reset = options.reset === true;

@@ -1,0 +1,97 @@
+<view class="page-shell--plain school-select-page">
+  <view class="school-hero">
+    <view class="school-mark">校</view>
+    <view class="page-title">选择你的学校</view>
+    <view class="page-subtitle">
+      选择学校后，你将进入对应的校园二手市场。
+    </view>
+  </view>
+
+  <view wx:if="{{schoolUnavailable}}" class="unavailable-tip">
+    <text class="unavailable-title">当前学校暂不可用</text>
+    <text class="unavailable-copy">
+      {{currentSchoolName ? '原学校“' + currentSchoolName + '”暂未开放，请重新选择。' : '原学校信息暂不可用，请重新选择。'}}
+    </text>
+  </view>
+
+  <view class="surface-card school-panel">
+    <view class="search-box">
+      <text class="search-icon">⌕</text>
+      <input
+        class="school-search-input"
+        maxlength="40"
+        value="{{keyword}}"
+        placeholder="搜索学校名称"
+        confirm-type="search"
+        disabled="{{isSubmitting || isReturning}}"
+        bindinput="onKeywordInput"
+        bindconfirm="onSearchConfirm"
+      />
+      <button
+        wx:if="{{keyword}}"
+        class="search-clear"
+        disabled="{{isSubmitting || isReturning}}"
+        bindtap="onClearSearch"
+      >
+        清除
+      </button>
+    </view>
+
+    <loading-state
+      wx:if="{{viewState === 'loading'}}"
+      text="{{isSearching ? '正在搜索学校' : '正在加载开放学校'}}"
+    />
+
+    <empty-state
+      wx:elif="{{viewState === 'error'}}"
+      title="学校加载失败"
+      description="{{errorMessage}}"
+      action-text="重新加载"
+      bind:action="onRetry"
+    />
+
+    <empty-state
+      wx:elif="{{viewState === 'empty'}}"
+      title="{{isSearching ? '没有找到开放学校' : '暂时没有开放学校'}}"
+      description="{{isSearching ? '换个关键词试试，或清除搜索查看全部。' : '请稍后重试或联系平台运营人员。'}}"
+      action-text="{{isSearching ? '清除搜索' : '重新加载'}}"
+      bind:action="onEmptyAction"
+    />
+
+    <view wx:elif="{{viewState === 'success'}}" class="school-list">
+      <button
+        wx:for="{{schools}}"
+        wx:key="id"
+        class="school-item"
+        data-id="{{item.id}}"
+        disabled="{{isSubmitting || isReturning}}"
+        bindtap="onSchoolTap"
+      >
+        <view class="school-item-copy">
+          <text class="school-name">{{item.name}}</text>
+          <text class="school-meta">
+            {{item.province}}{{item.city && item.city !== item.province ? ' · ' + item.city : ''}} · {{item.educationLevel}}
+          </text>
+        </view>
+        <text class="school-action">
+          {{selectedSchoolId === item.id && isSubmitting ? '提交中' : '选择'}}
+        </text>
+      </button>
+    </view>
+
+    <view wx:if="{{errorMessage && viewState !== 'error'}}" class="submit-error">
+      {{errorMessage}}
+    </view>
+  </view>
+
+  <view class="selection-note">
+    学校名称与开放状态由云端权威数据校验，不能通过自由文本修改。
+  </view>
+  <button
+    class="logout-button"
+    disabled="{{isSubmitting || isReturning}}"
+    bindtap="onLogoutTap"
+  >
+    退出当前登录
+  </button>
+</view>

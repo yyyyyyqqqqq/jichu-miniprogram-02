@@ -349,7 +349,7 @@ Page({
       !this.isPageActive
       || !this.isPageVisible
       || this.pollInFlight
-      || !AuthStore.isLoggedIn()
+      || !AuthStore.isSchoolReady()
     ) {
       return;
     }

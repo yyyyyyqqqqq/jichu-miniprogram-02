@@ -11,8 +11,13 @@ Component({
   },
 
   methods: {
-    onHomeTap() {
-      NavigationService.safeSwitchTab(ROUTES.HOME);
+    async onHomeTap() {
+      const allowed = await AuthGuard.requireMarketAccess({
+        target: AUTH_TARGETS.HOME
+      });
+      if (allowed) {
+        NavigationService.safeSwitchTab(ROUTES.HOME);
+      }
     },
 
     async onPublishTap() {
@@ -33,8 +38,13 @@ Component({
       }
     },
 
-    onProfileTap() {
-      NavigationService.safeSwitchTab(ROUTES.PROFILE);
+    async onProfileTap() {
+      const allowed = await AuthGuard.requireMarketAccess({
+        target: AUTH_TARGETS.PROFILE
+      });
+      if (allowed) {
+        NavigationService.safeSwitchTab(ROUTES.PROFILE);
+      }
     }
   }
 });

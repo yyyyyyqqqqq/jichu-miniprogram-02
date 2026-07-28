@@ -187,7 +187,7 @@ Page({
       this.hasRecordedViewAttempt
       || !this.isPageActive
       || !this.data.product
-      || !AuthStore.isLoggedIn()
+      || !AuthStore.isSchoolReady()
     ) {
       return;
     }
@@ -349,7 +349,7 @@ Page({
       && product.seller.id
       && currentUser.id === product.seller.id
     );
-    if (!AuthStore.isLoggedIn()) {
+    if (!AuthStore.isSchoolReady()) {
       this.setData({
         isFavorited: false,
         isOwnProduct: false,

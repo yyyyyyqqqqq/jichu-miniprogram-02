@@ -6898,20 +6898,32 @@ async function verifyAuthUserFunctionFlow() {
   const functionPath = path.join(root, 'cloudfunctions/authUser/index.js');
   const originalLoad = Module._load;
   const users = new Map();
+  const schools = new Map([
+    [`s_${'a'.repeat(32)}`, {
+      _id: `s_${'a'.repeat(32)}`,
+      name: '验证大学',
+      officialStatus: 'valid',
+      platformStatus: 'active'
+    }]
+  ]);
   let activeIdentity = {
     OPENID: 'openid-user-a',
     APPID: 'app-verification'
   };
   const database = {
     collection(name) {
-      assert(name === 'users', 'authUser accessed an unexpected collection');
+      assert(
+        name === 'users' || name === 'schools',
+        'authUser accessed an unexpected collection'
+      );
+      const records = name === 'users' ? users : schools;
       return {
         where(condition) {
           return {
             limit() {
               return {
                 async get() {
-                  const record = users.get(condition._id);
+                  const record = records.get(condition._id);
                   return {
                     data: record ? [{ ...record }] : []
                   };
@@ -6922,18 +6934,27 @@ async function verifyAuthUserFunctionFlow() {
         },
         doc(id) {
           return {
+            async get() {
+              const record = records.get(id);
+              if (!record) {
+                throw new Error('document does not exist');
+              }
+              return {
+                data: { ...record }
+              };
+            },
             async set({ data }) {
-              users.set(id, {
+              records.set(id, {
                 ...data,
                 _id: id
               });
             },
             async update({ data }) {
-              const existing = users.get(id);
+              const existing = records.get(id);
               if (!existing) {
                 throw new Error('document does not exist');
               }
-              users.set(id, {
+              records.set(id, {
                 ...existing,
                 ...data,
                 _id: id
@@ -6945,6 +6966,11 @@ async function verifyAuthUserFunctionFlow() {
     },
     serverDate() {
       return new Date('2026-07-23T08:00:00.000Z');
+    },
+    async runTransaction(callback) {
+      return callback({
+        collection: database.collection.bind(database)
+      });
     }
   };
   const cloudMock = {
@@ -7173,10 +7199,61 @@ async function verifyAuthUserFunctionFlow() {
       && currentB.data.user.publicUserId === userBId,
       'current did not restore the existing real user'
     );
+    assert(
+      currentB.data.user.schoolRequired === true
+      && currentB.data.user.schoolUnavailable === false,
+      'legacy user without school was not marked for school selection'
+    );
+
+    const invalidSchool = await authUser.main({
+      action: 'selectSchool',
+      data: {
+        schoolId: 'invalid-school'
+      }
+    });
+    assert(
+      invalidSchool.code === 'INVALID_SCHOOL_ID',
+      'authUser accepted an invalid school id'
+    );
+
+    const activeSchoolId = `s_${'a'.repeat(32)}`;
+    const selectedSchool = await authUser.main({
+      action: 'selectSchool',
+      data: {
+        schoolId: activeSchoolId,
+        schoolName: '伪造学校名称',
+        publicUserId: userAId
+      }
+    });
+    assert(
+      selectedSchool.success === true
+      && selectedSchool.data.user.publicUserId === userBId
+      && selectedSchool.data.user.schoolId === activeSchoolId
+      && selectedSchool.data.user.schoolName === '验证大学'
+      && selectedSchool.data.user.schoolRequired === false
+      && users.get(userBId).schoolName === '验证大学',
+      'authUser did not bind the active school from trusted data'
+    );
+
+    const selectedAtBeforeRetry = users.get(userBId).schoolSelectedAt;
+    const repeatedSelection = await authUser.main({
+      action: 'selectSchool',
+      data: {
+        schoolId: activeSchoolId
+      }
+    });
+    assert(
+      repeatedSelection.success === true
+      && users.get(userBId).schoolSelectedAt === selectedAtBeforeRetry
+      && repeatedSelection.data.user.schoolVersion === 1,
+      'same-school retry was not idempotent'
+    );
+
     const safePayload = JSON.stringify({
       firstLogin,
       updateA,
-      currentB
+      currentB,
+      selectedSchool
     });
     assert(
       !safePayload.includes('openid-user-a')
@@ -7658,8 +7735,8 @@ record('product view display and protected invocation boundaries are wired', () 
   );
   assert(
     /hasRecordedViewAttempt/.test(detailPage)
-    && /AuthStore\.isLoggedIn\(\)/.test(detailPage),
-    'product detail lacks per-page or logged-in view recording guards'
+    && /AuthStore\.is(?:LoggedIn|SchoolReady)\(\)/.test(detailPage),
+    'product detail lacks per-page or school-ready view recording guards'
   );
   assert(
     /data:\s*\{\s*productId:\s*id\s*\}/.test(viewService)
@@ -7759,6 +7836,19 @@ async function runAsyncChecks() {
   checks.push('PASS schoolQuery active-only list, prefix/code search, stable cursors and safe detail fields');
   assert(schoolResult.service, 'school service verification did not finish');
   checks.push('PASS SchoolService parameter, response and error normalization without user binding');
+  const {
+    verifySchoolSelectionFlow
+  } = require('./verify-school-selection');
+  const schoolSelectionResult = await verifySchoolSelectionFlow(root);
+  assert(
+    schoolSelectionResult.checks >= 40,
+    'school selection verification coverage is incomplete'
+  );
+  checks.push('PASS user school state compatibility, active validation and binding idempotency');
+  checks.push('PASS AuthStore school cache, immediate refresh, concurrency and logout cleanup');
+  checks.push('PASS school-required routing, target preservation and duplicate navigation prevention');
+  checks.push('PASS school selection loading, search, confirmation, failure and stale-response states');
+  checks.push('PASS phase 16 boundaries preserve product schema and active-only school service');
 }
 
 runAsyncChecks()

@@ -7,6 +7,7 @@
     "pages/product-edit/index",
     "pages/publish/index",
     "pages/login/index",
+    "pages/school-select/index",
     "pages/favorites/index",
     "pages/my-products/index",
     "pages/chat/index",

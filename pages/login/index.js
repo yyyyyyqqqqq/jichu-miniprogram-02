@@ -9,7 +9,10 @@ Page({
     authStatus: 'idle',
     user: null,
     nickname: '',
-    campus: '',
+    schoolName: '',
+    schoolDisplayName: '尚未选择学校',
+    hasBoundSchool: false,
+    canSelectSchool: false,
     avatarPreviewUrl: '',
     isEditing: false,
     showProfileForm: true,
@@ -42,9 +45,20 @@ Page({
       }
       const user = state.user;
       const shouldHydrate = user && user.id !== this.formUserId;
+      const schoolName = user && typeof user.schoolName === 'string'
+        ? user.schoolName.trim()
+        : '';
       const patch = {
         authStatus: state.status,
         user,
+        schoolName,
+        schoolDisplayName: schoolName || '尚未选择学校',
+        hasBoundSchool: Boolean(schoolName),
+        canSelectSchool: Boolean(
+          user
+          && user.profileCompleted === true
+          && !schoolName
+        ),
         isLoggingIn: state.loggingIn,
         isUpdatingProfile: state.updatingProfile,
         showProfileForm: state.status !== 'authenticated'
@@ -55,7 +69,6 @@ Page({
       if (shouldHydrate) {
         this.formUserId = user.id;
         patch.nickname = user.nickname || '';
-        patch.campus = user.campus || '';
         patch.avatarPreviewUrl = user.avatarUrl || '';
       }
       this.setData(patch);
@@ -98,25 +111,12 @@ Page({
     });
   },
 
-  onCampusInput(event) {
-    this.setData({
-      campus: event && event.detail ? event.detail.value : '',
-      errorMessage: ''
-    });
-  },
-
   validateForm() {
     const nickname = typeof this.data.nickname === 'string'
       ? this.data.nickname.trim().replace(/\s+/g, ' ')
       : '';
-    const campus = typeof this.data.campus === 'string'
-      ? this.data.campus.trim().replace(/\s+/g, ' ')
-      : '';
     if (!nickname || nickname.length > 20) {
       throw new Error('昵称应为 1～20 个字符');
-    }
-    if (campus.length > 40) {
-      throw new Error('校园信息不能超过 40 个字符');
     }
     if (
       !this.avatarTempFilePath
@@ -126,9 +126,18 @@ Page({
       throw new Error('请选择头像');
     }
     return {
-      nickname,
-      campus
+      nickname
     };
+  },
+
+  async onSelectSchoolTap() {
+    if (this.data.isSubmitting || !this.data.canSelectSchool) {
+      return;
+    }
+    await AuthGuard.requireLogin({
+      target: this.data.target,
+      productId: this.data.productId
+    });
   },
 
   async onLoginTap() {

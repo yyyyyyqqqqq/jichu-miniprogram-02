@@ -49,24 +49,20 @@ Page({
         return;
       }
       this.setData({
-        isLoggedIn: state.status === 'authenticated'
-          && Boolean(state.user)
-          && state.user.profileCompleted === true
+        isLoggedIn: AuthStore.isSchoolReady()
       });
     });
   },
 
-  onShow() {
-    if (AuthStore.isLoggedIn()) {
+  async onShow() {
+    const allowed = await AuthGuard.requireLogin({
+      target: AUTH_TARGETS.PUBLISH
+    });
+    if (allowed) {
       this.hasPromptedLogin = false;
       return;
     }
-    if (!this.hasPromptedLogin) {
-      this.hasPromptedLogin = true;
-      AuthGuard.requireLogin({
-        target: AUTH_TARGETS.PUBLISH
-      });
-    }
+    this.hasPromptedLogin = true;
   },
 
   onUnload() {

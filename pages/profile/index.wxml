@@ -14,7 +14,7 @@
         {{user ? user.nickname : '登录后使用完整功能'}}
       </text>
       <text class="profile-note" wx:if="{{isLoggedIn}}">
-        {{user.campus ? user.campus : '校园信息待完善'}}
+        {{displaySchoolName}}
       </text>
       <text class="profile-note" wx:elif="{{isRestoring}}">
         正在后台校验登录状态

@@ -11,6 +11,7 @@
     "schools:verify-online": "node scripts/schools/verify-online.js",
     "schools:verify-cloud-state": "node scripts/schools/verify-cloud-state.js",
     "schools:verify": "node scripts/verify-schools.js",
+    "school-selection:verify": "node scripts/verify-school-selection.js",
     "verify": "node scripts/verify-project.js"
   },
   "dependencies": {

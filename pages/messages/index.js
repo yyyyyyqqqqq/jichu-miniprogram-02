@@ -26,9 +26,7 @@ Page({
     this.nextCursor = null;
     this.unsubscribeAuth = AuthStore.subscribe((state) => {
       if (this.isPageActive) {
-        const isLoggedIn = state.status === 'authenticated'
-          && Boolean(state.user)
-          && state.user.profileCompleted === true;
+        const isLoggedIn = AuthStore.isSchoolReady();
         this.setData({
           isLoggedIn
         });
@@ -43,7 +41,7 @@ Page({
       tabBar.setData({ selected: 'messages' });
     }
 
-    if (!AuthStore.isLoggedIn()) {
+    if (!AuthStore.isSchoolReady()) {
       this.setData({
         viewState: 'login',
         conversations: [],
@@ -80,7 +78,7 @@ Page({
   async loadConversations(options = {}) {
     if (
       !this.isPageActive
-      || !AuthStore.isLoggedIn()
+      || !AuthStore.isSchoolReady()
       || this.data.isLoadingMore
       || (this.data.isRefreshing && options.reset)
     ) {
@@ -160,7 +158,7 @@ Page({
   },
 
   onPullDownRefresh() {
-    if (!AuthStore.isLoggedIn()) {
+    if (!AuthStore.isSchoolReady()) {
       wx.stopPullDownRefresh();
       return;
     }

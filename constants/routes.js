@@ -6,6 +6,7 @@ const ROUTES = {
   MESSAGES: '/pages/messages/index',
   PROFILE: '/pages/profile/index',
   LOGIN: '/pages/login/index',
+  SCHOOL_SELECT: '/pages/school-select/index',
   FAVORITES: '/pages/favorites/index',
   MY_PRODUCTS: '/pages/my-products/index',
   CHAT: '/pages/chat/index',
@@ -18,6 +19,7 @@ const ROUTES = {
 };
 
 const AUTH_TARGETS = {
+  HOME: 'home',
   PROFILE: 'profile',
   PUBLISH: 'publish',
   MESSAGES: 'messages',
@@ -28,6 +30,10 @@ const AUTH_TARGETS = {
 };
 
 const AUTH_TARGET_CONFIG = {
+  [AUTH_TARGETS.HOME]: {
+    route: ROUTES.HOME,
+    method: 'switchTab'
+  },
   [AUTH_TARGETS.PROFILE]: {
     route: ROUTES.PROFILE,
     method: 'switchTab'

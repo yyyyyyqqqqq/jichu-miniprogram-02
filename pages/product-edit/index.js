@@ -68,9 +68,7 @@ Page({
       if (!this.isPageActive) {
         return;
       }
-      const isLoggedIn = state.status === 'authenticated'
-        && Boolean(state.user)
-        && state.user.profileCompleted === true;
+      const isLoggedIn = AuthStore.isSchoolReady();
       this.setData({
         isLoggedIn,
         isRestoring: state.restoring
@@ -87,16 +85,14 @@ Page({
       }
     });
 
-    if (!AuthStore.isLoggedIn()) {
-      this.ensureLogin();
-    }
+    this.ensureLogin();
   },
 
   onShow() {
     if (
       this.isPageActive
       && this.productId
-      && AuthStore.isLoggedIn()
+      && AuthStore.isSchoolReady()
       && !this.loadStarted
     ) {
       this.loadStarted = true;
@@ -150,7 +146,7 @@ Page({
   },
 
   async loadEditableProduct() {
-    if (!this.isPageActive || !this.productId || !AuthStore.isLoggedIn()) {
+    if (!this.isPageActive || !this.productId || !AuthStore.isSchoolReady()) {
       return false;
     }
     const version = this.requestVersion + 1;

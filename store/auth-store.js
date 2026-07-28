@@ -16,13 +16,15 @@ const state = {
   initialized: false,
   restoring: false,
   loggingIn: false,
-  updatingProfile: false
+  updatingProfile: false,
+  selectingSchool: false
 };
 
 const listeners = new Set();
 let bootstrapPromise = null;
 let loginPromise = null;
 let profilePromise = null;
+let schoolPromise = null;
 let operationVersion = 0;
 
 function cloneUser(user) {
@@ -75,6 +77,7 @@ function toCachedUser(value) {
     ? value.nickname.trim()
     : '';
   const nickname = rawNickname === '微信用户' ? '' : rawNickname;
+  const schoolVersion = Number(value.schoolVersion);
 
   if (!id) {
     return null;
@@ -90,6 +93,21 @@ function toCachedUser(value) {
     role: 'user',
     status: 'active',
     profileCompleted: value.profileCompleted === true,
+    schoolId: typeof value.schoolId === 'string' ? value.schoolId.trim() : '',
+    schoolName: typeof value.schoolName === 'string'
+      ? value.schoolName.trim()
+      : '',
+    schoolSelectedAt: typeof value.schoolSelectedAt === 'string'
+      ? value.schoolSelectedAt
+      : '',
+    schoolUpdatedAt: typeof value.schoolUpdatedAt === 'string'
+      ? value.schoolUpdatedAt
+      : '',
+    schoolVersion: Number.isInteger(schoolVersion) && schoolVersion > 0
+      ? schoolVersion
+      : 0,
+    schoolRequired: value.schoolRequired !== false,
+    schoolUnavailable: value.schoolUnavailable === true,
     createdAt: '',
     updatedAt: '',
     lastLoginAt: ''
@@ -132,7 +150,14 @@ function writeCachedUser(user) {
     nickname: user.nickname,
     avatarUrl: user.avatarUrl,
     campus: user.campus,
-    profileCompleted: user.profileCompleted === true
+    profileCompleted: user.profileCompleted === true,
+    schoolId: user.schoolId || '',
+    schoolName: user.schoolName || '',
+    schoolSelectedAt: user.schoolSelectedAt || '',
+    schoolUpdatedAt: user.schoolUpdatedAt || '',
+    schoolVersion: user.schoolVersion || 0,
+    schoolRequired: user.schoolRequired !== false,
+    schoolUnavailable: user.schoolUnavailable === true
   });
 }
 
@@ -348,8 +373,61 @@ function refreshCurrentUser() {
   return bootstrap({ force: true });
 }
 
+function selectSchool(schoolId) {
+  if (schoolPromise) {
+    return schoolPromise;
+  }
+
+  const version = operationVersion + 1;
+  operationVersion = version;
+  setState({
+    error: null,
+    selectingSchool: true
+  });
+
+  const operation = (async () => {
+    try {
+      const user = await AuthService.selectSchool(schoolId);
+      if (version !== operationVersion) {
+        return getState();
+      }
+      writeCachedUser(user);
+      setState({
+        status: AUTH_STATUS.AUTHENTICATED,
+        user,
+        error: null,
+        initialized: true
+      });
+      return getState();
+    } catch (error) {
+      if (version === operationVersion) {
+        const normalizedError = normalizeError(error);
+        setState({
+          error: normalizedError,
+          initialized: true
+        });
+      }
+      throw error;
+    } finally {
+      if (version === operationVersion) {
+        setState({ selectingSchool: false });
+      }
+    }
+  })();
+
+  schoolPromise = operation;
+  operation.finally(() => {
+    if (schoolPromise === operation) {
+      schoolPromise = null;
+    }
+  }).catch(() => {});
+
+  return operation;
+}
+
 function logout() {
   operationVersion += 1;
+  schoolPromise = null;
   clearCachedUser();
   setState({
     status: AUTH_STATUS.ANONYMOUS,
@@ -358,7 +436,8 @@ function logout() {
     initialized: true,
     restoring: false,
     loggingIn: false,
-    updatingProfile: false
+    updatingProfile: false,
+    selectingSchool: false
   });
 }
 
@@ -372,15 +451,24 @@ function isLoggedIn() {
     && state.user.profileCompleted === true;
 }
 
+function isSchoolReady() {
+  return isLoggedIn()
+    && state.user.schoolRequired === false
+    && state.user.schoolUnavailable !== true
+    && Boolean(state.user.schoolId);
+}
+
 module.exports = {
   AUTH_STATUS,
   bootstrap,
   login,
   updateProfile,
+  selectSchool,
   logout,
   refreshCurrentUser,
   getState,
   getCurrentUser,
   isLoggedIn,
+  isSchoolReady,
   subscribe
 };

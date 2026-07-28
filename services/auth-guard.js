@@ -36,27 +36,47 @@ function buildLoginUrl(options = {}) {
   return `${ROUTES.LOGIN}?${parts.join('&')}`;
 }
 
-async function requireLogin(options = {}) {
-  const currentUser = AuthStore.getCurrentUser();
+function buildSchoolSelectUrl(options = {}) {
+  const target = normalizeTarget(options.target);
+  const parts = [`target=${encodeURIComponent(target)}`];
   if (
-    AuthStore.isLoggedIn()
-    && currentUser
-    && currentUser.profileCompleted === true
+    target === AUTH_TARGETS.PRODUCT_DETAIL
+    || target === AUTH_TARGETS.PRODUCT_EDIT
   ) {
-    return true;
+    const productId = normalizeProductId(options.productId);
+    if (productId) {
+      parts.push(`id=${encodeURIComponent(productId)}`);
+    }
   }
+  return `${ROUTES.SCHOOL_SELECT}?${parts.join('&')}`;
+}
 
+async function restoreIfNeeded() {
   const state = AuthStore.getState();
   if (state.status === 'idle' || state.restoring) {
     await AuthStore.bootstrap();
-    const restoredUser = AuthStore.getCurrentUser();
-    if (
-      AuthStore.isLoggedIn()
-      && restoredUser
-      && restoredUser.profileCompleted === true
-    ) {
+  }
+  return AuthStore.getState();
+}
+
+async function openSchoolSelection(options = {}) {
+  if (NavigationService.getCurrentRoute() === ROUTES.SCHOOL_SELECT) {
+    return false;
+  }
+  const url = buildSchoolSelectUrl(options);
+  const redirected = await NavigationService.safeRedirectTo(url);
+  return redirected || NavigationService.safeNavigateTo(url);
+}
+
+async function requireLogin(options = {}) {
+  await restoreIfNeeded();
+  const currentUser = AuthStore.getCurrentUser();
+  if (AuthStore.isLoggedIn() && currentUser) {
+    if (AuthStore.isSchoolReady()) {
       return true;
     }
+    await openSchoolSelection(options);
+    return false;
   }
 
   if (NavigationService.getCurrentRoute() === ROUTES.LOGIN) {
@@ -64,6 +84,25 @@ async function requireLogin(options = {}) {
   }
 
   await NavigationService.safeNavigateTo(buildLoginUrl(options));
+  return false;
+}
+
+async function requireMarketAccess(options = {}) {
+  const state = await restoreIfNeeded();
+  const currentUser = AuthStore.getCurrentUser();
+  if (state.status !== 'authenticated' || !currentUser) {
+    return true;
+  }
+  if (currentUser.profileCompleted !== true) {
+    if (NavigationService.getCurrentRoute() !== ROUTES.LOGIN) {
+      await NavigationService.safeNavigateTo(buildLoginUrl(options));
+    }
+    return false;
+  }
+  if (AuthStore.isSchoolReady()) {
+    return true;
+  }
+  await openSchoolSelection(options);
   return false;
 }
 
@@ -93,7 +132,7 @@ function hasPreviousRoute(route) {
   return previousPage && `/${previousPage.route}` === route;
 }
 
-async function navigateAfterLogin(options = {}) {
+async function navigateToTarget(options = {}) {
   const target = normalizeTarget(options.target);
   const config = AUTH_TARGET_CONFIG[target]
     || AUTH_TARGET_CONFIG[AUTH_TARGETS.PROFILE];
@@ -127,10 +166,27 @@ async function navigateAfterLogin(options = {}) {
   return NavigationService.safeRedirectTo(url);
 }
 
+async function navigateAfterLogin(options = {}) {
+  if (!AuthStore.isSchoolReady()) {
+    return openSchoolSelection(options);
+  }
+  return navigateToTarget(options);
+}
+
+async function navigateAfterSchoolSelection(options = {}) {
+  if (!AuthStore.isSchoolReady()) {
+    return false;
+  }
+  return navigateToTarget(options);
+}
+
 module.exports = {
   normalizeTarget,
   normalizeProductId,
   buildLoginUrl,
+  buildSchoolSelectUrl,
   requireLogin,
-  navigateAfterLogin
+  requireMarketAccess,
+  navigateAfterLogin,
+  navigateAfterSchoolSelection
 };

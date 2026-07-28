@@ -6,38 +6,63 @@ const {
   AUTH_TARGETS
 } = require('../../constants/routes');
 
+function getSchoolPresentation(user) {
+  const schoolName = user && typeof user.schoolName === 'string'
+    ? user.schoolName.trim()
+    : '';
+  const legacyCampus = user && typeof user.campus === 'string'
+    ? user.campus.trim()
+    : '';
+  return {
+    displaySchoolName: schoolName || legacyCampus || '校园信息待完善',
+    hasBoundSchool: Boolean(schoolName)
+  };
+}
+
 Page({
   data: {
     authStatus: 'idle',
     user: null,
     isLoggedIn: false,
     isRestoring: false,
-    errorMessage: ''
+    errorMessage: '',
+    displaySchoolName: '校园信息待完善',
+    hasBoundSchool: false
   },
 
   onLoad() {
     this.isPageActive = true;
     this.unsubscribeAuth = AuthStore.subscribe((state) => {
-      if (!this.isPageActive) {
-        return;
-      }
-      this.setData({
-        authStatus: state.status,
-        user: state.user,
-        isLoggedIn: state.status === 'authenticated'
-          && Boolean(state.user)
-          && state.user.profileCompleted === true,
-        isRestoring: state.restoring,
-        errorMessage: state.error ? state.error.message : ''
-      });
+      this.applyAuthState(state);
     });
   },
 
-  onShow() {
+  applyAuthState(state) {
+    if (!this.isPageActive) {
+      return;
+    }
+    const schoolPresentation = getSchoolPresentation(state.user);
+    this.setData({
+      authStatus: state.status,
+      user: state.user,
+      isLoggedIn: state.status === 'authenticated'
+        && Boolean(state.user)
+        && state.user.profileCompleted === true,
+      isRestoring: state.restoring,
+      errorMessage: state.error ? state.error.message : '',
+      ...schoolPresentation
+    });
+  },
+
+  async onShow() {
     const tabBar = this.getTabBar && this.getTabBar();
     if (tabBar) {
       tabBar.setData({ selected: 'profile' });
     }
+    await AuthGuard.requireMarketAccess({
+      target: AUTH_TARGETS.PROFILE
+    });
+    this.applyAuthState(AuthStore.getState());
   },
 
   onUnload() {

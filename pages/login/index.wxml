@@ -56,19 +56,24 @@
 
       <view class="field-label field-label--spaced">
         校园信息
-        <text class="optional-mark">选填</text>
       </view>
-      <input
-        class="profile-input"
-        maxlength="40"
-        value="{{campus}}"
-        placeholder="例如：XX大学"
-        disabled="{{isSubmitting || isReturning}}"
-        bindinput="onCampusInput"
-      />
+      <view class="school-readonly">
+        <text class="school-readonly__name">{{schoolDisplayName}}</text>
+        <text wx:if="{{hasBoundSchool}}" class="school-readonly__status">已绑定</text>
+        <text
+          wx:elif="{{canSelectSchool}}"
+          class="school-readonly__action"
+          bindtap="onSelectSchoolTap"
+        >
+          去选择学校
+        </text>
+      </view>
+      <text class="school-field-hint">
+        学校由校园选择结果确定，当前暂不支持自行修改。
+      </text>
 
       <view class="identity-note">
-        微信身份由云端安全确认，昵称和头像不会被自动获取或伪造。
+        微信身份和学校归属由云端安全确认，昵称和头像不会被自动获取或伪造。
       </view>
     </view>
 
@@ -106,6 +111,6 @@
   </view>
 
   <view class="privacy-note">
-    头像、昵称和选填的校园信息仅用于校园二手交易中的展示与沟通。本页不申请手机号、通讯录或位置权限。
+    头像、昵称和已绑定学校仅用于校园二手交易中的展示与沟通。本页不申请手机号、通讯录或位置权限。
   </view>
 </view>

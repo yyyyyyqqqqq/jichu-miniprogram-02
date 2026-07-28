@@ -1,4 +1,5 @@
 const ProductService = require('../../services/product-service');
+const AuthGuard = require('../../services/auth-guard');
 const NavigationService = require('../../services/navigation-service');
 const AppStore = require('../../store/app-store');
 const { CATEGORIES } = require('../../constants/categories');
@@ -6,7 +7,7 @@ const {
   PRODUCT_SORT,
   PRODUCT_SORT_OPTIONS
 } = require('../../constants/product');
-const { ROUTES } = require('../../constants/routes');
+const { ROUTES, AUTH_TARGETS } = require('../../constants/routes');
 
 Page({
   data: {
@@ -36,14 +37,40 @@ Page({
   onLoad() {
     this.isPageActive = true;
     this.requestVersion = 0;
+    this.hasLoadedMarket = false;
     this.observedProductsVersion = AppStore.getProductsVersion();
-    this.loadProducts({ mode: 'initial' });
   },
 
-  onShow() {
+  async onShow() {
     const tabBar = this.getTabBar && this.getTabBar();
     if (tabBar) {
       tabBar.setData({ selected: 'home' });
+    }
+
+    const allowed = await AuthGuard.requireMarketAccess({
+      target: AUTH_TARGETS.HOME
+    });
+    if (!this.isPageActive) {
+      return;
+    }
+    if (!allowed) {
+      this.requestVersion += 1;
+      this.hasLoadedMarket = false;
+      this.setData({
+        products: [],
+        viewState: 'loading',
+        isLoading: false,
+        isQuerying: false,
+        isLoadingMore: false,
+        isRefreshing: false,
+        querySummary: '选择学校后进入校园市场'
+      });
+      return;
+    }
+    if (!this.hasLoadedMarket) {
+      this.hasLoadedMarket = true;
+      await this.loadProducts({ mode: 'initial' });
+      return;
     }
 
     const productsVersion = AppStore.getProductsVersion();

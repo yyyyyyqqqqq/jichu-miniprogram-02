@@ -76,7 +76,7 @@ Page({
   async loadAppointments(options = {}) {
     if (
       !this.isPageActive
-      || !AuthStore.isLoggedIn()
+      || !AuthStore.isSchoolReady()
       || this.data.isLoadingMore
       || (this.data.isRefreshing && options.reset)
     ) {

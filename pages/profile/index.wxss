@@ -44,6 +44,8 @@
 }
 
 .profile-note {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   margin-top: 10rpx;
   color: #8b9590;
