@@ -52,6 +52,28 @@
   border-top: 0;
 }
 
+.publish-school {
+  display: flex;
+  flex-direction: column;
+}
+
+.publish-school__label {
+  color: #8d9792;
+  font-size: 22rpx;
+}
+
+.publish-school__value {
+  max-width: 100%;
+  margin-top: 10rpx;
+  overflow: hidden;
+  color: #2e3d35;
+  font-size: 29rpx;
+  font-weight: 700;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .section-heading,
 .field-heading {
   display: flex;

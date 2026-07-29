@@ -14,7 +14,13 @@
     </view>
 
     <view class="surface-card form-card">
-      <view class="form-section form-section--first">
+      <view class="form-section form-section--first publish-school">
+        <view class="publish-school__label">发布校园</view>
+        <view class="publish-school__value">{{schoolName}}</view>
+        <view class="section-tip">商品发布后校园归属不可通过普通编辑修改</view>
+      </view>
+
+      <view class="form-section">
         <view class="section-heading">
           <text class="section-title">商品图片</text>
           <text class="section-meta">{{images.length}} / {{maxImages}}</text>

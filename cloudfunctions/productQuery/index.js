@@ -78,6 +78,12 @@ function normalizeKeyword(value) {
   return value.trim().replace(/\s+/g, ' ').slice(0, MAX_KEYWORD_LENGTH);
 }
 
+function normalizeText(value) {
+  return typeof value === 'string'
+    ? value.trim().replace(/\s+/g, ' ')
+    : '';
+}
+
 function normalizeCategoryId(value) {
   if (value === undefined || value === null || value === '') {
     return 'all';
@@ -269,6 +275,8 @@ function toPublicProduct(record, includeMedia = false) {
     coverTone: record.coverTone,
     location: record.location,
     campus: record.campus,
+    schoolId: normalizeText(record.schoolId),
+    schoolName: normalizeText(record.schoolName),
     distanceText: record.distanceText,
     sellerPublicUserId: record.sellerId,
     sellerName: record.sellerName,

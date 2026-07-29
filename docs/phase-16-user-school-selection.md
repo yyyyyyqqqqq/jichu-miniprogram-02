@@ -3,7 +3,7 @@
 > 实施日期：2026-07-28（Asia/Shanghai）
 > 开始基线：`c932cc4fc28dbd5fda6d5ba861c7034621406224`（`phase-15-complete`）
 > 当前状态：第十六阶段已完成；源码、云端部署、自动验证和最终人工验收全部通过
-> Git 边界：未提交、未推送、未创建 `phase-16-complete`
+> Git 状态：已提交、已推送，并创建 annotated tag `phase-16-complete`
 
 ## 1. 阶段目标与边界
 

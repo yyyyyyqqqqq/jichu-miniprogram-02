@@ -59,6 +59,9 @@ const ERROR_MESSAGES = {
   AUTH_CONTEXT_MISSING: '登录状态已失效，请重新登录',
   USER_NOT_FOUND: '用户记录不存在，请重新登录',
   USER_DISABLED: '当前账户暂不可发布商品',
+  PROFILE_INCOMPLETE: '请先完善个人资料',
+  SCHOOL_SELECTION_REQUIRED: '请先完成学校选择后再发布商品',
+  SCHOOL_UNAVAILABLE: '当前学校暂不可用，请重新确认学校信息',
   DUPLICATE_REQUEST: '该商品已经发布，请勿重复提交',
   UPLOAD_FAILED: '图片上传失败，请稍后重试',
   UPLOAD_TIMEOUT: '图片上传超时，请检查网络后重试',
@@ -787,7 +790,9 @@ async function callCreateProduct(data) {
       }
       return {
         productId,
-        reused: payload.data.reused === true
+        reused: payload.data.reused === true,
+        schoolId: normalizeText(payload.data.schoolId),
+        schoolName: normalizeText(payload.data.schoolName)
       };
     })
     .catch((error) => {

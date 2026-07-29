@@ -3774,6 +3774,7 @@ async function verifyCreateProductFunctionFlow() {
   const functionPath = path.join(root, 'cloudfunctions/createProduct/index.js');
   const originalLoad = Module._load;
   const users = new Map();
+  const schools = new Map();
   const products = new Map();
   let setCount = 0;
 
@@ -3784,13 +3785,23 @@ async function verifyCreateProductFunctionFlow() {
     .update(`${appId}:${openId}`)
     .digest('hex')
     .slice(0, 32)}`;
+  const schoolId = `s_${'a'.repeat(32)}`;
   users.set(userId, {
     _id: userId,
     openid: openId,
     nickname: '验收同学',
     avatarUrl: 'cloud://test-env.bucket/avatars/user.jpg',
     campus: '示例大学',
-    status: 'active'
+    status: 'active',
+    profileCompleted: true,
+    schoolId,
+    schoolName: '客户端旧学校名称'
+  });
+  schools.set(schoolId, {
+    _id: schoolId,
+    name: '示例大学',
+    officialStatus: 'valid',
+    platformStatus: 'active'
   });
 
   function createCollection(store, name) {
@@ -3827,6 +3838,9 @@ async function verifyCreateProductFunctionFlow() {
       }
       if (name === 'products') {
         return createCollection(products, name);
+      }
+      if (name === 'schools') {
+        return createCollection(schools, name);
       }
       throw new Error(`unexpected collection ${name}`);
     },
@@ -3917,6 +3931,8 @@ async function verifyCreateProductFunctionFlow() {
     assert(storedProduct.sellerId === userId, 'createProduct trusted a spoofed seller id');
     assert(storedProduct.sellerOpenid === openId, 'createProduct trusted a spoofed seller openid');
     assert(storedProduct.sellerName === '验收同学', 'createProduct trusted a spoofed seller name');
+    assert(storedProduct.schoolId === schoolId, 'createProduct did not bind the verified user school');
+    assert(storedProduct.schoolName === '示例大学', 'createProduct trusted a stale or spoofed school name');
     assert(storedProduct.status === 'available', 'createProduct trusted a spoofed product status');
     assert(storedProduct.viewCount === 0 && storedProduct.favoriteCount === 0, 'createProduct trusted spoofed counters');
     assert(storedProduct.createdAt.$serverDate === true, 'createProduct trusted a client creation time');
@@ -7848,7 +7864,16 @@ async function runAsyncChecks() {
   checks.push('PASS AuthStore school cache, immediate refresh, concurrency and logout cleanup');
   checks.push('PASS school-required routing, target preservation and duplicate navigation prevention');
   checks.push('PASS school selection loading, search, confirmation, failure and stale-response states');
-  checks.push('PASS phase 16 boundaries preserve product schema and active-only school service');
+  checks.push('PASS phase 16 school selection boundaries and active-only school service');
+  const {
+    verifyProductSchoolBindingFlow
+  } = require('./verify-product-school-binding');
+  const productSchoolBindingResult = await verifyProductSchoolBindingFlow(root);
+  assert(
+    productSchoolBindingResult.checks >= 35,
+    'product school binding verification coverage is incomplete'
+  );
+  checks.push('PASS trusted product school binding, immutable editing and legacy compatibility');
 }
 
 runAsyncChecks()

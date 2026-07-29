@@ -12,6 +12,8 @@
     "schools:verify-cloud-state": "node scripts/schools/verify-cloud-state.js",
     "schools:verify": "node scripts/verify-schools.js",
     "school-selection:verify": "node scripts/verify-school-selection.js",
+    "product-school-binding:deploy": "node scripts/deploy-product-school-binding.js",
+    "product-school-binding:verify": "node scripts/verify-product-school-binding.js",
     "verify": "node scripts/verify-project.js"
   },
   "dependencies": {

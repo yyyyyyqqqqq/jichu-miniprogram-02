@@ -629,7 +629,11 @@ function verifyPageAndSourceBoundaries(root, verifier) {
   check(/requireMarketAccess/.test(guardSource), 'guard exposes market access check');
   check(/requireMarketAccess/.test(homeSource), 'home waits for school access decision');
   check(/requireMarketAccess/.test(tabSource), 'custom tab bar enforces school guard');
-  check(!/schoolId/.test(productSources), 'phase 16 does not add product school fields');
+  check(
+    /schools\s*=\s*db\.collection\(['"]schools['"]\)/.test(productSources)
+      && !/switchSchool|changeSchool/.test(productSources),
+    'later product binding preserves phase 16 first-selection boundary'
+  );
 }
 
 function verifyProfileSchoolLinkage(root, verifier) {

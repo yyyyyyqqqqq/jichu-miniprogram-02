@@ -7,6 +7,7 @@ cloud.init({
 
 const db = cloud.database();
 const users = db.collection('users');
+const schools = db.collection('schools');
 const products = db.collection('products');
 
 const CATEGORY_MAP = {
@@ -39,6 +40,7 @@ const MAX_VIDEO_DURATION = 60;
 const MAX_VIDEO_DIMENSION = 16384;
 const MAX_LOCATION_NAME_LENGTH = 80;
 const MAX_LOCATION_ADDRESS_LENGTH = 120;
+const SCHOOL_ID_PATTERN = /^s_[0-9a-f]{32}$/;
 const REQUEST_ID_PATTERN = /^[a-zA-Z0-9_-]{12,80}$/;
 const IMAGE_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:jpg|jpeg|png|gif|webp)$/i;
 const VIDEO_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:mp4|mov|m4v)$/i;
@@ -64,18 +66,23 @@ const ERROR_CODES = {
   AUTH_CONTEXT_MISSING: 'AUTH_CONTEXT_MISSING',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
   USER_DISABLED: 'USER_DISABLED',
+  PROFILE_INCOMPLETE: 'PROFILE_INCOMPLETE',
+  SCHOOL_SELECTION_REQUIRED: 'SCHOOL_SELECTION_REQUIRED',
+  SCHOOL_UNAVAILABLE: 'SCHOOL_UNAVAILABLE',
   DATABASE_ERROR: 'DATABASE_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
 };
 
-function success(productId, reused) {
+function success(productId, reused, school = {}) {
   return {
     success: true,
     code: ERROR_CODES.OK,
     message: '',
     data: {
       productId,
-      reused: reused === true
+      reused: reused === true,
+      schoolId: normalizeText(school.schoolId),
+      schoolName: normalizeText(school.schoolName)
     }
   };
 }
@@ -97,6 +104,21 @@ function normalizeText(value) {
 
 function normalizeDescription(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeSchoolId(value) {
+  const schoolId = normalizeText(value);
+  return SCHOOL_ID_PATTERN.test(schoolId) ? schoolId : '';
+}
+
+function isProfileComplete(user) {
+  return Boolean(
+    user
+    && user.profileCompleted === true
+    && normalizeText(user.nickname)
+    && normalizeText(user.nickname) !== '微信用户'
+    && normalizeText(user.avatarUrl)
+  );
 }
 
 function isValidPrice(value) {
@@ -299,11 +321,37 @@ async function findUser(userId) {
   return result.data && result.data.length > 0 ? result.data[0] : null;
 }
 
+async function findSchool(schoolId) {
+  const result = await schools.where({
+    _id: schoolId
+  }).limit(1).get();
+  return result.data && result.data.length > 0 ? result.data[0] : null;
+}
+
 async function findProduct(productId) {
   const result = await products.where({
     _id: productId
   }).limit(1).get();
   return result.data && result.data.length > 0 ? result.data[0] : null;
+}
+
+function getActiveSchoolSummary(school) {
+  if (
+    !school
+    || school.platformStatus !== 'active'
+    || school.officialStatus !== 'valid'
+  ) {
+    return null;
+  }
+  const schoolId = normalizeSchoolId(school._id);
+  const schoolName = normalizeText(school.name);
+  if (!schoolId || !schoolName) {
+    return null;
+  }
+  return {
+    schoolId,
+    schoolName
+  };
 }
 
 function validateProduct(value, userId) {
@@ -393,6 +441,44 @@ exports.main = async (event = {}) => {
     if (user.status !== 'active') {
       return failure(ERROR_CODES.USER_DISABLED, '当前账户暂不可发布商品');
     }
+    if (!isProfileComplete(user)) {
+      return failure(ERROR_CODES.PROFILE_INCOMPLETE, '请先完善个人资料');
+    }
+
+    const productId = createProductId(userId, requestId);
+    const existing = await findProduct(productId);
+    if (existing) {
+      if (existing.sellerId !== userId) {
+        return failure(ERROR_CODES.INVALID_PARAMS, '发布请求冲突');
+      }
+      return success(productId, true, {
+        schoolId: existing.schoolId,
+        schoolName: existing.schoolName
+      });
+    }
+
+    const storedSchoolId = normalizeText(user.schoolId);
+    if (!storedSchoolId) {
+      return failure(
+        ERROR_CODES.SCHOOL_SELECTION_REQUIRED,
+        '请先完成学校选择后再发布商品'
+      );
+    }
+    const schoolId = normalizeSchoolId(storedSchoolId);
+    if (!schoolId) {
+      return failure(
+        ERROR_CODES.SCHOOL_UNAVAILABLE,
+        '当前学校暂不可用，请重新确认学校信息'
+      );
+    }
+    const school = await findSchool(schoolId);
+    const schoolSummary = getActiveSchoolSummary(school);
+    if (!schoolSummary) {
+      return failure(
+        ERROR_CODES.SCHOOL_UNAVAILABLE,
+        '当前学校暂不可用，请重新确认学校信息'
+      );
+    }
 
     if (
       request.product
@@ -411,20 +497,12 @@ exports.main = async (event = {}) => {
       return failure(ERROR_CODES.INVALID_PARAMS, '商品信息不完整或格式不正确');
     }
 
-    const productId = createProductId(userId, requestId);
-    const existing = await findProduct(productId);
-    if (existing) {
-      if (existing.sellerId !== userId) {
-        return failure(ERROR_CODES.INVALID_PARAMS, '发布请求冲突');
-      }
-      return success(productId, true);
-    }
-
     await products.doc(productId).set({
       data: Object.assign(
         {},
         product,
         toSellerFields(user, identity, userId),
+        schoolSummary,
         {
           publishRequestId: requestId,
           status: 'available',
@@ -437,7 +515,7 @@ exports.main = async (event = {}) => {
       )
     });
 
-    return success(productId, false);
+    return success(productId, false, schoolSummary);
   } catch (error) {
     console.error('[createProduct] request failed', {
       code: error && (error.errCode || error.code || '')

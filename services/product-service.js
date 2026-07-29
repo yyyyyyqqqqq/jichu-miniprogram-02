@@ -273,6 +273,8 @@ function normalizeProduct(record) {
     tags,
     displayTags: tags.slice(0, 2),
     campus: normalizeString(record.campus, '校内'),
+    schoolId: normalizeString(record.schoolId),
+    schoolName: normalizeString(record.schoolName),
     location: locationName,
     locationName,
     distanceText: normalizeString(record.distanceText, '校内面交'),

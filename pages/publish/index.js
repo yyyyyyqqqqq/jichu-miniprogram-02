@@ -18,6 +18,7 @@ const {
 Page({
   data: {
     isLoggedIn: false,
+    schoolName: '',
     categories: PRODUCT_PUBLISH_CATEGORIES,
     conditions: PRODUCT_CONDITIONS,
     title: '',
@@ -48,8 +49,12 @@ Page({
       if (!this.isPageActive) {
         return;
       }
+      const user = AuthStore.getCurrentUser();
       this.setData({
-        isLoggedIn: AuthStore.isSchoolReady()
+        isLoggedIn: AuthStore.isSchoolReady(),
+        schoolName: user && typeof user.schoolName === 'string'
+          ? user.schoolName.trim()
+          : ''
       });
     });
   },
@@ -60,6 +65,13 @@ Page({
     });
     if (allowed) {
       this.hasPromptedLogin = false;
+      const user = AuthStore.getCurrentUser();
+      this.setData({
+        isLoggedIn: true,
+        schoolName: user && typeof user.schoolName === 'string'
+          ? user.schoolName.trim()
+          : ''
+      });
       return;
     }
     this.hasPromptedLogin = true;
@@ -364,6 +376,7 @@ Page({
 
     let productId = '';
     let requiresLogin = false;
+    let requiresAccessRefresh = false;
     this.setData({
       isSubmitting: true,
       submitStage: this.pendingFileIds.length > 0 || this.pendingVideoFileId
@@ -428,6 +441,13 @@ Page({
         AuthStore.logout();
         requiresLogin = error.code !== 'USER_DISABLED';
       }
+      if ([
+        'PROFILE_INCOMPLETE',
+        'SCHOOL_SELECTION_REQUIRED',
+        'SCHOOL_UNAVAILABLE'
+      ].includes(error.code)) {
+        requiresAccessRefresh = true;
+      }
 
       wx.showToast({
         title: error && error.message
@@ -444,6 +464,14 @@ Page({
     }
 
     if (requiresLogin && this.isPageActive) {
+      await AuthGuard.requireLogin({
+        target: AUTH_TARGETS.PUBLISH
+      });
+      return;
+    }
+
+    if (requiresAccessRefresh && this.isPageActive) {
+      await AuthStore.refreshCurrentUser();
       await AuthGuard.requireLogin({
         target: AUTH_TARGETS.PUBLISH
       });
