@@ -193,7 +193,7 @@ Page({
         return false;
       }
       if (error && error.code === 'UNAUTHORIZED') {
-        AuthStore.logout();
+        AuthStore.clearSession();
         this.loadStarted = false;
         this.ensureLogin();
         return false;
@@ -501,7 +501,7 @@ Page({
 
     const user = AuthStore.getCurrentUser();
     if (!user || !user.id) {
-      AuthStore.logout();
+      AuthStore.clearSession();
       this.ensureLogin();
       return;
     }
@@ -585,7 +585,7 @@ Page({
         this.setData({ submitStage: '' });
       }
       if (error.code === 'UNAUTHORIZED') {
-        AuthStore.logout();
+        AuthStore.clearSession();
         this.ensureLogin();
       }
       wx.showToast({

@@ -17,7 +17,9 @@ const state = {
   restoring: false,
   loggingIn: false,
   updatingProfile: false,
-  selectingSchool: false
+  selectingSchool: false,
+  updatingSchool: false,
+  explicitLogout: false
 };
 
 const listeners = new Set();
@@ -167,6 +169,29 @@ function clearCachedUser() {
   }
 }
 
+function readExplicitLogout() {
+  if (typeof wx === 'undefined' || typeof wx.getStorageSync !== 'function') {
+    return false;
+  }
+  try {
+    return wx.getStorageSync(CLOUD_CONFIG.explicitLogoutKey) === true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function writeExplicitLogout() {
+  if (typeof wx !== 'undefined' && typeof wx.setStorageSync === 'function') {
+    wx.setStorageSync(CLOUD_CONFIG.explicitLogoutKey, true);
+  }
+}
+
+function clearExplicitLogout() {
+  if (typeof wx !== 'undefined' && typeof wx.removeStorageSync === 'function') {
+    wx.removeStorageSync(CLOUD_CONFIG.explicitLogoutKey);
+  }
+}
+
 function normalizeError(error) {
   return {
     code: error && error.code ? error.code : 'UNKNOWN_ERROR',
@@ -183,6 +208,24 @@ function bootstrap(options = {}) {
     return bootstrapPromise;
   }
   if (state.initialized && !force) {
+    return Promise.resolve(getState());
+  }
+
+  if (readExplicitLogout()) {
+    operationVersion += 1;
+    clearCachedUser();
+    setState({
+      status: AUTH_STATUS.ANONYMOUS,
+      user: null,
+      error: null,
+      initialized: true,
+      restoring: false,
+      loggingIn: false,
+      updatingProfile: false,
+      selectingSchool: false,
+      updatingSchool: false,
+      explicitLogout: true
+    });
     return Promise.resolve(getState());
   }
 
@@ -275,11 +318,13 @@ function login(profile) {
       }
 
       writeCachedUser(user);
+      clearExplicitLogout();
       setState({
         status: AUTH_STATUS.AUTHENTICATED,
         user,
         error: null,
-        initialized: true
+        initialized: true,
+        explicitLogout: false
       });
       return getState();
     } catch (error) {
@@ -307,6 +352,75 @@ function login(profile) {
     }
   }).catch(() => {});
 
+  return operation;
+}
+
+function loginCurrentIdentity() {
+  if (loginPromise) {
+    return loginPromise;
+  }
+
+  const version = operationVersion + 1;
+  operationVersion = version;
+  setState({
+    error: null,
+    restoring: false,
+    loggingIn: true
+  });
+
+  const operation = (async () => {
+    try {
+      const user = await AuthService.getCurrentUser();
+      if (version !== operationVersion) {
+        return getState();
+      }
+      if (!user) {
+        clearCachedUser();
+        setState({
+          status: AUTH_STATUS.ANONYMOUS,
+          user: null,
+          error: null,
+          initialized: true,
+          explicitLogout: readExplicitLogout()
+        });
+        return getState();
+      }
+
+      clearExplicitLogout();
+      writeCachedUser(user);
+      setState({
+        status: AUTH_STATUS.AUTHENTICATED,
+        user,
+        error: null,
+        initialized: true,
+        explicitLogout: false
+      });
+      return getState();
+    } catch (error) {
+      if (version === operationVersion) {
+        clearCachedUser();
+        setState({
+          status: AUTH_STATUS.ERROR,
+          user: null,
+          error: normalizeError(error),
+          initialized: true,
+          explicitLogout: readExplicitLogout()
+        });
+      }
+      throw error;
+    } finally {
+      if (version === operationVersion) {
+        setState({ loggingIn: false });
+      }
+    }
+  })();
+
+  loginPromise = operation;
+  operation.finally(() => {
+    if (loginPromise === operation) {
+      loginPromise = null;
+    }
+  }).catch(() => {});
   return operation;
 }
 
@@ -425,8 +539,62 @@ function selectSchool(schoolId) {
   return operation;
 }
 
-function logout() {
+function updateSchool(schoolId) {
+  if (schoolPromise) {
+    return schoolPromise;
+  }
+
+  const version = operationVersion + 1;
+  operationVersion = version;
+  setState({
+    error: null,
+    updatingSchool: true
+  });
+
+  const operation = (async () => {
+    try {
+      const user = await AuthService.updateSchool(schoolId);
+      if (version !== operationVersion) {
+        return getState();
+      }
+      writeCachedUser(user);
+      setState({
+        status: AUTH_STATUS.AUTHENTICATED,
+        user,
+        error: null,
+        initialized: true
+      });
+      return getState();
+    } catch (error) {
+      if (version === operationVersion) {
+        setState({
+          error: normalizeError(error),
+          initialized: true
+        });
+      }
+      throw error;
+    } finally {
+      if (version === operationVersion) {
+        setState({ updatingSchool: false });
+      }
+    }
+  })();
+
+  schoolPromise = operation;
+  operation.finally(() => {
+    if (schoolPromise === operation) {
+      schoolPromise = null;
+    }
+  }).catch(() => {});
+
+  return operation;
+}
+
+function clearSession() {
   operationVersion += 1;
+  bootstrapPromise = null;
+  loginPromise = null;
+  profilePromise = null;
   schoolPromise = null;
   clearCachedUser();
   setState({
@@ -437,8 +605,20 @@ function logout() {
     restoring: false,
     loggingIn: false,
     updatingProfile: false,
-    selectingSchool: false
+    selectingSchool: false,
+    updatingSchool: false,
+    explicitLogout: readExplicitLogout()
   });
+}
+
+function logout() {
+  writeExplicitLogout();
+  clearSession();
+  setState({ explicitLogout: true });
+}
+
+function hasExplicitLogout() {
+  return state.explicitLogout === true || readExplicitLogout();
 }
 
 function getCurrentUser() {
@@ -462,9 +642,13 @@ module.exports = {
   AUTH_STATUS,
   bootstrap,
   login,
+  loginCurrentIdentity,
   updateProfile,
   selectSchool,
+  updateSchool,
   logout,
+  clearSession,
+  hasExplicitLogout,
   refreshCurrentUser,
   getState,
   getCurrentUser,

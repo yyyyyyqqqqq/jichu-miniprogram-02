@@ -173,6 +173,18 @@
   font-size: 21rpx;
 }
 
+.my-product-school {
+  display: block;
+  margin-top: 10rpx;
+  color: #59776a;
+  font-size: 22rpx;
+  line-height: 1.45;
+}
+
+.my-product-school--legacy {
+  color: #919a95;
+}
+
 .my-product-actions {
   display: flex;
   flex-wrap: wrap;

@@ -254,7 +254,7 @@ Page({
       }
 
       if (error && error.code === 'UNAUTHORIZED') {
-        AuthStore.logout();
+        AuthStore.clearSession();
         this.ensureLogin();
       } else if (mode === 'loadMore') {
         this.setData({ loadMoreError: true });
@@ -391,7 +391,7 @@ Page({
         return;
       }
       if (error && error.code === 'UNAUTHORIZED') {
-        AuthStore.logout();
+        AuthStore.clearSession();
         this.ensureLogin();
       } else {
         wx.showToast({

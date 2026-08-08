@@ -11,8 +11,13 @@ const SEARCH_DEBOUNCE_MS = 350;
 
 Page({
   data: {
+    mode: 'select',
+    isChangeMode: false,
+    pageTitle: '选择你的学校',
+    pageSubtitle: '选择学校后，你将进入对应的校园二手市场。',
     target: AUTH_TARGETS.HOME,
     productId: '',
+    currentSchoolId: '',
     currentSchoolName: '',
     schoolUnavailable: false,
     keyword: '',
@@ -22,6 +27,7 @@ Page({
     isSubmitting: false,
     selectedSchoolId: '',
     errorMessage: '',
+    isConfirming: false,
     isReturning: false
   },
 
@@ -29,9 +35,16 @@ Page({
     this.isPageActive = true;
     this.requestVersion = 0;
     this.hasLoadedSchools = false;
+    this.isChangeMode = Boolean(options && options.mode === 'change');
     this.target = AuthGuard.normalizeTarget(options && options.target);
     this.productId = AuthGuard.normalizeProductId(options && options.id);
     this.setData({
+      mode: this.isChangeMode ? 'change' : 'select',
+      isChangeMode: this.isChangeMode,
+      pageTitle: this.isChangeMode ? '修改学校' : '选择你的学校',
+      pageSubtitle: this.isChangeMode
+        ? '从开放学校中选择新的校园市场。'
+        : '选择学校后，你将进入对应的校园二手市场。',
       target: this.target,
       productId: this.productId
     });
@@ -41,9 +54,14 @@ Page({
       }
       const user = state.user;
       this.setData({
+        currentSchoolId: user && user.schoolId ? user.schoolId : '',
         currentSchoolName: user && user.schoolName ? user.schoolName : '',
         schoolUnavailable: Boolean(user && user.schoolUnavailable),
-        isSubmitting: state.selectingSchool || this.data.isSubmitting
+        isSubmitting: Boolean(
+          state.selectingSchool
+          || state.updatingSchool
+          || this.data.isSubmitting
+        )
       });
     });
   },
@@ -98,7 +116,7 @@ Page({
         }));
         return false;
       }
-      if (AuthStore.isSchoolReady()) {
+      if (!this.isChangeMode && AuthStore.isSchoolReady()) {
         await AuthGuard.navigateAfterSchoolSelection({
           target: this.target,
           productId: this.productId
@@ -238,7 +256,11 @@ Page({
   },
 
   onSchoolTap(event) {
-    if (this.data.isSubmitting || this.data.isReturning) {
+    if (
+      this.data.isSubmitting
+      || this.data.isConfirming
+      || this.data.isReturning
+    ) {
       return;
     }
     const schoolId = event
@@ -254,14 +276,34 @@ Page({
       });
       return;
     }
+    if (
+      this.isChangeMode
+      && this.data.currentSchoolId
+      && school.id === this.data.currentSchoolId
+    ) {
+      wx.showToast({
+        title: '这已经是当前学校',
+        icon: 'none'
+      });
+      return;
+    }
+    this.setData({ isConfirming: true });
+    const currentSchoolName = this.data.currentSchoolName || '未绑定';
     wx.showModal({
-      title: `确认选择“${school.name}”吗？`,
-      content: '学校确认后，当前阶段暂不支持自行切换。',
-      confirmText: '确认选择',
+      title: this.isChangeMode ? '确认修改学校？' : `确认选择“${school.name}”吗？`,
+      content: this.isChangeMode
+        ? `当前学校：${currentSchoolName}\n新学校：${school.name}\n\n修改后，你将进入新学校的校园市场。此前发布的商品仍保留在原学校，不会自动迁移。`
+        : '选择后，你将进入对应的校园市场。学校名称由云端权威数据确认。',
+      confirmText: this.isChangeMode ? '确认修改' : '确认选择',
       confirmColor: '#16a36a',
       success: (result) => {
         if (result.confirm && this.isPageActive) {
           this.submitSchool(school);
+        }
+      },
+      complete: () => {
+        if (this.isPageActive) {
+          this.setData({ isConfirming: false });
         }
       }
     });
@@ -283,7 +325,11 @@ Page({
       errorMessage: ''
     });
     try {
-      await AuthStore.selectSchool(school.id);
+      if (this.isChangeMode) {
+        await AuthStore.updateSchool(school.id);
+      } else {
+        await AuthStore.selectSchool(school.id);
+      }
       const user = AuthStore.getCurrentUser();
       if (
         !this.isPageActive
@@ -299,11 +345,18 @@ Page({
         isSubmitting: false
       });
       wx.showToast({
-        title: '学校选择成功',
+        title: this.isChangeMode ? '学校已修改' : '学校选择成功',
         icon: 'success'
       });
       this.returnTimer = setTimeout(async () => {
         this.returnTimer = null;
+        if (this.isChangeMode) {
+          const navigated = await NavigationService.safeNavigateBack();
+          if (this.isPageActive && !navigated) {
+            NavigationService.safeSwitchTab(ROUTES.PROFILE);
+          }
+          return;
+        }
         const navigated = await AuthGuard.navigateAfterSchoolSelection({
           target: this.target,
           productId: this.productId
@@ -326,7 +379,11 @@ Page({
   },
 
   onLogoutTap() {
-    if (this.data.isSubmitting || this.data.isReturning) {
+    if (
+      this.data.isSubmitting
+      || this.data.isConfirming
+      || this.data.isReturning
+    ) {
       return;
     }
     wx.showModal({

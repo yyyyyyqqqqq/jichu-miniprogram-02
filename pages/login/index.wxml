@@ -69,7 +69,7 @@
         </text>
       </view>
       <text class="school-field-hint">
-        学校由校园选择结果确定，当前暂不支持自行修改。
+        学校由权威校园列表确定，绑定后可在“我的”页面受控修改。
       </text>
 
       <view class="identity-note">

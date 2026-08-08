@@ -22,6 +22,7 @@
 }
 
 .campus-badge {
+  max-width: 310rpx;
   min-width: 100rpx;
   height: 58rpx;
   display: flex;
@@ -35,6 +36,13 @@
   color: #13865a;
   font-size: 23rpx;
   font-weight: 650;
+}
+
+.campus-badge__text {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .campus-dot {

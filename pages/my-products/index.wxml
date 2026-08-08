@@ -76,6 +76,12 @@
             <text>{{item.publishedAtText}}</text>
             <text>{{item.favoriteCountText}} 收藏</text>
           </view>
+          <text wx:if="{{item.schoolName}}" class="my-product-school">
+            发布校园：{{item.schoolName}}
+          </text>
+          <text wx:else class="my-product-school my-product-school--legacy">
+            历史商品：未标校园
+          </text>
         </view>
       </view>
 

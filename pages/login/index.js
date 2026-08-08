@@ -156,6 +156,23 @@ Page({
     });
 
     try {
+      if (AuthStore.hasExplicitLogout()) {
+        await AuthStore.loginCurrentIdentity();
+        const restoredUser = AuthStore.getCurrentUser();
+        if (restoredUser && restoredUser.profileCompleted) {
+          wx.showToast({
+            title: '登录成功',
+            icon: 'success'
+          });
+          this.setData({ isReturning: true });
+          this.returnTimer = setTimeout(() => {
+            this.returnTimer = null;
+            this.continueAfterLogin();
+          }, 500);
+          return;
+        }
+      }
+
       const profile = this.validateForm();
       let user = AuthStore.getCurrentUser();
       if (!AuthStore.isLoggedIn() || !user) {

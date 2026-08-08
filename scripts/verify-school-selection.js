@@ -447,7 +447,7 @@ async function verifyAuthStoreSchoolFlow(root, verifier) {
       'selection updates persistent cache'
     );
 
-    AuthStore.logout();
+    AuthStore.clearSession();
     check(AuthStore.getCurrentUser() === null, 'logout clears school user state');
     check(AuthStore.isSchoolReady() === false, 'logout clears school readiness');
     check(!storage.has('auth:user-summary'), 'logout removes school cache');
@@ -519,10 +519,10 @@ async function verifyGuardFlow(root, verifier) {
     user = null;
     schoolReady = false;
     check(
-      await AuthGuard.requireMarketAccess({ target: 'home' }) === true,
-      'anonymous user retains public market access'
+      await AuthGuard.requireMarketAccess({ target: 'home' }) === false,
+      'anonymous user cannot enter the authenticated market'
     );
-    check(navigations.length === 0, 'anonymous market access does not navigate');
+    check(navigations.length === 0, 'anonymous market guard leaves navigation to the guide action');
 
     state = { status: 'authenticated', restoring: false, route: '/pages/publish/index' };
     user = { profileCompleted: true, schoolRequired: true };
@@ -546,9 +546,15 @@ async function verifyGuardFlow(root, verifier) {
 
     state.route = '/pages/home/index';
     user = { profileCompleted: false };
+    const beforeIncompleteGuide = navigations.length;
     check(
       await AuthGuard.requireMarketAccess({ target: 'home' }) === false,
       'incomplete profile cannot enter market'
+    );
+    check(navigations.length === beforeIncompleteGuide, 'incomplete profile guard bypasses the home guide');
+    check(
+      await AuthGuard.requireLogin({ target: 'home' }) === false,
+      'incomplete profile guide action does not open login flow'
     );
     check(
       navigations.pop().url.startsWith('/pages/login/index?target=home'),
@@ -692,7 +698,7 @@ function verifyProfileSchoolLinkage(root, verifier) {
     'profile editor no longer exposes a campus input'
   );
   check(
-    /学校由校园选择结果确定，当前暂不支持自行修改。/.test(editTemplate),
+    /学校由权威校园列表确定，绑定后可在“我的”页面受控修改。/.test(editTemplate),
     'profile editor explains the school binding rule'
   );
   check(

@@ -89,6 +89,23 @@ Page({
     );
   },
 
+  async changeSchool() {
+    if (!AuthStore.isLoggedIn()) {
+      this.goLogin();
+      return;
+    }
+    const user = AuthStore.getCurrentUser();
+    if (!user || !user.schoolId || user.schoolUnavailable) {
+      await AuthGuard.requireMarketAccess({
+        target: AUTH_TARGETS.PROFILE
+      });
+      return;
+    }
+    await AuthGuard.openSchoolChange({
+      target: AUTH_TARGETS.PROFILE
+    });
+  },
+
   async goMyProducts() {
     const allowed = await AuthGuard.requireLogin({
       target: AUTH_TARGETS.MY_PRODUCTS
@@ -136,7 +153,7 @@ Page({
   logout() {
     wx.showModal({
       title: '退出当前登录？',
-      content: '退出后仍可浏览商品，发布和联系卖家时需要重新登录。',
+      content: '退出后首页将保持匿名且不再加载校园商品，重新登录后可恢复当前学校市场。',
       confirmText: '退出登录',
       confirmColor: '#d95745',
       success(result) {

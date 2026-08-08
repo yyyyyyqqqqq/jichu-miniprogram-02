@@ -709,6 +709,9 @@ async function verifyQueryCompatibility(projectRoot, collector) {
   );
   const originalLoad = Module._load;
   const schoolId = `s_${'e'.repeat(32)}`;
+  const queryAppId = 'phase17-query-app';
+  const queryOpenId = 'phase17-query-user';
+  const queryUserId = createUserId(queryAppId, queryOpenId);
   const records = [
     {
       _id: 'p_phase17_query_modern',
@@ -735,6 +738,22 @@ async function verifyQueryCompatibility(projectRoot, collector) {
       createdAt: new Date('2026-07-28T00:00:00.000Z')
     }
   ];
+  const queryUsers = [{
+    _id: queryUserId,
+    openid: queryOpenId,
+    status: 'active',
+    profileCompleted: true,
+    nickname: '查询验证用户',
+    avatarUrl: 'cloud://avatar',
+    schoolId,
+    schoolName: '查询验证大学'
+  }];
+  const querySchools = [{
+    _id: schoolId,
+    name: '查询验证大学',
+    platformStatus: 'active',
+    officialStatus: 'valid'
+  }];
   const db = {
     command: {
       in(value) {
@@ -757,10 +776,12 @@ async function verifyQueryCompatibility(projectRoot, collector) {
       return value;
     },
     collection(name) {
-      if (name !== 'products') {
+      if (!['products', 'users', 'schools'].includes(name)) {
         throw new Error(`unexpected productQuery collection ${name}`);
       }
-      return createQueryCollection(records);
+      return createQueryCollection(
+        name === 'products' ? records : name === 'users' ? queryUsers : querySchools
+      );
     }
   };
   const cloudMock = {
@@ -771,7 +792,8 @@ async function verifyQueryCompatibility(projectRoot, collector) {
     },
     getWXContext() {
       return {
-        OPENID: 'phase17-query-user'
+        APPID: queryAppId,
+        OPENID: queryOpenId
       };
     }
   };
@@ -785,12 +807,9 @@ async function verifyQueryCompatibility(projectRoot, collector) {
   try {
     delete require.cache[require.resolve(functionPath)];
     const productQuery = require(functionPath);
-    const response = await productQuery.main({
-      action: 'list',
-      data: {
-        page: 1,
-        pageSize: 6
-      }
+    const response = await productQuery.__test.listLegacyProducts({
+      page: 1,
+      pageSize: 6
     });
     const modern = response.data.list.find(
       (item) => item._id === records[0]._id
@@ -860,8 +879,12 @@ function verifyStaticBoundaries(projectRoot, collector) {
     'cloudfunctions/appointmentAction/index.js'
   );
   const authSource = read(projectRoot, 'cloudfunctions/authUser/index.js');
-  const listConditionSource = querySource.slice(
+  const legacyListConditionSource = querySource.slice(
     querySource.indexOf('function buildQueryCondition'),
+    querySource.indexOf('function buildSchoolScopedCondition')
+  );
+  const schoolScopedConditionSource = querySource.slice(
+    querySource.indexOf('function buildSchoolScopedCondition'),
     querySource.indexOf('function applySort')
   );
   const updateFieldSource = manageSource.slice(
@@ -931,8 +954,11 @@ function verifyStaticBoundaries(projectRoot, collector) {
     'product detail does not safely hide a missing historical school'
   );
   collector.check(
-    !/schoolId/.test(listConditionSource),
-    'phase 17 filters the public product market by school'
+    !/schoolId/.test(legacyListConditionSource)
+      && /schoolId:\s*options\.schoolId/.test(schoolScopedConditionSource)
+      && /SCHOOL_SCOPED_MARKET_ENABLED\s*=\s*true/.test(querySource)
+      && /SCHOOL_SCOPED_MARKET_STRICT_FOR_ALL\s*=\s*true/.test(querySource),
+    'phase 18 final strict-for-all mode is not enabled'
   );
   collector.check(
     !/SCHOOL_SELECTION_REQUIRED|SCHOOL_UNAVAILABLE|schoolId/.test(
@@ -968,8 +994,11 @@ function verifyStaticBoundaries(projectRoot, collector) {
     }
   });
   collector.check(
-    migrationFiles.length === 0,
-    'phase 17 adds a historical product school migration script'
+    migrationFiles.every((name) => [
+      'migrate-phase-18-missing-user-schools.js',
+      'migrate-phase-22b-public-product-schools.js'
+    ].includes(name)),
+    'an unauthorized historical product school migration script exists'
   );
 }
 

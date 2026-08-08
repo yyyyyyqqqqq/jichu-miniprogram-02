@@ -14,6 +14,10 @@ const AUTH_ERROR_MESSAGES = {
   SCHOOL_NOT_FOUND: '学校信息不存在，请刷新后重试',
   SCHOOL_NOT_ACTIVE: '该学校暂未开放',
   SCHOOL_ALREADY_SELECTED: '你已经完成学校选择',
+  SCHOOL_REQUIRED: '请先完成学校选择',
+  SCHOOL_UNCHANGED: '新学校与当前学校相同',
+  SCHOOL_UPDATE_FAILED: '学校修改失败，请稍后重试',
+  PROFILE_INCOMPLETE: '请先完善个人资料',
   SCHOOL_SELECTION_REQUIRED: '请先选择学校',
   SCHOOL_UNAVAILABLE: '当前学校暂不可用，请重新选择',
   USER_DISABLED: '当前账户暂不可用',
@@ -237,6 +241,22 @@ async function selectSchool(schoolId) {
   return normalizeUser(payload.data && payload.data.user);
 }
 
+async function updateSchool(schoolId) {
+  const normalizedSchoolId = typeof schoolId === 'string'
+    ? schoolId.trim()
+    : '';
+  if (!/^s_[0-9a-f]{32}$/.test(normalizedSchoolId)) {
+    throw createAuthError('INVALID_SCHOOL_ID');
+  }
+  const payload = await callCloudFunction('updateSchool', {
+    schoolId: normalizedSchoolId
+  });
+  if (!payload.success) {
+    throw createAuthError(payload.code || 'SCHOOL_UPDATE_FAILED');
+  }
+  return normalizeUser(payload.data && payload.data.user);
+}
+
 function isLoggedIn() {
   const AuthStore = require('../store/auth-store');
   return AuthStore.isLoggedIn();
@@ -244,7 +264,7 @@ function isLoggedIn() {
 
 function clearLocalSession() {
   const AuthStore = require('../store/auth-store');
-  AuthStore.logout();
+  AuthStore.clearSession();
 }
 
 module.exports = {
@@ -252,6 +272,7 @@ module.exports = {
   login,
   updateProfile,
   selectSchool,
+  updateSchool,
   getCurrentUser,
   isLoggedIn,
   clearLocalSession,

@@ -17,6 +17,10 @@ const {
 
 const DEFAULT_PAGE_SIZE = 6;
 const MAX_PAGE_SIZE = 20;
+const MARKET_MODE = Object.freeze({
+  LEGACY: 'legacy',
+  SCHOOL_SCOPED: 'schoolScoped'
+});
 const PUBLIC_STATUS_SET = new Set(PUBLIC_PRODUCT_STATUSES);
 const SORT_SET = new Set(Object.values(PRODUCT_SORT));
 const CATEGORY_TONES = {
@@ -34,6 +38,16 @@ const PRODUCT_ERROR_MESSAGES = {
   CLOUD_NOT_READY: '商品服务暂不可用',
   INVALID_ACTION: '商品请求不受支持',
   INVALID_PARAMS: '商品查询参数不正确',
+  INVALID_CURSOR_SCOPE: '商品分页已失效，请刷新后重试',
+  CURSOR_SECRET_UNAVAILABLE: '校园市场分页配置尚未就绪',
+  AUTH_REQUIRED: '请先登录并选择学校',
+  USER_NOT_FOUND: '当前用户记录不存在，请重新登录',
+  USER_INACTIVE: '当前账户暂不可用',
+  PROFILE_INCOMPLETE: '请先完善个人资料',
+  SCHOOL_REQUIRED: '请先选择学校',
+  SCHOOL_INVALID: '当前学校信息无效，请重新选择',
+  SCHOOL_UNAVAILABLE: '当前学校暂不可用，请重新选择',
+  SCHOOL_CONTEXT_MISMATCH: '校园市场身份校验失败，请重新登录',
   PRODUCT_NOT_FOUND: '商品不存在或已下架',
   DATABASE_ERROR: '商品数据暂不可用，请稍后重试',
   INTERNAL_ERROR: '商品服务暂不可用，请稍后重试',
@@ -95,6 +109,32 @@ function normalizeString(value, fallback = '') {
   return typeof value === 'string' && value.trim()
     ? value.trim()
     : fallback;
+}
+
+function normalizeMarketMode(value) {
+  return value === MARKET_MODE.LEGACY || value === MARKET_MODE.SCHOOL_SCOPED
+    ? value
+    : '';
+}
+
+function normalizeMarketScope(value) {
+  const scope = value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : {};
+  return {
+    schoolId: normalizeString(scope.schoolId),
+    schoolName: normalizeString(scope.schoolName)
+  };
+}
+
+function normalizeCursor(value) {
+  if (value === undefined || value === null || value === '') {
+    return '';
+  }
+  if (typeof value !== 'string' || value.length > 4096) {
+    throw createProductError('INVALID_CURSOR_SCOPE');
+  }
+  return value;
 }
 
 function normalizeStringArray(value) {
@@ -384,6 +424,8 @@ async function getProductList(options = {}) {
     MAX_PAGE_SIZE
   );
   const statuses = normalizeRequestedStatuses(options.status);
+  const marketModeHint = normalizeMarketMode(options.marketMode);
+  const cursor = normalizeCursor(options.cursor);
 
   if (statuses && statuses.length === 0) {
     return {
@@ -391,18 +433,29 @@ async function getProductList(options = {}) {
       total: 0,
       page,
       pageSize,
-      hasMore: false
+      hasMore: false,
+      nextCursor: '',
+      marketMode: marketModeHint || MARKET_MODE.LEGACY,
+      scope: {
+        schoolId: '',
+        schoolName: ''
+      }
     };
   }
 
-  const payload = await callProductQuery('list', {
+  const requestData = {
     keyword: normalizeKeyword(options.keyword),
     categoryId: normalizeCategoryId(options.categoryId),
     sortBy: normalizeSortBy(options.sortBy),
-    page,
     pageSize,
     statuses
-  });
+  };
+  if (marketModeHint === MARKET_MODE.SCHOOL_SCOPED) {
+    requestData.cursor = cursor;
+  } else {
+    requestData.page = page;
+  }
+  const payload = await callProductQuery('list', requestData);
 
   if (!payload.success) {
     throw createProductError(payload.code || 'UNKNOWN_ERROR', payload.message);
@@ -412,14 +465,49 @@ async function getProductList(options = {}) {
     ? payload.data
     : {};
   const list = normalizeProductList(result.list);
-  const total = normalizeNumber(result.total);
+  const legacyResponseShape = (
+    typeof result.total === 'number'
+    && Number.isFinite(result.total)
+    && typeof result.page === 'number'
+    && Number.isFinite(result.page)
+    && !Object.prototype.hasOwnProperty.call(result, 'nextCursor')
+  );
+  const marketMode = normalizeMarketMode(result.marketMode)
+    || (legacyResponseShape ? MARKET_MODE.LEGACY : '');
+  const scope = normalizeMarketScope(result.scope);
+  if (
+    !marketMode
+    || (
+      marketMode === MARKET_MODE.SCHOOL_SCOPED
+      && (!scope.schoolId || !scope.schoolName)
+    )
+  ) {
+    throw createProductError('INVALID_RESPONSE');
+  }
+  const hasMore = result.hasMore === true;
+  const nextCursor = normalizeCursor(result.nextCursor);
+  if (
+    marketMode === MARKET_MODE.SCHOOL_SCOPED
+    && hasMore
+    && !nextCursor
+  ) {
+    throw createProductError('INVALID_RESPONSE');
+  }
+  const total = typeof result.total === 'number' && Number.isFinite(result.total)
+    ? normalizeNumber(result.total)
+    : null;
 
   return {
     list,
     total,
-    page: normalizePositiveInteger(result.page, page),
+    page: marketMode === MARKET_MODE.LEGACY
+      ? normalizePositiveInteger(result.page, page)
+      : null,
     pageSize: normalizePositiveInteger(result.pageSize, pageSize, MAX_PAGE_SIZE),
-    hasMore: result.hasMore === true
+    hasMore,
+    nextCursor: marketMode === MARKET_MODE.SCHOOL_SCOPED ? nextCursor : '',
+    marketMode,
+    scope
   };
 }
 
@@ -463,5 +551,6 @@ module.exports = {
   getProductById: getProductDetail,
   searchProducts,
   normalizeProduct,
-  normalizeProductList
+  normalizeProductList,
+  MARKET_MODE
 };

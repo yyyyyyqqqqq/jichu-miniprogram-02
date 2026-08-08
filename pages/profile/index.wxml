@@ -101,6 +101,14 @@
   </view>
 
   <view wx:if="{{isLoggedIn}}" class="surface-card account-card">
+    <view class="account-row account-row--school" bindtap="changeSchool">
+      <view class="account-school-copy">
+        <text class="account-label">学校</text>
+        <text class="account-school-name">{{displaySchoolName}}</text>
+      </view>
+      <text class="account-school-action">{{hasBoundSchool ? '修改学校' : '选择学校'}}</text>
+      <text class="account-school-arrow">›</text>
+    </view>
     <view class="account-row">
       <text class="account-label">资料状态</text>
       <text class="account-value">

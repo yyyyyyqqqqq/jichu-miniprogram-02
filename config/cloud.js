@@ -65,7 +65,8 @@ const CLOUD_CONFIG = {
   productImageValidationTimeoutMs: 5000,
   productUploadTimeoutMs: 30000,
   productVideoUploadTimeoutMs: 120000,
-  userCacheKey: 'auth:user-summary'
+  userCacheKey: 'auth:user-summary',
+  explicitLogoutKey: 'auth:explicit-logout'
 };
 
 module.exports = {

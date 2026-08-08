@@ -1,4 +1,5 @@
 const cloud = require('wx-server-sdk');
+const MarketCore = require('./market-core');
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV
@@ -34,12 +35,28 @@ const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 const MAX_VIDEO_DURATION = 60;
 const MAX_VIDEO_DIMENSION = 16384;
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
+const SCHOOL_ID_PATTERN = /^s_[0-9a-f]{32}$/;
+const SCHOOL_SCOPED_MARKET_ENABLED = true;
+const SCHOOL_SCOPED_MARKET_STRICT_FOR_ALL = true;
+const MARKET_ACCESS_REQUIRES_AUTH = true;
+const SCHOOL_SCOPED_MARKET_ALLOWLIST = Object.freeze([]);
+const CURSOR_SECRET_ENV_NAME = 'PRODUCT_QUERY_CURSOR_HMAC_SECRET';
 
 const ERROR_CODES = {
   OK: 'OK',
   INVALID_ACTION: 'INVALID_ACTION',
   INVALID_PARAMS: 'INVALID_PARAMS',
+  INVALID_CURSOR_SCOPE: 'INVALID_CURSOR_SCOPE',
+  CURSOR_SECRET_UNAVAILABLE: 'CURSOR_SECRET_UNAVAILABLE',
   UNAUTHORIZED: 'UNAUTHORIZED',
+  AUTH_REQUIRED: 'AUTH_REQUIRED',
+  USER_NOT_FOUND: 'USER_NOT_FOUND',
+  USER_INACTIVE: 'USER_INACTIVE',
+  PROFILE_INCOMPLETE: 'PROFILE_INCOMPLETE',
+  SCHOOL_REQUIRED: 'SCHOOL_REQUIRED',
+  SCHOOL_INVALID: 'SCHOOL_INVALID',
+  SCHOOL_UNAVAILABLE: 'SCHOOL_UNAVAILABLE',
+  SCHOOL_CONTEXT_MISMATCH: 'SCHOOL_CONTEXT_MISMATCH',
   PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
   DATABASE_ERROR: 'DATABASE_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
@@ -63,6 +80,12 @@ function failure(code, message) {
   };
 }
 
+function businessError(code, message) {
+  const error = new Error(message);
+  error.businessCode = code;
+  throw error;
+}
+
 function normalizePositiveInteger(value, fallback, maximum = Number.MAX_SAFE_INTEGER) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 1) {
@@ -81,6 +104,112 @@ function normalizeKeyword(value) {
 function normalizeText(value) {
   return typeof value === 'string'
     ? value.trim().replace(/\s+/g, ' ')
+    : '';
+}
+
+function getIdentity() {
+  const context = cloud.getWXContext();
+  const openId = context && normalizeText(context.OPENID);
+  const appId = context && normalizeText(context.APPID);
+  return {
+    openId,
+    appId,
+    userId: MarketCore.createUserId(appId, openId)
+  };
+}
+
+function getDefaultRolloutConfig() {
+  return {
+    enabled: SCHOOL_SCOPED_MARKET_ENABLED,
+    strictForAll: SCHOOL_SCOPED_MARKET_STRICT_FOR_ALL,
+    accessRequiresAuth: MARKET_ACCESS_REQUIRES_AUTH,
+    allowlist: SCHOOL_SCOPED_MARKET_ALLOWLIST
+  };
+}
+
+function decideListMarket(identity, rolloutConfig = getDefaultRolloutConfig()) {
+  return MarketCore.decideMarketMode({
+    enabled: rolloutConfig.enabled,
+    strictForAll: rolloutConfig.strictForAll,
+    allowlist: rolloutConfig.allowlist,
+    userId: identity && identity.userId
+  });
+}
+
+async function findOne(collection, condition) {
+  const result = await collection.where(condition).limit(1).get();
+  return Array.isArray(result.data) ? result.data[0] || null : null;
+}
+
+function isProfileComplete(user) {
+  const nickname = normalizeText(user && user.nickname);
+  return Boolean(
+    user
+    && user.profileCompleted === true
+    && nickname
+    && nickname !== '微信用户'
+    && normalizeText(user.avatarUrl)
+  );
+}
+
+async function resolveMarketSchoolContext(identity, dependencies = {}) {
+  if (!identity || !identity.openId || !identity.appId || !identity.userId) {
+    businessError(ERROR_CODES.AUTH_REQUIRED, '请先登录并选择学校');
+  }
+  const userCollection = dependencies.usersCollection || db.collection('users');
+  const schoolCollection = dependencies.schoolsCollection || db.collection('schools');
+  const user = await findOne(userCollection, {
+    _id: identity.userId
+  });
+  if (!user) {
+    businessError(ERROR_CODES.USER_NOT_FOUND, '当前用户记录不存在');
+  }
+  if (user.status !== 'active') {
+    businessError(ERROR_CODES.USER_INACTIVE, '当前账户暂不可用');
+  }
+  if (
+    typeof user.openid !== 'string'
+    || user.openid !== identity.openId
+  ) {
+    businessError(
+      ERROR_CODES.SCHOOL_CONTEXT_MISMATCH,
+      '无法确认当前用户的校园市场身份'
+    );
+  }
+  if (!isProfileComplete(user)) {
+    businessError(ERROR_CODES.PROFILE_INCOMPLETE, '请先完善个人资料');
+  }
+  const storedSchoolId = normalizeText(user.schoolId);
+  if (!storedSchoolId) {
+    businessError(ERROR_CODES.SCHOOL_REQUIRED, '请先选择学校');
+  }
+  if (!SCHOOL_ID_PATTERN.test(storedSchoolId)) {
+    businessError(ERROR_CODES.SCHOOL_INVALID, '当前学校信息无效');
+  }
+  const school = await findOne(schoolCollection, {
+    _id: storedSchoolId
+  });
+  if (
+    !school
+    || school.platformStatus !== 'active'
+    || school.officialStatus !== 'valid'
+    || !normalizeText(school.name)
+  ) {
+    businessError(ERROR_CODES.SCHOOL_UNAVAILABLE, '当前学校暂不可用');
+  }
+  return {
+    userId: identity.userId,
+    schoolId: storedSchoolId,
+    schoolName: normalizeText(school.name)
+  };
+}
+
+function getCursorSecret(dependencies = {}) {
+  if (typeof dependencies.cursorSecret === 'string') {
+    return dependencies.cursorSecret;
+  }
+  return typeof process.env[CURSOR_SECRET_ENV_NAME] === 'string'
+    ? process.env[CURSOR_SECRET_ENV_NAME]
     : '';
 }
 
@@ -163,6 +292,31 @@ function buildQueryCondition(options) {
   return conditions.length === 1
     ? conditions[0]
     : command.and(conditions);
+}
+
+function buildSchoolScopedCondition(options) {
+  const conditions = [
+    buildQueryCondition({
+      categoryId: options.categoryId,
+      keyword: options.keyword,
+      statuses: PUBLIC_LIST_STATUSES
+    }),
+    {
+      schoolId: options.schoolId
+    },
+    {
+      createdAt: command.lte(new Date(options.snapshotAt))
+    }
+  ];
+  if (options.cursorPayload) {
+    conditions.push(MarketCore.buildSeekCondition(
+      command,
+      options.sortBy,
+      options.cursorPayload.lastSortValues,
+      options.cursorPayload.lastItemId
+    ));
+  }
+  return command.and(conditions);
 }
 
 function applySort(query, sortBy) {
@@ -315,7 +469,7 @@ function toMyProduct(record) {
   });
 }
 
-async function listProducts(data) {
+async function listLegacyProducts(data) {
   const categoryId = normalizeCategoryId(data.categoryId);
   const sortBy = normalizeSortBy(data.sortBy);
   if (!categoryId || !sortBy) {
@@ -333,7 +487,13 @@ async function listProducts(data) {
       total: 0,
       page,
       pageSize,
-      hasMore: false
+      hasMore: false,
+      nextCursor: '',
+      marketMode: MarketCore.RESPONSE_MARKET_MODE.LEGACY,
+      scope: {
+        schoolId: '',
+        schoolName: ''
+      }
     });
   }
 
@@ -356,8 +516,123 @@ async function listProducts(data) {
     total,
     page,
     pageSize,
-    hasMore: offset + list.length < total
+    hasMore: offset + list.length < total,
+    nextCursor: '',
+    marketMode: MarketCore.RESPONSE_MARKET_MODE.LEGACY,
+    scope: {
+      schoolId: '',
+      schoolName: ''
+    }
   });
+}
+
+async function listSchoolScopedProducts(data, identity, dependencies = {}) {
+  const categoryId = normalizeCategoryId(data.categoryId);
+  const sortBy = normalizeSortBy(data.sortBy);
+  if (!categoryId || !sortBy) {
+    return failure(ERROR_CODES.INVALID_PARAMS, '商品查询参数不正确');
+  }
+  const pageSize = normalizePositiveInteger(data.pageSize, 6, MAX_PAGE_SIZE);
+  const keyword = normalizeKeyword(data.keyword);
+  const schoolContext = dependencies.schoolContext || await resolveMarketSchoolContext(
+    identity,
+    dependencies
+  );
+  const normalizedKeywordDigest = MarketCore.createKeywordDigest(
+    keyword,
+    categoryId
+  );
+  const cursorSecret = getCursorSecret(dependencies);
+  MarketCore.assertCursorSecret(cursorSecret);
+  const nowMs = Number.isFinite(dependencies.nowMs)
+    ? dependencies.nowMs
+    : Date.now();
+  const expectedCursorScope = {
+    marketMode: MarketCore.MARKET_MODE.SCHOOL_SCOPED,
+    scopeSchoolId: schoolContext.schoolId,
+    action: MarketCore.CURSOR_ACTION,
+    categoryId,
+    normalizedKeywordDigest,
+    sortBy,
+    statuses: PUBLIC_LIST_STATUSES,
+    pageSize
+  };
+  let cursorPayload = null;
+  if (data.cursor !== undefined && data.cursor !== null && data.cursor !== '') {
+    if (typeof data.cursor !== 'string') {
+      businessError(ERROR_CODES.INVALID_CURSOR_SCOPE, '分页游标无效');
+    }
+    cursorPayload = MarketCore.parseCursor(
+      data.cursor.trim(),
+      cursorSecret,
+      expectedCursorScope,
+      nowMs
+    );
+  }
+  const snapshotAt = cursorPayload
+    ? cursorPayload.snapshotAt
+    : new Date(nowMs).toISOString();
+  const condition = buildSchoolScopedCondition({
+    schoolId: schoolContext.schoolId,
+    categoryId,
+    keyword,
+    sortBy,
+    snapshotAt,
+    cursorPayload
+  });
+  const productCollection = dependencies.productsCollection || products;
+  const query = applySort(productCollection.where(condition), sortBy);
+  const result = await query.limit(pageSize + 1).get();
+  const records = Array.isArray(result.data) ? result.data : [];
+  const visibleRecords = records.slice(0, pageSize);
+  const hasMore = records.length > pageSize;
+  let nextCursor = '';
+  if (hasMore && visibleRecords.length > 0) {
+    nextCursor = MarketCore.createCursor(
+      MarketCore.buildCursorPayload({
+        scopeSchoolId: schoolContext.schoolId,
+        categoryId,
+        normalizedKeywordDigest,
+        sortBy,
+        pageSize,
+        snapshotAt,
+        lastRecord: visibleRecords[visibleRecords.length - 1]
+      }),
+      cursorSecret,
+      nowMs
+    );
+  }
+
+  return success({
+    list: visibleRecords.map((record) => toPublicProduct(record)),
+    total: null,
+    page: null,
+    pageSize,
+    hasMore,
+    nextCursor,
+    marketMode: MarketCore.RESPONSE_MARKET_MODE.SCHOOL_SCOPED,
+    scope: {
+      schoolId: schoolContext.schoolId,
+      schoolName: schoolContext.schoolName
+    }
+  });
+}
+
+async function listProducts(data, identity = getIdentity(), dependencies = {}) {
+  const rolloutConfig = dependencies.rolloutConfig || getDefaultRolloutConfig();
+  const schoolContext = rolloutConfig.accessRequiresAuth === true
+    ? await resolveMarketSchoolContext(identity, dependencies)
+    : null;
+  const marketMode = decideListMarket(
+    identity,
+    rolloutConfig
+  );
+  if (marketMode === MarketCore.MARKET_MODE.SCHOOL_SCOPED) {
+    return listSchoolScopedProducts(data, identity, Object.assign({}, dependencies, {
+      schoolContext
+    }));
+  }
+  return listLegacyProducts(data);
 }
 
 async function getProductDetail(data) {
@@ -453,6 +728,12 @@ exports.main = async (event = {}) => {
     }
     return await listMyProducts(data, openId);
   } catch (error) {
+    if (error && error.businessCode) {
+      return failure(error.businessCode, error.message);
+    }
+    if (error instanceof MarketCore.MarketCoreError) {
+      return failure(error.code, error.message);
+    }
     console.error('[productQuery] request failed', {
       action,
       code: error && (error.errCode || error.code || '')
@@ -475,3 +756,13 @@ exports.main = async (event = {}) => {
     );
   }
 };
+
+exports.__test = Object.freeze({
+  getDefaultRolloutConfig,
+  decideListMarket,
+  resolveMarketSchoolContext,
+  listLegacyProducts,
+  listSchoolScopedProducts,
+  listProducts,
+  buildSchoolScopedCondition
+});

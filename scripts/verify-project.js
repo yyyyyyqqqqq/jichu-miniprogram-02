@@ -1767,6 +1767,9 @@ async function verifyServiceFlow() {
 async function verifyProductQueryFunctionFlow() {
   const functionPath = path.join(root, 'cloudfunctions/productQuery/index.js');
   const originalLoad = Module._load;
+  const marketCore = require(path.join(root, 'cloudfunctions/productQuery/market-core.js'));
+  const queryAppId = 'wx-verify-product-query';
+  const querySchoolId = 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   const records = [
     {
       _id: 'product-public',
@@ -1909,10 +1912,10 @@ async function verifyProductQueryFunctionFlow() {
     });
   }
 
-  function createQuery(condition) {
+  function createQuery(condition, sourceRecords = records) {
     const orderRules = [];
     let offset = 0;
-    let limit = records.length;
+    let limit = sourceRecords.length;
     const query = {
       orderBy(field, direction) {
         orderRules.push({ field, direction });
@@ -1928,11 +1931,11 @@ async function verifyProductQueryFunctionFlow() {
       },
       async count() {
         return {
-          total: records.filter((record) => matches(record, condition)).length
+          total: sourceRecords.filter((record) => matches(record, condition)).length
         };
       },
       async get() {
-        const filtered = records
+        const filtered = sourceRecords
           .filter((record) => matches(record, condition))
           .sort((left, right) => {
             for (const rule of orderRules) {
@@ -1965,6 +1968,24 @@ async function verifyProductQueryFunctionFlow() {
       return { $or: value };
     }
   };
+  const auxiliaryRecords = {
+    users: [{
+      _id: marketCore.createUserId(queryAppId, 'private-openid'),
+      openid: 'private-openid',
+      status: 'active',
+      profileCompleted: true,
+      nickname: '验证用户',
+      avatarUrl: 'cloud://avatar',
+      schoolId: querySchoolId,
+      schoolName: '示例大学'
+    }],
+    schools: [{
+      _id: querySchoolId,
+      name: '示例大学',
+      platformStatus: 'active',
+      officialStatus: 'valid'
+    }]
+  };
   const db = {
     command,
     RegExp({ regexp, options }) {
@@ -1973,10 +1994,11 @@ async function verifyProductQueryFunctionFlow() {
       };
     },
     collection(name) {
-      assert(name === 'products', `unexpected productQuery collection ${name}`);
+      assert(['products', 'users', 'schools'].includes(name), `unexpected productQuery collection ${name}`);
+      const sourceRecords = name === 'products' ? records : auxiliaryRecords[name];
       return {
         where(condition) {
-          return createQuery(condition);
+          return createQuery(condition, sourceRecords);
         }
       };
     }
@@ -1990,7 +2012,8 @@ async function verifyProductQueryFunctionFlow() {
     },
     getWXContext() {
       return {
-        OPENID: queryOpenId
+        OPENID: queryOpenId,
+        APPID: queryAppId
       };
     }
   };
@@ -2005,14 +2028,11 @@ async function verifyProductQueryFunctionFlow() {
   try {
     delete require.cache[require.resolve(functionPath)];
     const productQueryFunction = require(functionPath);
-    const listResult = await productQueryFunction.main({
-      action: 'list',
-      data: {
-        page: 1,
-        pageSize: 20,
-        categoryId: 'all',
-        sortBy: 'newest'
-      }
+    const listResult = await productQueryFunction.__test.listLegacyProducts({
+      page: 1,
+      pageSize: 20,
+      categoryId: 'all',
+      sortBy: 'newest'
     });
     assert(listResult.success === true, 'productQuery rejected a valid public list request');
     assert(
@@ -2141,14 +2161,11 @@ async function verifyProductQueryFunctionFlow() {
     );
     queryOpenId = 'private-openid';
 
-    const cappedResult = await productQueryFunction.main({
-      action: 'list',
-      data: {
-        page: 999999,
-        pageSize: 999999,
-        categoryId: 'all',
-        sortBy: 'default'
-      }
+    const cappedResult = await productQueryFunction.__test.listLegacyProducts({
+      page: 999999,
+      pageSize: 999999,
+      categoryId: 'all',
+      sortBy: 'default'
     });
     assert(
       cappedResult.data.page === 100 && cappedResult.data.pageSize === 20,
@@ -2598,6 +2615,8 @@ async function verifyManageProductFunctionFlow() {
       _id: 'product-state',
       sellerOpenid: 'owner-openid',
       sellerId: 'u_owner',
+      schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      schoolName: '示例大学',
       status: 'available'
     }],
     ['product-edit', {
@@ -2748,6 +2767,15 @@ async function verifyManageProductFunctionFlow() {
       status: 'available'
     }]
   ]);
+  const users = new Map([
+    ['u_owner', {
+      _id: 'u_owner',
+      openid: 'owner-openid',
+      status: 'active',
+      schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      schoolName: '示例大学'
+    }]
+  ]);
   let currentOpenId = 'owner-openid';
   let deleteMode = 'success';
   const deletedFileIDs = [];
@@ -2819,18 +2847,19 @@ async function verifyManageProductFunctionFlow() {
     async runTransaction(callback) {
       const transaction = {
         collection(name) {
-          assert(name === 'products', `unexpected transaction collection ${name}`);
+          assert(['products', 'users'].includes(name), `unexpected transaction collection ${name}`);
+          const records = name === 'products' ? products : users;
           return {
             doc(id) {
               return {
                 async get() {
                   return {
-                    data: products.has(id) ? products.get(id) : null
+                    data: records.has(id) ? records.get(id) : null
                   };
                 },
                 async update({ data }) {
-                  assert(products.has(id), `transaction updated missing product ${id}`);
-                  products.set(id, Object.assign({}, products.get(id), data));
+                  assert(records.has(id), `transaction updated missing ${name} ${id}`);
+                  records.set(id, Object.assign({}, records.get(id), data));
                   return {
                     stats: {
                       updated: 1
@@ -7428,7 +7457,7 @@ async function verifyAuthStateFlow() {
   };
 
   try {
-    AuthStore.logout();
+    AuthStore.clearSession();
     let currentCalls = 0;
     AuthService.getCurrentUser = async () => {
       currentCalls += 1;
@@ -7448,7 +7477,7 @@ async function verifyAuthStateFlow() {
     assert(!Object.prototype.hasOwnProperty.call(cached, 'openid'), 'cached summary contains openid');
     assert(!Object.prototype.hasOwnProperty.call(cached, 'role'), 'cached summary contains role');
 
-    AuthStore.logout();
+    AuthStore.clearSession();
     let loginCalls = 0;
     AuthService.login = async (profile) => {
       loginCalls += 1;
@@ -7496,7 +7525,7 @@ async function verifyAuthStateFlow() {
       'profile update did not refresh AuthStore'
     );
 
-    AuthStore.logout();
+    AuthStore.clearSession();
     let resolveStaleCurrent;
     AuthService.getCurrentUser = () => new Promise((resolve) => {
       resolveStaleCurrent = resolve;
@@ -7511,14 +7540,14 @@ async function verifyAuthStateFlow() {
       'stale current request overwrote a newer login'
     );
 
-    AuthStore.logout();
+    AuthStore.clearSession();
     assert(!AuthStore.isLoggedIn(), 'logout did not return to anonymous state');
     assert(!storage.has('auth:user-summary'), 'logout did not clear the local summary');
   } finally {
     AuthService.getCurrentUser = originalGetCurrentUser;
     AuthService.login = originalLogin;
     AuthService.updateProfile = originalUpdateProfile;
-    AuthStore.logout();
+    AuthStore.clearSession();
     if (originalWx === undefined) {
       delete global.wx;
     } else {
@@ -7874,6 +7903,24 @@ async function runAsyncChecks() {
     'product school binding verification coverage is incomplete'
   );
   checks.push('PASS trusted product school binding, immutable editing and legacy compatibility');
+  const {
+    verifyPhase18Flow
+  } = require('./verify-phase-18-school-scoped-market');
+  const phase18Result = await verifyPhase18Flow(root);
+  assert(
+    phase18Result.checks >= 50,
+    'phase 18 school-scoped market verification coverage is incomplete'
+  );
+  checks.push('PASS phase 18 dual-track market, signed seek cursors and client scope isolation');
+  const {
+    verifyPhase18SchoolChangeFlow
+  } = require('./verify-phase-18-school-change');
+  const schoolChangeResult = await verifyPhase18SchoolChangeFlow(root);
+  assert(
+    schoolChangeResult.checks >= 45,
+    'phase 18 school change verification coverage is incomplete'
+  );
+  checks.push('PASS controlled school change, authoritative refresh and immutable product ownership');
 }
 
 runAsyncChecks()

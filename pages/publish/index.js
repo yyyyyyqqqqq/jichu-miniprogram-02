@@ -367,7 +367,7 @@ Page({
 
     const user = AuthStore.getCurrentUser();
     if (!user || !user.id) {
-      AuthStore.logout();
+      AuthStore.clearSession();
       AuthGuard.requireLogin({
         target: AUTH_TARGETS.PUBLISH
       });
@@ -438,7 +438,7 @@ Page({
         'USER_NOT_FOUND',
         'USER_DISABLED'
       ].includes(error.code)) {
-        AuthStore.logout();
+        AuthStore.clearSession();
         requiresLogin = error.code !== 'USER_DISABLED';
       }
       if ([

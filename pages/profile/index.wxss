@@ -234,6 +234,45 @@
   justify-content: space-between;
 }
 
+.account-row--school {
+  min-height: 88rpx;
+  margin: -4rpx 0 22rpx;
+  padding-bottom: 20rpx;
+  border-bottom: 1rpx solid #edf1ef;
+}
+
+.account-school-copy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding-right: 20rpx;
+}
+
+.account-school-name {
+  overflow: hidden;
+  margin-top: 8rpx;
+  color: #7f8a84;
+  font-size: 22rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-school-action {
+  flex: none;
+  color: #13865a;
+  font-size: 22rpx;
+  font-weight: 650;
+}
+
+.account-school-arrow {
+  flex: none;
+  margin-left: 10rpx;
+  color: #a5ada9;
+  font-size: 38rpx;
+  font-weight: 300;
+}
+
 .account-label {
   color: #3d4b43;
   font-size: 25rpx;

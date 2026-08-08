@@ -39,6 +39,9 @@ function buildLoginUrl(options = {}) {
 function buildSchoolSelectUrl(options = {}) {
   const target = normalizeTarget(options.target);
   const parts = [`target=${encodeURIComponent(target)}`];
+  if (options.mode === 'change') {
+    parts.push('mode=change');
+  }
   if (
     target === AUTH_TARGETS.PRODUCT_DETAIL
     || target === AUTH_TARGETS.PRODUCT_EDIT
@@ -49,6 +52,21 @@ function buildSchoolSelectUrl(options = {}) {
     }
   }
   return `${ROUTES.SCHOOL_SELECT}?${parts.join('&')}`;
+}
+
+async function openSchoolChange(options = {}) {
+  await restoreIfNeeded();
+  const currentUser = AuthStore.getCurrentUser();
+  if (!AuthStore.isLoggedIn() || !currentUser || !currentUser.profileCompleted) {
+    return false;
+  }
+  if (NavigationService.getCurrentRoute() === ROUTES.SCHOOL_SELECT) {
+    return false;
+  }
+  return NavigationService.safeNavigateTo(buildSchoolSelectUrl({
+    ...options,
+    mode: 'change'
+  }));
 }
 
 async function restoreIfNeeded() {
@@ -72,6 +90,13 @@ async function requireLogin(options = {}) {
   await restoreIfNeeded();
   const currentUser = AuthStore.getCurrentUser();
   if (AuthStore.isLoggedIn() && currentUser) {
+    if (currentUser.profileCompleted !== true) {
+      if (NavigationService.getCurrentRoute() === ROUTES.LOGIN) {
+        return false;
+      }
+      await NavigationService.safeNavigateTo(buildLoginUrl(options));
+      return false;
+    }
     if (AuthStore.isSchoolReady()) {
       return true;
     }
@@ -91,18 +116,14 @@ async function requireMarketAccess(options = {}) {
   const state = await restoreIfNeeded();
   const currentUser = AuthStore.getCurrentUser();
   if (state.status !== 'authenticated' || !currentUser) {
-    return true;
+    return false;
   }
   if (currentUser.profileCompleted !== true) {
-    if (NavigationService.getCurrentRoute() !== ROUTES.LOGIN) {
-      await NavigationService.safeNavigateTo(buildLoginUrl(options));
-    }
     return false;
   }
   if (AuthStore.isSchoolReady()) {
     return true;
   }
-  await openSchoolSelection(options);
   return false;
 }
 
@@ -185,6 +206,7 @@ module.exports = {
   normalizeProductId,
   buildLoginUrl,
   buildSchoolSelectUrl,
+  openSchoolChange,
   requireLogin,
   requireMarketAccess,
   navigateAfterLogin,

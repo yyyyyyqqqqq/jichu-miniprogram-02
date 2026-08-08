@@ -26,6 +26,11 @@ const ERROR_CODES = {
   SCHOOL_NOT_FOUND: 'SCHOOL_NOT_FOUND',
   SCHOOL_NOT_ACTIVE: 'SCHOOL_NOT_ACTIVE',
   SCHOOL_ALREADY_SELECTED: 'SCHOOL_ALREADY_SELECTED',
+  SCHOOL_REQUIRED: 'SCHOOL_REQUIRED',
+  SCHOOL_UNAVAILABLE: 'SCHOOL_UNAVAILABLE',
+  SCHOOL_UNCHANGED: 'SCHOOL_UNCHANGED',
+  SCHOOL_UPDATE_FAILED: 'SCHOOL_UPDATE_FAILED',
+  PROFILE_INCOMPLETE: 'PROFILE_INCOMPLETE',
   AUTH_FAILED: 'AUTH_FAILED',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
   USER_DISABLED: 'USER_DISABLED',
@@ -100,6 +105,16 @@ function normalizeSchoolId(value) {
 function normalizeSchoolVersion(value) {
   const version = Number(value);
   return Number.isInteger(version) && version > 0 ? version : 0;
+}
+
+function isProfileComplete(record) {
+  return Boolean(
+    record
+    && record.profileCompleted === true
+    && normalizeNickname(record.nickname)
+    && typeof record.avatarUrl === 'string'
+    && record.avatarUrl.trim()
+  );
 }
 
 function toSafeUser(record, schoolState = {}) {
@@ -532,6 +547,84 @@ async function selectSchool(identity, input) {
   return success(toSafeUser(result.record, result.schoolState));
 }
 
+async function updateSchool(identity, input) {
+  const requestedSchoolId = normalizeSchoolId(input && input.schoolId);
+  if (!requestedSchoolId) {
+    businessError(ERROR_CODES.INVALID_SCHOOL_ID, '请选择有效的学校');
+  }
+
+  const userId = createUserId(identity.appId, identity.openId);
+  const now = new Date();
+  const result = await runTransaction(async (transaction) => {
+    const userDocument = transaction.collection('users').doc(userId);
+    const existing = await getDocumentOrNull(userDocument);
+    if (!existing) {
+      businessError(ERROR_CODES.USER_NOT_FOUND, '当前微信身份尚未登录');
+    }
+    assertExistingUser(existing, identity);
+    if (!isProfileComplete(existing)) {
+      businessError(ERROR_CODES.PROFILE_INCOMPLETE, '请先完善个人资料');
+    }
+
+    const schoolCollection = transaction.collection('schools');
+    const existingState = await resolveSchoolState(existing, schoolCollection);
+    if (existingState.schoolRequired) {
+      businessError(
+        normalizeText(existing.schoolId)
+          ? ERROR_CODES.SCHOOL_UNAVAILABLE
+          : ERROR_CODES.SCHOOL_REQUIRED,
+        normalizeText(existing.schoolId)
+          ? '当前学校暂不可用，请先重新选择'
+          : '请先完成学校选择'
+      );
+    }
+    if (existingState.schoolId === requestedSchoolId) {
+      businessError(ERROR_CODES.SCHOOL_UNCHANGED, '新学校与当前学校相同');
+    }
+
+    const selectedSchool = await findSchool(
+      requestedSchoolId,
+      schoolCollection
+    );
+    if (!selectedSchool) {
+      businessError(ERROR_CODES.SCHOOL_NOT_FOUND, '学校信息不存在');
+    }
+    if (!isSchoolActive(selectedSchool)) {
+      businessError(ERROR_CODES.SCHOOL_NOT_ACTIVE, '该学校暂未开放');
+    }
+
+    const updateData = {
+      schoolId: requestedSchoolId,
+      schoolName: normalizeText(selectedSchool.name),
+      schoolSelectedAt: existing.schoolSelectedAt || db.serverDate(),
+      schoolUpdatedAt: db.serverDate(),
+      schoolVersion: Math.max(normalizeSchoolVersion(existing.schoolVersion), 1) + 1,
+      updatedAt: db.serverDate()
+    };
+    await userDocument.update({
+      data: updateData
+    });
+
+    return {
+      record: {
+        ...existing,
+        ...updateData,
+        schoolSelectedAt: existing.schoolSelectedAt || now,
+        schoolUpdatedAt: now,
+        updatedAt: now
+      },
+      schoolState: {
+        schoolId: requestedSchoolId,
+        schoolName: updateData.schoolName,
+        schoolRequired: false,
+        schoolUnavailable: false
+      }
+    };
+  });
+
+  return success(toSafeUser(result.record, result.schoolState));
+}
+
 function classifyFailure(error) {
   const message = [
     error && error.message,
@@ -560,7 +653,13 @@ exports.main = async (event = {}) => {
     && !Array.isArray(request.data)
     ? request.data
     : {};
-  const allowedActions = ['login', 'current', 'updateProfile', 'selectSchool'];
+  const allowedActions = [
+    'login',
+    'current',
+    'updateProfile',
+    'selectSchool',
+    'updateSchool'
+  ];
 
   if (!allowedActions.includes(action)) {
     return failure(ERROR_CODES.INVALID_ACTION, '不支持的认证操作');
@@ -581,15 +680,21 @@ exports.main = async (event = {}) => {
     if (action === 'selectSchool') {
       return await selectSchool(identity, data);
     }
+    if (action === 'updateSchool') {
+      return await updateSchool(identity, data);
+    }
     return await current(identity);
   } catch (error) {
     if (error && error.businessCode) {
       return failure(error.businessCode, error.message);
     }
-    const code = classifyFailure(error);
+    const classifiedCode = classifyFailure(error);
+    const code = action === 'updateSchool'
+      ? ERROR_CODES.SCHOOL_UPDATE_FAILED
+      : classifiedCode;
     return failure(
       code,
-      code === ERROR_CODES.DATABASE_ERROR
+      classifiedCode === ERROR_CODES.DATABASE_ERROR
         ? '认证数据暂不可用，请稍后重试'
         : '认证服务暂不可用，请稍后重试'
     );

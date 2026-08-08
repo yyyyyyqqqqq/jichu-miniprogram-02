@@ -7,7 +7,7 @@
     </view>
     <view class="campus-badge">
       <view class="campus-dot"></view>
-      <text>校内</text>
+      <text class="campus-badge__text">{{marketScope.schoolName || '校内'}}</text>
     </view>
   </view>
 
@@ -68,6 +68,14 @@
   <loading-state
     wx:if="{{viewState === 'loading'}}"
     text="正在寻找校园好物"
+  />
+
+  <empty-state
+    wx:elif="{{viewState === 'guide'}}"
+    title="{{guideTitle}}"
+    description="{{guideDescription}}"
+    action-text="{{guideActionText}}"
+    bind:action="onMarketGuideAction"
   />
 
   <empty-state

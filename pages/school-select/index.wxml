@@ -1,9 +1,9 @@
 <view class="page-shell--plain school-select-page">
   <view class="school-hero">
     <view class="school-mark">校</view>
-    <view class="page-title">选择你的学校</view>
+    <view class="page-title">{{pageTitle}}</view>
     <view class="page-subtitle">
-      选择学校后，你将进入对应的校园二手市场。
+      {{pageSubtitle}}
     </view>
   </view>
 
@@ -23,14 +23,14 @@
         value="{{keyword}}"
         placeholder="搜索学校名称"
         confirm-type="search"
-        disabled="{{isSubmitting || isReturning}}"
+        disabled="{{isSubmitting || isConfirming || isReturning}}"
         bindinput="onKeywordInput"
         bindconfirm="onSearchConfirm"
       />
       <button
         wx:if="{{keyword}}"
         class="search-clear"
-        disabled="{{isSubmitting || isReturning}}"
+        disabled="{{isSubmitting || isConfirming || isReturning}}"
         bindtap="onClearSearch"
       >
         清除
@@ -62,9 +62,9 @@
       <button
         wx:for="{{schools}}"
         wx:key="id"
-        class="school-item"
         data-id="{{item.id}}"
-        disabled="{{isSubmitting || isReturning}}"
+        class="school-item {{currentSchoolId === item.id ? 'school-item--current' : ''}}"
+        disabled="{{isSubmitting || isConfirming || isReturning}}"
         bindtap="onSchoolTap"
       >
         <view class="school-item-copy">
@@ -74,7 +74,7 @@
           </text>
         </view>
         <text class="school-action">
-          {{selectedSchoolId === item.id && isSubmitting ? '提交中' : '选择'}}
+          {{selectedSchoolId === item.id && isSubmitting ? '提交中' : (currentSchoolId === item.id ? '当前学校' : (isChangeMode ? '修改为此校' : '选择'))}}
         </text>
       </button>
     </view>
@@ -85,11 +85,11 @@
   </view>
 
   <view class="selection-note">
-    学校名称与开放状态由云端权威数据校验，不能通过自由文本修改。
+    {{isChangeMode ? '修改学校不会迁移此前发布的商品；旧商品继续属于发布时学校。' : '学校名称与开放状态由云端权威数据校验，不能通过自由文本修改。'}}
   </view>
   <button
     class="logout-button"
-    disabled="{{isSubmitting || isReturning}}"
+    disabled="{{isSubmitting || isConfirming || isReturning}}"
     bindtap="onLogoutTap"
   >
     退出当前登录
