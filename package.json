@@ -71,6 +71,11 @@
     "phase-21:devtools": "node scripts/verify-phase-21-devtools.js",
     "phase-18-auth-market:deploy": "node scripts/deploy-phase-18-auth-market.js",
     "phase-18-data-migration:devtools": "node scripts/verify-phase-18-data-migration-devtools.js",
+    "phase-23:verify": "node scripts/verify-phase-23.js",
+    "phase-23:audit": "node scripts/phase-23-production-audit.js",
+    "phase-23:performance": "node scripts/phase-23-performance.js",
+    "phase-23:security-probes": "node scripts/phase-23-security-probes.js",
+    "phase-23:deploy": "node scripts/deploy-phase-23.js",
     "verify": "node scripts/verify-project.js"
   },
   "dependencies": {

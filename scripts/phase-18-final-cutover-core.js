@@ -208,6 +208,7 @@ module.exports = {
   sourceConfig,
   assertConfig,
   functionSummary,
+  callTcb,
   readProductIndexes,
   readProductsAcl,
   loadEnvironmentId,
