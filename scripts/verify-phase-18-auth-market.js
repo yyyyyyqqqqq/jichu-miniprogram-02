@@ -163,6 +163,12 @@ async function verifyCrossSchoolRelist() {
     schoolId: schoolB,
     schoolName: '学校 B'
   }]]);
+  const schools = new Map([[schoolA, {
+    _id: schoolA,
+    name: '学校 A',
+    platformStatus: 'active',
+    officialStatus: 'valid'
+  }]]);
   const db = {
     command: { all(value) { return { $all: value }; } },
     collection() { return createCollection([]); },
@@ -170,7 +176,9 @@ async function verifyCrossSchoolRelist() {
     async runTransaction(callback) {
       const transaction = {
         collection(name) {
-          const records = name === 'products' ? products : users;
+          const records = name === 'products'
+            ? products
+            : (name === 'schools' ? schools : users);
           return { doc(id) { return {
             async get() { return { data: records.get(id) || null }; },
             async update({ data }) { records.set(id, { ...records.get(id), ...data }); return { stats: { updated: 1 } }; }
@@ -186,6 +194,28 @@ async function verifyCrossSchoolRelist() {
   check(allowed.success === true && allowed.data.status === 'available', 'historical product owner could not relist the product');
   check(products.get('product-relist-school').schoolId === schoolA, 'historical product relist changed product school');
   check(users.get('u_owner').schoolId === schoolB, 'historical product relist changed the owner school');
+
+  products.set('product-relist-unassigned', {
+    _id: 'product-relist-unassigned',
+    sellerOpenid: 'owner-openid',
+    sellerId: 'u_owner',
+    status: 'offline',
+    version: 1,
+    offlineAt: { original: true }
+  });
+  const rejected = await manageProduct.main({
+    action: 'relist',
+    productId: 'product-relist-unassigned'
+  });
+  check(
+    rejected.success === false
+      && rejected.code === 'PRODUCT_SCHOOL_UNAVAILABLE',
+    'unassigned historical product was allowed to relist'
+  );
+  check(
+    products.get('product-relist-unassigned').status === 'offline',
+    'rejected unassigned relist changed product status'
+  );
 }
 
 (async () => {

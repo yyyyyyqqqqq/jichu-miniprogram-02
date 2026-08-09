@@ -157,6 +157,10 @@
           <text class="info-label">发布校园</text>
           <text class="info-value info-value--wrap">{{product.schoolName}}</text>
         </view>
+        <view wx:elif="{{isOwnProduct}}" class="info-row">
+          <text class="info-label">发布校园</text>
+          <text class="info-value info-value--wrap">历史商品：未标校园</text>
+        </view>
         <view class="info-row">
           <text class="info-label">面交地点</text>
           <text class="info-value info-value--wrap">{{product.locationName}}</text>

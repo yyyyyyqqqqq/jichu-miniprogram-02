@@ -2792,6 +2792,14 @@ async function verifyManageProductFunctionFlow() {
       schoolName: '示例大学'
     }]
   ]);
+  const schools = new Map([
+    ['s_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', {
+      _id: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      name: '示例大学',
+      platformStatus: 'active',
+      officialStatus: 'valid'
+    }]
+  ]);
   let currentOpenId = 'owner-openid';
   let deleteMode = 'success';
   const deletedFileIDs = [];
@@ -2863,8 +2871,13 @@ async function verifyManageProductFunctionFlow() {
     async runTransaction(callback) {
       const transaction = {
         collection(name) {
-          assert(['products', 'users'].includes(name), `unexpected transaction collection ${name}`);
-          const records = name === 'products' ? products : users;
+          assert(
+            ['products', 'users', 'schools'].includes(name),
+            `unexpected transaction collection ${name}`
+          );
+          const records = name === 'products'
+            ? products
+            : (name === 'users' ? users : schools);
           return {
             doc(id) {
               return {

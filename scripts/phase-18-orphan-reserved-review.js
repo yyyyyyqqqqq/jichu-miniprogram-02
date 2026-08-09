@@ -37,6 +37,8 @@ const COLLECTION_PROJECTIONS = {
     schoolId: 1,
     schoolName: 1,
     schoolSelectedAt: 1,
+    schoolChangedAt: 1,
+    schoolVersion: 1,
     createdAt: 1,
     updatedAt: 1,
     lastLoginAt: 1

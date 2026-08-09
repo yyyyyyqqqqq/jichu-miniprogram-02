@@ -28,6 +28,7 @@ const ERROR_MESSAGES = {
   PRODUCT_NOT_FOUND: '商品不存在',
   PRODUCT_FORBIDDEN: '无权管理该商品',
   PRODUCT_DELETED: '商品已被删除',
+  PRODUCT_SCHOOL_UNAVAILABLE: '历史商品缺少有效发布校园，暂不能重新上架',
   PRODUCT_NOT_EDITABLE: '当前商品状态不支持此操作',
   PRODUCT_VERSION_CONFLICT: '商品信息已在其他页面发生变化，请刷新后重试',
   INVALID_STATUS_TRANSITION: '当前商品状态不支持此操作',

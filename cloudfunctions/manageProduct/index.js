@@ -9,6 +9,7 @@ const command = db.command;
 const products = db.collection('products');
 
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
+const SCHOOL_ID_PATTERN = /^s_[0-9a-f]{32}$/;
 const MUTATION_ID_PATTERN = /^[a-zA-Z0-9_-]{12,80}$/;
 const IMAGE_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:jpg|jpeg|png|gif|webp)$/i;
 const VIDEO_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:mp4|mov|m4v)$/i;
@@ -106,6 +107,7 @@ const ERROR_CODES = {
   PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
   PRODUCT_FORBIDDEN: 'PRODUCT_FORBIDDEN',
   PRODUCT_DELETED: 'PRODUCT_DELETED',
+  PRODUCT_SCHOOL_UNAVAILABLE: 'PRODUCT_SCHOOL_UNAVAILABLE',
   PRODUCT_NOT_EDITABLE: 'PRODUCT_NOT_EDITABLE',
   PRODUCT_VERSION_CONFLICT: 'PRODUCT_VERSION_CONFLICT',
   INVALID_PRODUCT_FIELD: 'INVALID_PRODUCT_FIELD',
@@ -391,6 +393,48 @@ function assertProductAccess(product, openId) {
   }
 }
 
+async function assertProductSchoolReadyForRelist(transaction, product) {
+  const schoolId = normalizeText(product && product.schoolId);
+  const schoolName = normalizeText(product && product.schoolName);
+  if (!SCHOOL_ID_PATTERN.test(schoolId) || !schoolName) {
+    businessError(
+      ERROR_CODES.PRODUCT_SCHOOL_UNAVAILABLE,
+      '历史商品缺少有效发布校园，暂不能重新上架'
+    );
+  }
+
+  let school = null;
+  try {
+    school = extractProduct(
+      await transaction.collection('schools').doc(schoolId).get()
+    );
+  } catch (error) {
+    const message = error && error.message ? String(error.message) : '';
+    if (
+      message.includes('does not exist')
+      || message.includes('not exist')
+      || message.includes('not found')
+    ) {
+      businessError(
+        ERROR_CODES.PRODUCT_SCHOOL_UNAVAILABLE,
+        '商品发布校园已不可用，暂不能重新上架'
+      );
+    }
+    throw error;
+  }
+  if (
+    !school
+    || school.platformStatus !== 'active'
+    || school.officialStatus !== 'valid'
+    || !normalizeText(school.name)
+  ) {
+    businessError(
+      ERROR_CODES.PRODUCT_SCHOOL_UNAVAILABLE,
+      '商品发布校园已不可用，暂不能重新上架'
+    );
+  }
+}
+
 function toEditableProduct(product) {
   const video = normalizeVideo(product.video, product.sellerId);
   const location = normalizeText(product.location);
@@ -539,6 +583,9 @@ async function performTransition(productId, openId, action) {
     assertProductAccess(product, openId);
     if (product.status === 'deleted') {
       businessError(ERROR_CODES.PRODUCT_DELETED, '商品已被删除');
+    }
+    if (action === ACTIONS.RELIST) {
+      await assertProductSchoolReadyForRelist(transaction, product);
     }
 
     const transition = TRANSITIONS[action];
