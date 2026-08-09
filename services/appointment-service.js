@@ -159,6 +159,8 @@ function normalizeProduct(value) {
     price: safePrice,
     priceDisplay: safePrice === 0 ? '免费送' : `¥${formatPrice(safePrice)}`,
     status: normalizeString(record.status) || 'deleted',
+    schoolId: normalizeString(record.schoolId),
+    schoolName: normalizeString(record.schoolName),
     legacyLocationName: normalizeString(record.legacyLocationName)
   };
 }

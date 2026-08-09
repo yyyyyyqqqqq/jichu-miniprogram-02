@@ -12,6 +12,10 @@ const ERROR_MESSAGES = {
   CLOUD_NOT_READY: '用户主页服务暂不可用',
   INVALID_ACTION: '用户主页请求不受支持',
   INVALID_PARAMS: '用户主页参数不正确',
+  UNAUTHORIZED: '登录状态已失效，请重新登录',
+  PROFILE_INCOMPLETE: '请先完善个人资料',
+  SCHOOL_REQUIRED: '请先选择学校',
+  SCHOOL_UNAVAILABLE: '当前学校暂不可用，请重新选择',
   USER_NOT_FOUND: '该用户不存在',
   PUBLIC_PROFILE_UNAVAILABLE: '该用户主页暂不可用',
   DATABASE_ERROR: '用户主页数据暂不可用，请稍后重试',
@@ -48,6 +52,27 @@ function normalizePositiveInteger(value, fallback, maximum) {
 function normalizeCount(value) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
+}
+
+function normalizeSchoolScope(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const schoolId = typeof source.schoolId === 'string'
+    ? source.schoolId.trim()
+    : '';
+  const schoolName = typeof source.schoolName === 'string'
+    ? source.schoolName.trim()
+    : '';
+  const schoolVersion = Number(source.schoolVersion);
+  if (!/^s_[a-f0-9]{32}$/.test(schoolId) || !schoolName) {
+    throw createError('INVALID_RESPONSE');
+  }
+  return {
+    schoolId,
+    schoolName,
+    schoolVersion: Number.isInteger(schoolVersion) && schoolVersion > 0
+      ? schoolVersion
+      : 0
+  };
 }
 
 function mapTransportError(error) {
@@ -154,7 +179,8 @@ async function getPublicProfile(publicUserId) {
       ? profile.bio.trim()
       : '这个用户还没有填写简介',
     joinDate: typeof profile.joinDate === 'string' ? profile.joinDate : '',
-    activeProductCount: normalizeCount(profile.activeProductCount)
+    activeProductCount: normalizeCount(profile.activeProductCount),
+    schoolScope: normalizeSchoolScope(data.scope)
   };
 }
 
@@ -185,7 +211,8 @@ async function getPublicProducts(publicUserId, options = {}) {
     total: normalizeCount(data.total),
     page: normalizePositiveInteger(data.page, page, 100),
     pageSize: normalizePositiveInteger(data.pageSize, pageSize, MAX_PAGE_SIZE),
-    hasMore: data.hasMore === true
+    hasMore: data.hasMore === true,
+    schoolScope: normalizeSchoolScope(data.scope)
   };
 }
 

@@ -318,6 +318,8 @@ function normalizeMessageProduct(value) {
       reserved: '已预定',
       sold: '已售出'
     }[status],
+    schoolId: normalizeString(record.schoolId),
+    schoolName: normalizeString(record.schoolName),
     ownerPublicUserId
   };
 }

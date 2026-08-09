@@ -4,6 +4,7 @@ const MyProductsService = require('../../services/my-products-service');
 const ProductEditService = require('../../services/product-edit-service');
 const NavigationService = require('../../services/navigation-service');
 const AppStore = require('../../store/app-store');
+const SchoolRelation = require('../../utils/school-relation');
 const { PRODUCT_STATUS } = require('../../constants/product');
 const {
   ROUTES,
@@ -77,11 +78,16 @@ Page({
 
   onLoad() {
     this.isPageActive = true;
+    this.isPageVisible = false;
     this.requestVersion = 0;
     this.initialLoadStarted = false;
     this.loginGuardPromise = null;
     this.actionPromise = null;
     this.observedProductsVersion = AppStore.getProductsVersion();
+    this.observedSchoolScopeKey = SchoolRelation.getSchoolScopeKey(
+      AuthStore.getCurrentUser()
+    );
+    this.pendingSchoolRefresh = false;
 
     this.unsubscribeAuth = AuthStore.subscribe((state) => {
       if (!this.isPageActive) {
@@ -89,6 +95,13 @@ Page({
       }
 
       const isLoggedIn = AuthStore.isSchoolReady();
+      const nextSchoolScopeKey = SchoolRelation.getSchoolScopeKey(state.user);
+      const schoolChanged = nextSchoolScopeKey !== this.observedSchoolScopeKey;
+      if (schoolChanged) {
+        this.observedSchoolScopeKey = nextSchoolScopeKey;
+        this.pendingSchoolRefresh = true;
+        this.requestVersion += 1;
+      }
       this.setData({
         authStatus: state.status,
         isLoggedIn,
@@ -97,7 +110,16 @@ Page({
 
       if (isLoggedIn && !this.initialLoadStarted) {
         this.initialLoadStarted = true;
+        this.pendingSchoolRefresh = false;
         this.loadProducts({ mode: 'initial' });
+      } else if (
+        isLoggedIn
+        && schoolChanged
+        && this.initialLoadStarted
+        && this.isPageVisible
+      ) {
+        this.pendingSchoolRefresh = false;
+        this.loadProducts({ mode: 'query' });
       } else if (
         !isLoggedIn
         && state.initialized
@@ -111,6 +133,17 @@ Page({
   },
 
   onShow() {
+    this.isPageVisible = true;
+    if (
+      this.isPageActive
+      && AuthStore.isSchoolReady()
+      && this.initialLoadStarted
+      && this.pendingSchoolRefresh
+    ) {
+      this.pendingSchoolRefresh = false;
+      this.loadProducts({ mode: 'query' });
+      return;
+    }
     const productsVersion = AppStore.getProductsVersion();
     if (
       this.isPageActive
@@ -132,8 +165,13 @@ Page({
     }
   },
 
+  onHide() {
+    this.isPageVisible = false;
+  },
+
   onUnload() {
     this.isPageActive = false;
+    this.isPageVisible = false;
     this.requestVersion += 1;
     if (this.unsubscribeAuth) {
       this.unsubscribeAuth();

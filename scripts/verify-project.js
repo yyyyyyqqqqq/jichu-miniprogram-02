@@ -4621,6 +4621,7 @@ async function verifyUserQueryFunctionFlow() {
   const originalLoad = Module._load;
   const userRecords = new Map();
   const productRecords = new Map();
+  const schoolRecords = new Map();
 
   function matches(record, condition) {
     return Object.entries(condition).every(([key, value]) => {
@@ -4681,8 +4682,20 @@ async function verifyUserQueryFunctionFlow() {
       }
     },
     collection(name) {
-      const records = name === 'users' ? userRecords : productRecords;
+      const records = name === 'users'
+        ? userRecords
+        : name === 'schools'
+          ? schoolRecords
+          : productRecords;
       return {
+        doc(id) {
+          return {
+            async get() {
+              const record = records.get(id);
+              return { data: record ? { ...record } : null };
+            }
+          };
+        },
         where(condition) {
           return createQuery(records, condition);
         }
@@ -4694,10 +4707,37 @@ async function verifyUserQueryFunctionFlow() {
     init() {},
     database() {
       return database;
+    },
+    getWXContext() {
+      return {
+        APPID: 'phase21-app',
+        OPENID: 'phase21-viewer'
+      };
     }
   };
 
   const publicUserId = 'u_1234567890abcdef1234567890abcdef';
+  const viewerUserId = `u_${require('crypto')
+    .createHash('sha256')
+    .update('phase21-app:phase21-viewer')
+    .digest('hex')
+    .slice(0, 32)}`;
+  const schoolAId = 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const schoolBId = 's_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  schoolRecords.set(schoolAId, {
+    _id: schoolAId,
+    name: 'A 校',
+    platformStatus: 'active',
+    officialStatus: 'valid'
+  });
+  userRecords.set(viewerUserId, {
+    _id: viewerUserId,
+    openid: 'phase21-viewer',
+    status: 'active',
+    profileCompleted: true,
+    schoolId: schoolAId,
+    schoolVersion: 2
+  });
   userRecords.set(publicUserId, {
     _id: publicUserId,
     openid: 'private-user-openid',
@@ -4725,6 +4765,8 @@ async function verifyUserQueryFunctionFlow() {
       coverTone: 'mint',
       location: '图书馆',
       campus: '示例大学',
+      schoolId: index === 4 ? schoolBId : schoolAId,
+      schoolName: index === 4 ? 'B 校' : 'A 校',
       distanceText: '校内面交',
       sellerId: publicUserId,
       sellerOpenid: 'private-user-openid',
@@ -4737,6 +4779,23 @@ async function verifyUserQueryFunctionFlow() {
       viewCount: 0,
       createdAt: new Date(`2026-07-${18 - index}T08:00:00.000Z`)
     });
+  });
+  productRecords.set('public-cross-school', {
+    _id: 'public-cross-school',
+    title: 'B 校在售商品',
+    price: 8,
+    categoryId: 'life',
+    categoryName: '生活',
+    condition: '九成新',
+    coverImage: '',
+    location: 'B 校',
+    campus: 'B 校',
+    schoolId: schoolBId,
+    schoolName: 'B 校',
+    sellerId: publicUserId,
+    sellerOpenid: 'private-user-openid',
+    status: 'available',
+    createdAt: new Date('2026-07-19T08:00:00.000Z')
   });
 
   Module._load = function(request, parent, isMain) {
@@ -4756,6 +4815,7 @@ async function verifyUserQueryFunctionFlow() {
     assert(profile.success === true, 'public profile query failed');
     assert(profile.data.profile.nickname === '即出用户', 'public profile default nickname is missing');
     assert(profile.data.profile.activeProductCount === 2, 'public active product count is incorrect');
+    assert(profile.data.scope.schoolId === schoolAId, 'public profile does not return the authoritative viewer scope');
     ['openid', 'role', 'status', 'lastLoginAt'].forEach((field) => {
       assert(
         !Object.prototype.hasOwnProperty.call(profile.data.profile, field),
@@ -4773,6 +4833,10 @@ async function verifyUserQueryFunctionFlow() {
       && productsResult.data.list.some((item) => item.status === 'available')
       && productsResult.data.list.some((item) => item.status === 'reserved'),
       'public products do not expose exactly available and reserved statuses'
+    );
+    assert(
+      productsResult.data.list.every((item) => item.schoolId === schoolAId),
+      'public products leak another school into the viewer scope'
     );
     assert(productsResult.data.list[0].favoriteCount === 0, 'missing favoriteCount is not normalized');
     assert(

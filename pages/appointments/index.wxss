@@ -108,6 +108,16 @@
   color: #4d5a53;
 }
 
+.school-relation-badge {
+  align-self: flex-start;
+  margin-top: 8rpx;
+  padding: 4rpx 10rpx;
+  border-radius: 999rpx;
+  background: #eef1ef;
+  color: #6f7b75;
+  font-size: 18rpx;
+}
+
 .waiting-tag,
 .waiting-copy {
   margin-top: 9rpx;

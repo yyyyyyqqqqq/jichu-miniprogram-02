@@ -140,6 +140,17 @@
   white-space: nowrap;
 }
 
+.school-relation-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  margin-top: 10rpx;
+  padding: 5rpx 11rpx;
+  border-radius: 999rpx;
+  background: #eef1ef;
+  color: #6f7b75;
+  font-size: 19rpx;
+}
+
 .favorite-meta {
   display: flex;
   gap: 18rpx;

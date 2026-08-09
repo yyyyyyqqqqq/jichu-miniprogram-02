@@ -4,6 +4,7 @@ const MessageService = require('../../services/message-service');
 const ChatMediaService = require('../../services/chat-media-service');
 const AppointmentService = require('../../services/appointment-service');
 const ProductService = require('../../services/product-service');
+const SchoolRelation = require('../../utils/school-relation');
 const NavigationService = require('../../services/navigation-service');
 const {
   ROUTES,
@@ -125,6 +126,10 @@ Page({
     this.isPageActive = true;
     this.isPageVisible = true;
     this.requestVersion = 0;
+    this.observedSchoolScopeKey = SchoolRelation.getSchoolScopeKey(
+      AuthStore.getCurrentUser()
+    );
+    this.pendingSchoolRefresh = false;
     this.serverMessages = [];
     this.pendingMessages = [];
     this.nextCursor = null;
@@ -136,6 +141,26 @@ Page({
     this.recorderStartRequested = false;
     this.initializeRecorder();
     this.initializeAudioPlayer();
+    this.unsubscribeAuth = AuthStore.subscribe((state) => {
+      if (!this.isPageActive) {
+        return;
+      }
+      const nextSchoolScopeKey = SchoolRelation.getSchoolScopeKey(state.user);
+      if (nextSchoolScopeKey === this.observedSchoolScopeKey) {
+        return;
+      }
+      this.observedSchoolScopeKey = nextSchoolScopeKey;
+      this.pendingSchoolRefresh = true;
+      this.requestVersion += 1;
+      if (
+        AuthStore.isSchoolReady()
+        && this.isPageVisible
+        && this.conversationId
+      ) {
+        this.pendingSchoolRefresh = false;
+        this.initializeConversation();
+      }
+    });
 
     const conversationId = options && typeof options.conversationId === 'string'
       ? options.conversationId.trim()
@@ -158,6 +183,10 @@ Page({
       this.startPolling();
       this.refreshLatestMessages();
     }
+    if (this.pendingSchoolRefresh && this.conversationId) {
+      this.pendingSchoolRefresh = false;
+      this.initializeConversation();
+    }
   },
 
   onHide() {
@@ -178,6 +207,10 @@ Page({
     this.unbindRecorderListeners();
     this.destroyAudioPlayer();
     this.releaseRecorderState();
+    if (this.unsubscribeAuth) {
+      this.unsubscribeAuth();
+      this.unsubscribeAuth = null;
+    }
     this.isPageActive = false;
   },
 
@@ -225,6 +258,17 @@ Page({
         return;
       }
 
+      const currentUser = AuthStore.getCurrentUser();
+      const decoratedConversation = SchoolRelation.decorateConversation(
+        conversation,
+        currentUser
+      );
+      const decoratedAppointment = appointmentResult.appointment
+        ? SchoolRelation.decorateAppointment(
+            appointmentResult.appointment,
+            currentUser
+          )
+        : null;
       this.serverMessages = messageResult.list;
       this.nextCursor = messageResult.nextCursor;
       wx.setNavigationBarTitle({
@@ -232,8 +276,8 @@ Page({
       });
       this.setData({
         viewState: 'success',
-        conversation,
-        activeAppointment: appointmentResult.appointment,
+        conversation: decoratedConversation,
+        activeAppointment: decoratedAppointment,
         appointmentError: appointmentResult.success
           ? ''
           : '预约功能暂不可用',
@@ -393,7 +437,12 @@ Page({
         .getActiveByConversation(this.conversationId);
       if (this.isPageActive && this.isPageVisible) {
         this.setData({
-          activeAppointment: appointment,
+          activeAppointment: appointment
+            ? SchoolRelation.decorateAppointment(
+                appointment,
+                AuthStore.getCurrentUser()
+              )
+            : null,
           appointmentError: '',
           appointmentErrorCode: ''
         });
@@ -1767,6 +1816,13 @@ Page({
     }
     const product = this.data.conversation
       && this.data.conversation.product;
+    if (product && product.isCrossSchool) {
+      wx.showToast({
+        title: '该商品属于其他学校，不能创建新的面交预约',
+        icon: 'none'
+      });
+      return;
+    }
     if (
       !product
       || product.status !== 'available'

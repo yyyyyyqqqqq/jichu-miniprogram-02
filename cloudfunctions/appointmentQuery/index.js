@@ -161,6 +161,8 @@ function safeProduct(record, productId) {
       ? Number(source.price)
       : 0,
     status: normalizeString(source.status) || 'deleted',
+    schoolId: normalizeString(source.schoolId),
+    schoolName: normalizeString(source.schoolName),
     legacyLocationName: normalizeString(source.location)
   };
 }

@@ -46,6 +46,9 @@
             <text class="product-state product-state--{{conversation.product.status}}">
               {{conversation.product.statusText}}
             </text>
+            <text wx:if="{{conversation.product.isCrossSchool}}" class="school-relation-badge">
+              {{conversation.product.schoolRelationText}}
+            </text>
           </view>
         </view>
         <text class="product-arrow">›</text>
@@ -64,6 +67,9 @@
           </text>
           <text wx:elif="{{activeAppointment}}" class="appointment-entry-description">
             {{activeAppointment.statusText}} · {{activeAppointment.scheduledAtText}}
+          </text>
+          <text wx:elif="{{conversation.product.isCrossSchool}}" class="appointment-entry-description">
+            该商品属于其他学校，历史消息可继续查看和发送，但不能新建预约
           </text>
           <text wx:else class="appointment-entry-description">
             约定未来 30 天内的校园面交时间与地点

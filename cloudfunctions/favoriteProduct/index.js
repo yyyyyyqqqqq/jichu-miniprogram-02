@@ -249,6 +249,8 @@ function toFavoriteProduct(record, favoritedAt) {
     coverTone: record.coverTone,
     location: record.location,
     campus: record.campus,
+    schoolId: record.schoolId,
+    schoolName: record.schoolName,
     distanceText: record.distanceText,
     sellerPublicUserId: record.sellerId,
     sellerName: record.sellerName,

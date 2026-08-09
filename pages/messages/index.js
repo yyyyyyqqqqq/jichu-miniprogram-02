@@ -2,6 +2,7 @@ const AuthStore = require('../../store/auth-store');
 const AuthGuard = require('../../services/auth-guard');
 const MessageService = require('../../services/message-service');
 const NavigationService = require('../../services/navigation-service');
+const SchoolRelation = require('../../utils/school-relation');
 const {
   ROUTES,
   AUTH_TARGETS
@@ -24,9 +25,23 @@ Page({
     this.isPageVisible = false;
     this.requestVersion = 0;
     this.nextCursor = null;
+    this.observedSchoolScopeKey = SchoolRelation.getSchoolScopeKey(
+      AuthStore.getCurrentUser()
+    );
     this.unsubscribeAuth = AuthStore.subscribe((state) => {
       if (this.isPageActive) {
         const isLoggedIn = AuthStore.isSchoolReady();
+        const nextSchoolScopeKey = SchoolRelation.getSchoolScopeKey(state.user);
+        const schoolChanged = nextSchoolScopeKey !== this.observedSchoolScopeKey;
+        if (schoolChanged) {
+          this.observedSchoolScopeKey = nextSchoolScopeKey;
+          this.requestVersion += 1;
+          if (isLoggedIn && this.isPageVisible) {
+            this.nextCursor = null;
+            this.setData({ isRefreshing: false, isLoadingMore: false });
+            this.loadConversations({ reset: true });
+          }
+        }
         this.setData({
           isLoggedIn
         });
@@ -119,8 +134,10 @@ Page({
       const byId = new Map(
         base.map((item) => [item.conversationId, item])
       );
+      const currentUser = AuthStore.getCurrentUser();
       result.list.forEach((item) => {
-        byId.set(item.conversationId, item);
+        const decorated = SchoolRelation.decorateConversation(item, currentUser);
+        byId.set(decorated.conversationId, decorated);
       });
       const conversations = [...byId.values()];
       this.nextCursor = result.nextCursor;

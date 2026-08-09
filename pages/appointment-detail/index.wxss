@@ -97,6 +97,16 @@
   font-weight: 700;
 }
 
+.school-relation-badge {
+  align-self: flex-start;
+  margin-top: 8rpx;
+  padding: 4rpx 10rpx;
+  border-radius: 999rpx;
+  background: #eef1ef;
+  color: #6f7b75;
+  font-size: 18rpx;
+}
+
 .product-role {
   margin-top: 9rpx;
   color: #7f8984;

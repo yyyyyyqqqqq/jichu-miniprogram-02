@@ -1332,7 +1332,8 @@ async function verifyChatAppointmentDegradation(root) {
     await appointmentUnavailablePage.initializeConversation();
     assert(
       appointmentUnavailablePage.data.viewState === 'success'
-      && appointmentUnavailablePage.data.conversation === conversation
+      && appointmentUnavailablePage.data.conversation.product.title
+        === conversation.product.title
       && appointmentUnavailablePage.data.appointmentErrorCode
         === 'APPOINTMENT_SERVICE_ERROR'
       && appointmentUnavailablePage.data.messageErrorCode === '',

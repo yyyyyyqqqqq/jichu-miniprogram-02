@@ -2,6 +2,7 @@ const AuthStore = require('../../store/auth-store');
 const AuthGuard = require('../../services/auth-guard');
 const AppointmentService = require('../../services/appointment-service');
 const NavigationService = require('../../services/navigation-service');
+const SchoolRelation = require('../../utils/school-relation');
 const {
   ROUTES,
   AUTH_TARGETS
@@ -37,11 +38,32 @@ Page({
 
   onLoad() {
     this.isPageActive = true;
+    this.isPageVisible = false;
     this.requestVersion = 0;
     this.nextCursor = null;
+    this.observedSchoolScopeKey = SchoolRelation.getSchoolScopeKey(
+      AuthStore.getCurrentUser()
+    );
+    this.unsubscribeAuth = AuthStore.subscribe((state) => {
+      if (!this.isPageActive) {
+        return;
+      }
+      const nextSchoolScopeKey = SchoolRelation.getSchoolScopeKey(state.user);
+      const schoolChanged = nextSchoolScopeKey !== this.observedSchoolScopeKey;
+      if (schoolChanged) {
+        this.observedSchoolScopeKey = nextSchoolScopeKey;
+        this.requestVersion += 1;
+        if (AuthStore.isSchoolReady() && this.isPageVisible) {
+          this.nextCursor = null;
+          this.setData({ isRefreshing: false, isLoadingMore: false });
+          this.loadAppointments({ reset: true });
+        }
+      }
+    });
   },
 
   async onShow() {
+    this.isPageVisible = true;
     const allowed = await AuthGuard.requireLogin({
       target: AUTH_TARGETS.PROFILE
     });
@@ -50,9 +72,18 @@ Page({
     }
   },
 
+  onHide() {
+    this.isPageVisible = false;
+  },
+
   onUnload() {
     this.isPageActive = false;
+    this.isPageVisible = false;
     this.requestVersion += 1;
+    if (this.unsubscribeAuth) {
+      this.unsubscribeAuth();
+      this.unsubscribeAuth = null;
+    }
   },
 
   selectFilter(event) {
@@ -116,8 +147,10 @@ Page({
       const byId = new Map(
         base.map((item) => [item.appointmentId, item])
       );
+      const currentUser = AuthStore.getCurrentUser();
       result.list.forEach((item) => {
-        byId.set(item.appointmentId, item);
+        const decorated = SchoolRelation.decorateAppointment(item, currentUser);
+        byId.set(decorated.appointmentId, decorated);
       });
       const appointments = [...byId.values()];
       this.nextCursor = result.nextCursor;

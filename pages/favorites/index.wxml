@@ -54,6 +54,9 @@
           </view>
           <text class="favorite-price">{{item.priceDisplay}}</text>
           <text class="favorite-location">{{item.locationName}}</text>
+          <text wx:if="{{item.isCrossSchool}}" class="school-relation-badge">
+            {{item.schoolRelationText}}
+          </text>
           <view class="favorite-meta">
             <text>{{item.favoriteCountText}} 收藏</text>
           </view>

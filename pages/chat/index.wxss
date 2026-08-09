@@ -136,6 +136,14 @@
   color: #747e79;
 }
 
+.school-relation-badge {
+  padding: 4rpx 10rpx;
+  border-radius: 999rpx;
+  background: #eef1ef;
+  color: #6f7b75;
+  font-size: 18rpx;
+}
+
 .product-arrow {
   margin-left: 10rpx;
   color: #9aa39f;

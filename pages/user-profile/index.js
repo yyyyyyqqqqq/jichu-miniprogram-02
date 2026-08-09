@@ -1,5 +1,7 @@
 const PublicUserService = require('../../services/public-user-service');
+const AuthStore = require('../../store/auth-store');
 const NavigationService = require('../../services/navigation-service');
+const SchoolRelation = require('../../utils/school-relation');
 const { ROUTES } = require('../../constants/routes');
 
 const PAGE_SIZE = 6;
@@ -21,6 +23,22 @@ Page({
     this.isPageActive = true;
     this.requestVersion = 0;
     this.hasShown = false;
+    this.observedSchoolScopeKey = SchoolRelation.getSchoolScopeKey(
+      AuthStore.getCurrentUser()
+    );
+    this.unsubscribeAuth = AuthStore.subscribe((state) => {
+      if (!this.isPageActive) {
+        return;
+      }
+      const nextSchoolScopeKey = SchoolRelation.getSchoolScopeKey(state.user);
+      if (nextSchoolScopeKey !== this.observedSchoolScopeKey) {
+        this.observedSchoolScopeKey = nextSchoolScopeKey;
+        this.requestVersion += 1;
+        if (this.hasShown && this.data.publicUserId && AuthStore.isSchoolReady()) {
+          this.loadPage();
+        }
+      }
+    });
     const publicUserId = PublicUserService.normalizePublicUserId(
       options && options.userId
     );
@@ -48,6 +66,10 @@ Page({
   onUnload() {
     this.isPageActive = false;
     this.requestVersion += 1;
+    if (this.unsubscribeAuth) {
+      this.unsubscribeAuth();
+      this.unsubscribeAuth = null;
+    }
   },
 
   async loadPage() {
@@ -77,12 +99,23 @@ Page({
       if (!this.isPageActive || requestVersion !== this.requestVersion) {
         return;
       }
+      const profileScopeKey = SchoolRelation.getSchoolVersionScopeKey(
+        profile.schoolScope
+      );
+      const productsScopeKey = SchoolRelation.getSchoolVersionScopeKey(
+        productResult.schoolScope
+      );
+      if (profileScopeKey !== productsScopeKey) {
+        this.loadPage();
+        return;
+      }
       this.setData({
         profile: {
           ...profile,
           joinDateText: this.formatJoinDate(profile.joinDate)
         },
         products: productResult.list,
+        viewerSchoolName: productResult.schoolScope.schoolName,
         page: productResult.page,
         hasMore: productResult.hasMore,
         viewState: 'success'
@@ -128,6 +161,16 @@ Page({
         }
       );
       if (!this.isPageActive || requestVersion !== this.requestVersion) {
+        return;
+      }
+      const loadedScopeKey = SchoolRelation.getSchoolVersionScopeKey(
+        result.schoolScope
+      );
+      const currentScopeKey = SchoolRelation.getSchoolVersionScopeKey(
+        AuthStore.getCurrentUser()
+      );
+      if (loadedScopeKey !== currentScopeKey) {
+        this.loadPage();
         return;
       }
       const ids = new Set(this.data.products.map((item) => item.id));

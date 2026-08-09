@@ -45,6 +45,9 @@
       <view class="product-copy">
         <text class="product-title">{{appointment.product.title}}</text>
         <text class="product-price">{{appointment.product.priceDisplay}}</text>
+        <text wx:if="{{appointment.product.isCrossSchool}}" class="school-relation-badge">
+          {{appointment.product.schoolRelationText}}
+        </text>
         <text class="product-role">
           {{appointment.isSeller ? '你是卖家' : '你是买家'}} · 对方 {{appointment.otherUser.nickname}}
         </text>

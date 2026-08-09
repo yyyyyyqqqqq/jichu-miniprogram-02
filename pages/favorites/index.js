@@ -3,6 +3,7 @@ const AppStore = require('../../store/app-store');
 const AuthGuard = require('../../services/auth-guard');
 const FavoriteService = require('../../services/favorite-service');
 const NavigationService = require('../../services/navigation-service');
+const SchoolRelation = require('../../utils/school-relation');
 const { ROUTES, AUTH_TARGETS } = require('../../constants/routes');
 
 const PAGE_SIZE = 6;
@@ -24,7 +25,12 @@ Page({
 
   onLoad() {
     this.isPageActive = true;
+    this.isPageVisible = false;
     this.requestVersion = 0;
+    this.observedSchoolScopeKey = SchoolRelation.getSchoolScopeKey(
+      AuthStore.getCurrentUser()
+    );
+    this.pendingSchoolRefresh = false;
     this.lastFavoritesVersion = AppStore.getFavoritesVersion();
     this.lastProductsVersion = AppStore.getProductsVersion();
     this.unsubscribeAuth = AuthStore.subscribe((state) => {
@@ -33,11 +39,22 @@ Page({
       }
       const isLoggedIn = AuthStore.isSchoolReady();
       const wasLoggedIn = this.data.isLoggedIn;
+      const nextSchoolScopeKey = SchoolRelation.getSchoolScopeKey(state.user);
+      const schoolChanged = nextSchoolScopeKey !== this.observedSchoolScopeKey;
+      if (schoolChanged) {
+        this.observedSchoolScopeKey = nextSchoolScopeKey;
+        this.pendingSchoolRefresh = true;
+        this.requestVersion += 1;
+      }
       this.setData({
         isLoggedIn,
         isRestoring: state.restoring
       });
       if (isLoggedIn && !wasLoggedIn) {
+        this.pendingSchoolRefresh = false;
+        this.loadFavorites({ reset: true });
+      } else if (isLoggedIn && schoolChanged && this.isPageVisible) {
+        this.pendingSchoolRefresh = false;
         this.loadFavorites({ reset: true });
       }
     });
@@ -45,6 +62,7 @@ Page({
   },
 
   async onShow() {
+    this.isPageVisible = true;
     const allowed = await AuthGuard.requireLogin({
       target: AUTH_TARGETS.FAVORITES
     });
@@ -55,20 +73,27 @@ Page({
     const productsVersion = AppStore.getProductsVersion();
     if (
       (
-        version !== this.lastFavoritesVersion
+        this.pendingSchoolRefresh
+        || version !== this.lastFavoritesVersion
         || productsVersion !== this.lastProductsVersion
       )
       && !this.data.isLoadingMore
       && !this.data.removingProductId
     ) {
+      this.pendingSchoolRefresh = false;
       this.lastFavoritesVersion = version;
       this.lastProductsVersion = productsVersion;
       this.loadFavorites({ reset: true });
     }
   },
 
+  onHide() {
+    this.isPageVisible = false;
+  },
+
   onUnload() {
     this.isPageActive = false;
+    this.isPageVisible = false;
     this.requestVersion += 1;
     if (this.unsubscribeAuth) {
       this.unsubscribeAuth();
@@ -111,8 +136,14 @@ Page({
       }
       const existing = reset ? [] : this.data.favorites;
       const ids = new Set(existing.map((item) => item.id));
+      const currentUser = AuthStore.getCurrentUser();
       const favorites = existing.concat(
-        result.list.filter((item) => !ids.has(item.id))
+        result.list
+          .filter((item) => !ids.has(item.id))
+          .map((item) => SchoolRelation.decorateHistoricalProduct(
+            item,
+            currentUser
+          ))
       );
       this.lastFavoritesVersion = AppStore.getFavoritesVersion();
       this.setData({

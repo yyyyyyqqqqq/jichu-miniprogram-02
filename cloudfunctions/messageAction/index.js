@@ -450,7 +450,9 @@ function toProductSnapshot(product, productId) {
       && Number(product.price) >= 0
       ? Number(product.price)
       : 0,
-    status: normalizeString(product.status) || 'deleted'
+    status: normalizeString(product.status) || 'deleted',
+    schoolId: normalizeString(product.schoolId),
+    schoolName: normalizeString(product.schoolName)
   };
 }
 

@@ -47,6 +47,9 @@
         </text>
         <text class="appointment-time">{{item.scheduledAtText}}</text>
         <text class="appointment-location">{{item.location.name}}</text>
+        <text wx:if="{{item.product.isCrossSchool}}" class="school-relation-badge">
+          {{item.product.schoolRelationText}}
+        </text>
         <text wx:if="{{item.waitingForMe}}" class="waiting-tag">等待你处理</text>
         <text wx:elif="{{item.status === 'pending'}}" class="waiting-copy">等待对方处理</text>
         <text wx:elif="{{item.completionHint}}" class="waiting-copy">

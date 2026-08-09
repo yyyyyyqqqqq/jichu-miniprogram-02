@@ -1,7 +1,9 @@
 const AuthGuard = require('../../services/auth-guard');
+const AuthStore = require('../../store/auth-store');
 const AppointmentService = require('../../services/appointment-service');
 const NavigationService = require('../../services/navigation-service');
 const AppStore = require('../../store/app-store');
+const SchoolRelation = require('../../utils/school-relation');
 const {
   ROUTES,
   AUTH_TARGETS
@@ -20,7 +22,24 @@ Page({
   onLoad(options = {}) {
     this.isPageActive = true;
     this.hasLoaded = false;
+    this.requestVersion = 0;
+    this.observedSchoolScopeKey = SchoolRelation.getSchoolScopeKey(
+      AuthStore.getCurrentUser()
+    );
     this.actionKeys = {};
+    this.unsubscribeAuth = AuthStore.subscribe((state) => {
+      if (!this.isPageActive) {
+        return;
+      }
+      const nextSchoolScopeKey = SchoolRelation.getSchoolScopeKey(state.user);
+      if (nextSchoolScopeKey !== this.observedSchoolScopeKey) {
+        this.observedSchoolScopeKey = nextSchoolScopeKey;
+        this.requestVersion += 1;
+        if (this.appointmentId && AuthStore.isSchoolReady()) {
+          this.loadAppointment({ keepContent: true });
+        }
+      }
+    });
     const appointmentId = typeof options.appointmentId === 'string'
       ? options.appointmentId.trim()
       : '';
@@ -43,6 +62,11 @@ Page({
 
   onUnload() {
     this.isPageActive = false;
+    this.requestVersion += 1;
+    if (this.unsubscribeAuth) {
+      this.unsubscribeAuth();
+      this.unsubscribeAuth = null;
+    }
   },
 
   async loadAppointment(options = {}) {
@@ -52,6 +76,8 @@ Page({
     if (!allowed || !this.isPageActive) {
       return;
     }
+    const requestVersion = this.requestVersion + 1;
+    this.requestVersion = requestVersion;
     if (!options.keepContent || !this.data.appointment) {
       this.setData({
         viewState: 'loading',
@@ -62,17 +88,20 @@ Page({
       const appointment = await AppointmentService.getAppointment(
         this.appointmentId
       );
-      if (!this.isPageActive) {
+      if (!this.isPageActive || requestVersion !== this.requestVersion) {
         return;
       }
       this.hasLoaded = true;
       this.setData({
         viewState: 'success',
-        appointment,
+        appointment: SchoolRelation.decorateAppointment(
+          appointment,
+          AuthStore.getCurrentUser()
+        ),
         errorMessage: ''
       });
     } catch (error) {
-      if (this.isPageActive) {
+      if (this.isPageActive && requestVersion === this.requestVersion) {
         this.setData({
           viewState: this.data.appointment ? 'success' : 'error',
           errorMessage: error && error.message

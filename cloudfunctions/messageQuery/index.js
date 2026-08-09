@@ -239,6 +239,8 @@ function safeProduct(record, snapshot) {
       ? Number(source.price)
       : 0,
     status,
+    schoolId: normalizeString(source.schoolId),
+    schoolName: normalizeString(source.schoolName),
     location: normalizeString(source.location)
   };
 }

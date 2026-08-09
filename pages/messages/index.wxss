@@ -114,6 +114,16 @@
   color: #737d78;
 }
 
+.school-relation-badge {
+  flex: none;
+  margin-left: 8rpx;
+  padding: 4rpx 9rpx;
+  border-radius: 999rpx;
+  background: #eef1ef;
+  color: #6f7b75;
+  font-size: 18rpx;
+}
+
 .conversation-summary-row {
   margin-top: 12rpx;
 }

@@ -45,6 +45,9 @@
           <text class="product-status product-status--{{item.product.status}}">
             {{item.product.statusText}}
           </text>
+          <text wx:if="{{item.product.isCrossSchool}}" class="school-relation-badge">
+            {{item.product.schoolRelationText}}
+          </text>
         </view>
         <view class="conversation-summary-row">
           <text class="conversation-summary">{{item.lastMessage}}</text>
