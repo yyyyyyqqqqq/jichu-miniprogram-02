@@ -47,6 +47,8 @@ Page({
     isFavorited: false,
     canFavorite: false,
     isOwnProduct: false,
+    isCrossSchoolReadonly: false,
+    readonlyNotice: '',
     isFavoriteLoading: false,
     isContactLoading: false
   },
@@ -125,7 +127,9 @@ Page({
       product: null,
       viewState: 'loading',
       showErrorState: false,
-      canRetry: false
+      canRetry: false,
+      isCrossSchoolReadonly: false,
+      readonlyNotice: ''
     });
 
     try {
@@ -159,7 +163,17 @@ Page({
         videoLoadFailed: false,
         viewState: 'success',
         showErrorState: false,
-        canRetry: false
+        canRetry: false,
+        isCrossSchoolReadonly: product.isCrossSchoolReadonly === true,
+        readonlyNotice: product.isCrossSchoolReadonly === true
+          ? '该商品来自其他学校，仅支持查看，暂不支持新增收藏、联系或预约'
+          : '',
+        isFavorited: false,
+        isOwnProduct: Boolean(
+          product.detailAccess && product.detailAccess.isOwner === true
+        ),
+        canFavorite: product.status === 'available'
+          && product.canCreateRelation === true
       });
       this.refreshFavoriteStatus();
       this.recordViewIfEligible();
@@ -291,6 +305,14 @@ Page({
       return;
     }
 
+    if (this.data.isCrossSchoolReadonly && !this.data.isFavorited) {
+      wx.showToast({
+        title: '其他学校商品仅支持查看',
+        icon: 'none'
+      });
+      return;
+    }
+
     const allowed = await AuthGuard.requireLogin({
       target: AUTH_TARGETS.PRODUCT_DETAIL,
       productId: this.data.productId
@@ -354,6 +376,7 @@ Page({
         isFavorited: false,
         isOwnProduct: false,
         canFavorite: product.status === 'available'
+          && !this.data.isCrossSchoolReadonly
       });
       return;
     }
@@ -381,7 +404,8 @@ Page({
       if (this.isPageActive && requestVersion === this.requestVersion) {
         this.setData({
           isFavorited: false,
-          canFavorite: product.status === 'available',
+          canFavorite: product.status === 'available'
+            && !this.data.isCrossSchoolReadonly,
           isOwnProduct: false
         });
       }
@@ -405,6 +429,13 @@ Page({
   async onContactTap() {
     const { product } = this.data;
     if (!product || this.data.isContactLoading) {
+      return;
+    }
+    if (this.data.isCrossSchoolReadonly) {
+      wx.showToast({
+        title: '其他学校商品仅支持查看',
+        icon: 'none'
+      });
       return;
     }
     const productId = typeof product.id === 'string'
@@ -482,6 +513,13 @@ Page({
     if (!product || !product.seller || !product.seller.id) {
       return;
     }
+    if (this.data.isCrossSchoolReadonly) {
+      wx.showToast({
+        title: '其他学校商品仅展示卖家信息',
+        icon: 'none'
+      });
+      return;
+    }
 
     NavigationService.safeNavigateTo(
       `${ROUTES.USER_PROFILE}?userId=${encodeURIComponent(product.seller.id)}`
@@ -500,6 +538,20 @@ Page({
     return {
       title: product.title,
       path: `${ROUTES.PRODUCT_DETAIL}?id=${encodeURIComponent(product.id)}`
+    };
+  },
+
+  onShareTimeline() {
+    const { product } = this.data;
+    if (!product || !product.id) {
+      return {
+        title: '闲置面交——校园闲置物品平台',
+        query: ''
+      };
+    }
+    return {
+      title: product.title,
+      query: `id=${encodeURIComponent(product.id)}`
     };
   }
 });

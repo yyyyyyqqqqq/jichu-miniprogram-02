@@ -10,6 +10,7 @@ const products = db.collection('products');
 const conversations = db.collection('conversations');
 const users = db.collection('users');
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
+const SCHOOL_ID_PATTERN = /^s_[0-9a-f]{32}$/;
 const CONVERSATION_ID_PATTERN = /^c_[a-f0-9]{64}$/;
 const CLIENT_MESSAGE_ID_PATTERN = /^[a-zA-Z0-9_-]{8,80}$/;
 const NEW_CONVERSATION_STATUSES = new Set(['available', 'reserved']);
@@ -54,6 +55,7 @@ const ERROR_CODES = {
   PRODUCT_UNAVAILABLE: 'PRODUCT_UNAVAILABLE',
   PRODUCT_SELLER_UNAVAILABLE: 'PRODUCT_SELLER_UNAVAILABLE',
   SELF_CONVERSATION_FORBIDDEN: 'SELF_CONVERSATION_FORBIDDEN',
+  CROSS_SCHOOL_RELATION_FORBIDDEN: 'CROSS_SCHOOL_RELATION_FORBIDDEN',
   CONVERSATION_NOT_FOUND: 'CONVERSATION_NOT_FOUND',
   FORBIDDEN: 'FORBIDDEN',
   MESSAGE_EMPTY: 'MESSAGE_EMPTY',
@@ -281,6 +283,28 @@ function createConversationId(productId, participantAOpenid, participantBOpenid)
   return `c_${createDigest(
     `${productId}:${participantAOpenid}:${participantBOpenid}`
   )}`;
+}
+
+function canCreateSchoolRelation(user, openId, product) {
+  const userSchoolId = normalizeString(user && user.schoolId);
+  const productSchoolId = normalizeString(product && product.schoolId);
+  return Boolean(
+    user
+    && user.status === 'active'
+    && normalizeString(user.openid) === openId
+    && SCHOOL_ID_PATTERN.test(userSchoolId)
+    && SCHOOL_ID_PATTERN.test(productSchoolId)
+    && userSchoolId === productSchoolId
+  );
+}
+
+function assertCanCreateSchoolRelation(user, openId, product) {
+  if (!canCreateSchoolRelation(user, openId, product)) {
+    businessError(
+      ERROR_CODES.CROSS_SCHOOL_RELATION_FORBIDDEN,
+      '暂不支持与其他学校的商品建立新的交易关系'
+    );
+  }
 }
 
 function createMessageId(conversationId, senderOpenid, clientMessageId) {
@@ -567,6 +591,7 @@ async function createOrGetConversation(data, identity, trace) {
     );
     return failure(ERROR_CODES.USER_NOT_FOUND, '用户记录不存在或不可用');
   }
+  assertCanCreateSchoolRelation(currentUser, identity.openId, product);
 
   const participantAUserId = participantAOpenid === identity.openId
     ? currentUserId
@@ -587,6 +612,26 @@ async function createOrGetConversation(data, identity, trace) {
       };
     }
 
+    trace.step = 'conversation.transaction_read_product';
+    const currentProduct = await getDocumentOrNull(
+      transaction.collection('products').doc(productId)
+    );
+    trace.step = 'conversation.transaction_read_user';
+    const transactionUser = await getDocumentOrNull(
+      transaction.collection('users').doc(currentUserId)
+    );
+    if (!currentProduct || !NEW_CONVERSATION_STATUSES.has(currentProduct.status)) {
+      businessError(
+        ERROR_CODES.PRODUCT_UNAVAILABLE,
+        '当前商品暂不能发起新会话'
+      );
+    }
+    assertCanCreateSchoolRelation(
+      transactionUser,
+      identity.openId,
+      currentProduct
+    );
+
     trace.step = 'conversation.transaction_write';
     await document.set({
       data: {
@@ -595,7 +640,7 @@ async function createOrGetConversation(data, identity, trace) {
         participantAUserId,
         participantBUserId,
         productId,
-        productSnapshot: toProductSnapshot(product, productId),
+        productSnapshot: toProductSnapshot(currentProduct, productId),
         lastMessage: '',
         lastMessageType: '',
         lastMessageAt: db.serverDate(),
@@ -983,3 +1028,10 @@ exports.main = async (event = {}) => {
     );
   }
 };
+
+exports.__test = Object.freeze({
+  canCreateSchoolRelation,
+  assertCanCreateSchoolRelation,
+  createUserId,
+  createConversationId
+});

@@ -223,6 +223,12 @@
   color: #69736e;
 }
 
+.status-notice--cross-school {
+  border: 1rpx solid #cfe2da;
+  background: #f0f8f5;
+  color: #346b55;
+}
+
 .detail-main,
 .detail-section,
 .seller-card {
@@ -369,6 +375,14 @@
 .seller-card {
   display: flex;
   align-items: center;
+}
+
+.seller-card--readonly {
+  background: #f8faf9;
+}
+
+.seller-card--readonly .seller-link {
+  color: #8b9691;
 }
 
 .seller-avatar {

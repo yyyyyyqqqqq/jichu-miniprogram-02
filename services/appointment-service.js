@@ -29,6 +29,7 @@ const ERROR_MESSAGES = {
   PRODUCT_NOT_FOUND: '商品已不存在',
   PRODUCT_UNAVAILABLE: '当前商品不能进行面交预约',
   SELF_APPOINTMENT_NOT_ALLOWED: '不能预约自己的商品',
+  CROSS_SCHOOL_RELATION_FORBIDDEN: '暂不支持与其他学校的商品建立新的交易关系',
   CONVERSATION_NOT_FOUND: '会话不存在或已失效',
   FORBIDDEN: '无权访问该预约',
   APPOINTMENT_NOT_FOUND: '预约不存在或已失效',

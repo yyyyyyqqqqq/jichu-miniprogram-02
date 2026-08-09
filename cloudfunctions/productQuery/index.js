@@ -41,6 +41,13 @@ const SCHOOL_SCOPED_MARKET_STRICT_FOR_ALL = true;
 const MARKET_ACCESS_REQUIRES_AUTH = true;
 const SCHOOL_SCOPED_MARKET_ALLOWLIST = Object.freeze([]);
 const CURSOR_SECRET_ENV_NAME = 'PRODUCT_QUERY_CURSOR_HMAC_SECRET';
+const DETAIL_ACCESS_MODE = Object.freeze({
+  ANONYMOUS: 'anonymous',
+  ACCOUNT_NOT_READY: 'accountNotReady',
+  SAME_SCHOOL: 'sameSchool',
+  CROSS_SCHOOL_READONLY: 'crossSchoolReadonly',
+  OWNER: 'owner'
+});
 
 const ERROR_CODES = {
   OK: 'OK',
@@ -201,6 +208,60 @@ async function resolveMarketSchoolContext(identity, dependencies = {}) {
     userId: identity.userId,
     schoolId: storedSchoolId,
     schoolName: normalizeText(school.name)
+  };
+}
+
+async function resolveDetailAccess(product, identity, dependencies = {}) {
+  const productSchoolId = normalizeText(product && product.schoolId);
+  const isOwner = Boolean(
+    identity
+    && identity.openId
+    && normalizeText(product && product.sellerOpenid) === identity.openId
+  );
+  if (isOwner) {
+    return {
+      mode: DETAIL_ACCESS_MODE.OWNER,
+      canCreateRelation: false,
+      isCrossSchool: false,
+      isOwner: true
+    };
+  }
+  if (!identity || !identity.openId || !identity.appId || !identity.userId) {
+    return {
+      mode: DETAIL_ACCESS_MODE.ANONYMOUS,
+      canCreateRelation: false,
+      isCrossSchool: false,
+      isOwner: false
+    };
+  }
+
+  const userCollection = dependencies.usersCollection || db.collection('users');
+  const user = await findOne(userCollection, { _id: identity.userId });
+  const userSchoolId = normalizeText(user && user.schoolId);
+  const accountReady = Boolean(
+    user
+    && user.status === 'active'
+    && user.openid === identity.openId
+    && isProfileComplete(user)
+    && SCHOOL_ID_PATTERN.test(userSchoolId)
+  );
+  if (!accountReady || !SCHOOL_ID_PATTERN.test(productSchoolId)) {
+    return {
+      mode: DETAIL_ACCESS_MODE.ACCOUNT_NOT_READY,
+      canCreateRelation: false,
+      isCrossSchool: false,
+      isOwner: false
+    };
+  }
+
+  const isCrossSchool = userSchoolId !== productSchoolId;
+  return {
+    mode: isCrossSchool
+      ? DETAIL_ACCESS_MODE.CROSS_SCHOOL_READONLY
+      : DETAIL_ACCESS_MODE.SAME_SCHOOL,
+    canCreateRelation: !isCrossSchool,
+    isCrossSchool,
+    isOwner: false
   };
 }
 
@@ -635,13 +696,14 @@ async function listProducts(data, identity = getIdentity(), dependencies = {}) {
   return listLegacyProducts(data);
 }
 
-async function getProductDetail(data) {
+async function getProductDetail(data, identity = getIdentity(), dependencies = {}) {
   const productId = normalizeProductId(data.productId);
   if (!productId) {
     return failure(ERROR_CODES.INVALID_PARAMS, '缺少有效商品 ID');
   }
 
-  const result = await products.where({
+  const productCollection = dependencies.productsCollection || products;
+  const result = await productCollection.where({
     _id: productId,
     status: command.in(PUBLIC_DETAIL_STATUSES)
   }).limit(1).get();
@@ -655,7 +717,8 @@ async function getProductDetail(data) {
   }
 
   return success({
-    product: toPublicProduct(product, true)
+    product: toPublicProduct(product, true),
+    access: await resolveDetailAccess(product, identity, dependencies)
   });
 }
 
@@ -716,7 +779,7 @@ exports.main = async (event = {}) => {
       return await listProducts(data);
     }
     if (action === 'detail') {
-      return await getProductDetail(data);
+      return await getProductDetail(data, getIdentity());
     }
 
     const context = cloud.getWXContext();
@@ -764,5 +827,8 @@ exports.__test = Object.freeze({
   listLegacyProducts,
   listSchoolScopedProducts,
   listProducts,
-  buildSchoolScopedCondition
+  buildSchoolScopedCondition,
+  getProductDetail,
+  resolveDetailAccess,
+  DETAIL_ACCESS_MODE
 });

@@ -16,6 +16,7 @@ const ERROR_MESSAGES = {
   PRODUCT_NOT_FOUND: '商品不存在或已删除',
   PRODUCT_NOT_FAVORITABLE: '当前商品暂不可收藏',
   CANNOT_FAVORITE_OWN_PRODUCT: '不能收藏自己发布的商品',
+  CROSS_SCHOOL_RELATION_FORBIDDEN: '暂不支持与其他学校的商品建立新的交易关系',
   FAVORITE_FAILED: '收藏失败，请稍后重试',
   UNFAVORITE_FAILED: '取消收藏失败，请稍后重试',
   DATABASE_ERROR: '收藏数据暂不可用，请稍后重试',
@@ -140,7 +141,8 @@ function normalizeFavoriteState(data) {
     isFavorited: data.isFavorited === true,
     favoriteCount: normalizeCount(data.favoriteCount),
     canFavorite: data.canFavorite === true,
-    isOwnProduct: data.isOwnProduct === true
+    isOwnProduct: data.isOwnProduct === true,
+    isCrossSchool: data.isCrossSchool === true
   };
 }
 

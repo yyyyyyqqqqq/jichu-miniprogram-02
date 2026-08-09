@@ -150,7 +150,8 @@ async function run() {
   check(/SCHOOL_INVALID/.test(source) && /SCHOOL_UNAVAILABLE/.test(source) && /USER_INACTIVE/.test(source), 'school/user fail-closed errors are missing');
   check(/INVALID_CURSOR_SCOPE/.test(source), 'cursor scope rejection is missing');
   const manageSource = fs.readFileSync(path.join(ROOT, 'cloudfunctions', 'manageProduct', 'index.js'), 'utf8');
-  check(/PRODUCT_SCHOOL_MISMATCH/.test(manageSource), 'cross-school relist guard is missing');
+  check(/product\.sellerOpenid\s*!==\s*openId/.test(manageSource), 'historical product management no longer enforces ownership');
+  check(!/schoolId\s*:/.test(manageSource.slice(manageSource.indexOf('function buildTransitionData'), manageSource.indexOf('async function performTransition'))), 'status transition can mutate product school');
   const homeSource = fs.readFileSync(path.join(ROOT, 'pages', 'home', 'index.js'), 'utf8');
   check(/showMarketGuide/.test(homeSource) && /loadProducts/.test(homeSource), 'anonymous home guard is missing');
   const logoutSource = fs.readFileSync(path.join(ROOT, 'store', 'auth-store.js'), 'utf8');

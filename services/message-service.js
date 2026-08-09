@@ -58,6 +58,7 @@ const ERROR_MESSAGES = {
   PRODUCT_UNAVAILABLE: '当前商品暂不能发起新会话',
   PRODUCT_SELLER_UNAVAILABLE: '商品卖家信息暂不可用',
   SELF_CONVERSATION_FORBIDDEN: '不能给自己发送私信',
+  CROSS_SCHOOL_RELATION_FORBIDDEN: '暂不支持与其他学校的商品建立新的交易关系',
   CONVERSATION_NOT_FOUND: '会话不存在或已失效',
   FORBIDDEN: '无权访问该会话',
   MESSAGE_EMPTY: '消息内容不能为空',

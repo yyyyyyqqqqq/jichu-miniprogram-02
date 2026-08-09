@@ -10,11 +10,13 @@ const command = db.command;
 const appointments = db.collection('appointments');
 const conversations = db.collection('conversations');
 const products = db.collection('products');
+const users = db.collection('users');
 
 const CONVERSATION_ID_PATTERN = /^c_[a-f0-9]{64}$/;
 const APPOINTMENT_ID_PATTERN = /^a_[a-f0-9]{64}$/;
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const PUBLIC_USER_ID_PATTERN = /^u_[a-f0-9]{32}$/;
+const SCHOOL_ID_PATTERN = /^s_[0-9a-f]{32}$/;
 const IDEMPOTENCY_KEY_PATTERN = /^[a-zA-Z0-9_-]{8,80}$/;
 const ACTIVE_STATUSES = ['pending', 'accepted'];
 const CREATABLE_PRODUCT_STATUS = 'available';
@@ -43,6 +45,7 @@ const ERROR_CODES = {
   PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
   PRODUCT_UNAVAILABLE: 'PRODUCT_UNAVAILABLE',
   SELF_APPOINTMENT_NOT_ALLOWED: 'SELF_APPOINTMENT_NOT_ALLOWED',
+  CROSS_SCHOOL_RELATION_FORBIDDEN: 'CROSS_SCHOOL_RELATION_FORBIDDEN',
   CONVERSATION_NOT_FOUND: 'CONVERSATION_NOT_FOUND',
   FORBIDDEN: 'FORBIDDEN',
   APPOINTMENT_NOT_FOUND: 'APPOINTMENT_NOT_FOUND',
@@ -174,6 +177,28 @@ function getPublicUserId(conversation, openId) {
 function normalizeCount(value) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
+}
+
+function canCreateSchoolRelation(buyer, buyerOpenid, product) {
+  const buyerSchoolId = normalizeString(buyer && buyer.schoolId);
+  const productSchoolId = normalizeString(product && product.schoolId);
+  return Boolean(
+    buyer
+    && buyer.status === 'active'
+    && normalizeString(buyer.openid) === buyerOpenid
+    && SCHOOL_ID_PATTERN.test(buyerSchoolId)
+    && SCHOOL_ID_PATTERN.test(productSchoolId)
+    && buyerSchoolId === productSchoolId
+  );
+}
+
+function assertCanCreateSchoolRelation(buyer, buyerOpenid, product) {
+  if (!canCreateSchoolRelation(buyer, buyerOpenid, product)) {
+    businessError(
+      ERROR_CODES.CROSS_SCHOOL_RELATION_FORBIDDEN,
+      '暂不支持与其他学校的商品建立新的交易关系'
+    );
+  }
 }
 
 function validateIdempotencyKey(value) {
@@ -437,6 +462,10 @@ async function createAppointment(data, identity) {
   }
   assertConversationParticipants(conversation, identity.openId, sellerOpenid);
   const roles = buildAppointmentRoles(conversation, sellerOpenid);
+  const buyer = PUBLIC_USER_ID_PATTERN.test(roles.buyerUserId)
+    ? await getDocumentOrNull(users.doc(roles.buyerUserId))
+    : null;
+  assertCanCreateSchoolRelation(buyer, roles.buyerOpenid, product);
   const active = await findActiveAppointment(
     productId,
     roles.buyerOpenid,
@@ -489,6 +518,20 @@ async function createAppointment(data, identity) {
     ) {
       businessError(ERROR_CODES.FORBIDDEN, '会话与商品不匹配');
     }
+    const currentRoles = buildAppointmentRoles(
+      currentConversation,
+      currentSellerOpenid
+    );
+    const currentBuyer = PUBLIC_USER_ID_PATTERN.test(currentRoles.buyerUserId)
+      ? await getDocumentOrNull(
+        transaction.collection('users').doc(currentRoles.buyerUserId)
+      )
+      : null;
+    assertCanCreateSchoolRelation(
+      currentBuyer,
+      currentRoles.buyerOpenid,
+      currentProduct
+    );
 
     await appointmentDocument.set({
       data: {
@@ -1158,3 +1201,9 @@ exports.main = async (event = {}) => {
     );
   }
 };
+
+exports.__test = Object.freeze({
+  canCreateSchoolRelation,
+  assertCanCreateSchoolRelation,
+  buildAppointmentRoles
+});

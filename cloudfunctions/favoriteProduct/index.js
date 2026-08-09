@@ -8,6 +8,7 @@ cloud.init({
 const db = cloud.database();
 const products = db.collection('products');
 const favorites = db.collection('favorites');
+const users = db.collection('users');
 const ALLOWED_LIST_STATUSES = new Set([
   'available',
   'reserved',
@@ -15,6 +16,7 @@ const ALLOWED_LIST_STATUSES = new Set([
   'sold'
 ]);
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
+const SCHOOL_ID_PATTERN = /^s_[0-9a-f]{32}$/;
 const MAX_PAGE = 100;
 const MAX_PAGE_SIZE = 20;
 
@@ -26,6 +28,7 @@ const ERROR_CODES = {
   PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
   PRODUCT_NOT_FAVORITABLE: 'PRODUCT_NOT_FAVORITABLE',
   CANNOT_FAVORITE_OWN_PRODUCT: 'CANNOT_FAVORITE_OWN_PRODUCT',
+  CROSS_SCHOOL_RELATION_FORBIDDEN: 'CROSS_SCHOOL_RELATION_FORBIDDEN',
   FAVORITE_FAILED: 'FAVORITE_FAILED',
   UNFAVORITE_FAILED: 'UNFAVORITE_FAILED',
   DATABASE_ERROR: 'DATABASE_ERROR',
@@ -82,6 +85,40 @@ function createFavoriteId(openId, productId) {
     .update(`${openId}:${productId}`)
     .digest('hex');
   return `f_${digest}`;
+}
+
+function createUserId(appId, openId) {
+  const digest = crypto
+    .createHash('sha256')
+    .update(`${appId}:${openId}`)
+    .digest('hex');
+  return `u_${digest.slice(0, 32)}`;
+}
+
+function canCreateSchoolRelation(user, openId, product) {
+  const userSchoolId = typeof user?.schoolId === 'string'
+    ? user.schoolId.trim()
+    : '';
+  const productSchoolId = typeof product?.schoolId === 'string'
+    ? product.schoolId.trim()
+    : '';
+  return Boolean(
+    user
+    && user.status === 'active'
+    && user.openid === openId
+    && SCHOOL_ID_PATTERN.test(userSchoolId)
+    && SCHOOL_ID_PATTERN.test(productSchoolId)
+    && userSchoolId === productSchoolId
+  );
+}
+
+function assertCanCreateSchoolRelation(user, openId, product) {
+  if (!canCreateSchoolRelation(user, openId, product)) {
+    businessError(
+      ERROR_CODES.CROSS_SCHOOL_RELATION_FORBIDDEN,
+      '暂不支持与其他学校的商品建立新的交易关系'
+    );
+  }
 }
 
 function extractRecord(result) {
@@ -227,7 +264,7 @@ function toFavoriteProduct(record, favoritedAt) {
   };
 }
 
-async function getFavoriteStatus(data, openId, trace) {
+async function getFavoriteStatus(data, identity, trace) {
   trace.step = 'status.validate';
   const productId = normalizeProductId(data.productId);
   if (!productId) {
@@ -238,25 +275,33 @@ async function getFavoriteStatus(data, openId, trace) {
   if (!product || product.status === 'deleted') {
     return failure(ERROR_CODES.PRODUCT_NOT_FOUND, '商品不存在或已删除');
   }
-  const favoriteId = createFavoriteId(openId, productId);
+  const favoriteId = createFavoriteId(identity.openId, productId);
   trace.step = 'status.read_relation';
   const relation = await getDocumentOrNull(favorites.doc(favoriteId));
-  const isOwnProduct = product.sellerOpenid === openId;
+  trace.step = 'status.read_user';
+  const currentUser = await getDocumentOrNull(users.doc(identity.userId));
+  const isOwnProduct = product.sellerOpenid === identity.openId;
+  const sameSchool = canCreateSchoolRelation(
+    currentUser,
+    identity.openId,
+    product
+  );
   return success({
     isFavorited: Boolean(relation),
     favoriteCount: normalizeCount(product.favoriteCount),
-    canFavorite: !isOwnProduct && product.status === 'available',
-    isOwnProduct
+    canFavorite: !isOwnProduct && product.status === 'available' && sameSchool,
+    isOwnProduct,
+    isCrossSchool: !isOwnProduct && !sameSchool
   });
 }
 
-async function addFavorite(data, openId, trace) {
+async function addFavorite(data, identity, trace) {
   trace.step = 'add.validate';
   const productId = normalizeProductId(data.productId);
   if (!productId) {
     return failure(ERROR_CODES.INVALID_PARAMS, '缺少有效商品 ID');
   }
-  const favoriteId = createFavoriteId(openId, productId);
+  const favoriteId = createFavoriteId(identity.openId, productId);
   trace.step = 'add.begin_transaction';
   const result = await runTransaction(async (transaction) => {
     const productDocument = transaction.collection('products').doc(productId);
@@ -265,16 +310,12 @@ async function addFavorite(data, openId, trace) {
     if (!product || product.status === 'deleted') {
       businessError(ERROR_CODES.PRODUCT_NOT_FOUND, '商品不存在或已删除');
     }
-    if (product.sellerOpenid === openId) {
+    if (product.sellerOpenid === identity.openId) {
       businessError(
         ERROR_CODES.CANNOT_FAVORITE_OWN_PRODUCT,
         '不能收藏自己发布的商品'
       );
     }
-    if (product.status !== 'available') {
-      businessError(ERROR_CODES.PRODUCT_NOT_FAVORITABLE, '当前商品暂不可收藏');
-    }
-
     const favoriteDocument = transaction.collection('favorites').doc(favoriteId);
     trace.step = 'add.read_relation';
     const existing = await getDocumentOrNull(favoriteDocument);
@@ -285,14 +326,24 @@ async function addFavorite(data, openId, trace) {
         favoriteCount: currentCount,
         canFavorite: true,
         isOwnProduct: false,
+        isCrossSchool: false,
         reused: true
       };
+    }
+
+    trace.step = 'add.read_user';
+    const currentUser = await getDocumentOrNull(
+      transaction.collection('users').doc(identity.userId)
+    );
+    assertCanCreateSchoolRelation(currentUser, identity.openId, product);
+    if (product.status !== 'available') {
+      businessError(ERROR_CODES.PRODUCT_NOT_FAVORITABLE, '当前商品暂不可收藏');
     }
 
     trace.step = 'add.write_relation';
     await favoriteDocument.set({
       data: {
-        userOpenid: openId,
+        userOpenid: identity.openId,
         productId,
         createdAt: db.serverDate(),
         updatedAt: db.serverDate()
@@ -310,19 +361,20 @@ async function addFavorite(data, openId, trace) {
       favoriteCount: currentCount + 1,
       canFavorite: true,
       isOwnProduct: false,
+      isCrossSchool: false,
       reused: false
     };
   });
   return success(result);
 }
 
-async function removeFavorite(data, openId, trace) {
+async function removeFavorite(data, identity, trace) {
   trace.step = 'remove.validate';
   const productId = normalizeProductId(data.productId);
   if (!productId) {
     return failure(ERROR_CODES.INVALID_PARAMS, '缺少有效商品 ID');
   }
-  const favoriteId = createFavoriteId(openId, productId);
+  const favoriteId = createFavoriteId(identity.openId, productId);
   trace.step = 'remove.begin_transaction';
   const result = await runTransaction(async (transaction) => {
     const favoriteDocument = transaction.collection('favorites').doc(favoriteId);
@@ -332,13 +384,32 @@ async function removeFavorite(data, openId, trace) {
     trace.step = 'remove.read_product';
     const product = await getDocumentOrNull(productDocument);
     const currentCount = product ? normalizeCount(product.favoriteCount) : 0;
+    trace.step = 'remove.read_user';
+    const currentUser = await getDocumentOrNull(
+      transaction.collection('users').doc(identity.userId)
+    );
+    const sameSchool = canCreateSchoolRelation(
+      currentUser,
+      identity.openId,
+      product
+    );
 
     if (!relation) {
       return {
         isFavorited: false,
         favoriteCount: currentCount,
-        canFavorite: Boolean(product && product.status === 'available'),
-        isOwnProduct: Boolean(product && product.sellerOpenid === openId),
+        canFavorite: Boolean(
+          product
+          && product.status === 'available'
+          && product.sellerOpenid !== identity.openId
+          && sameSchool
+        ),
+        isOwnProduct: Boolean(product && product.sellerOpenid === identity.openId),
+        isCrossSchool: Boolean(
+          product
+          && product.sellerOpenid !== identity.openId
+          && !sameSchool
+        ),
         reused: true
       };
     }
@@ -361,9 +432,15 @@ async function removeFavorite(data, openId, trace) {
       canFavorite: Boolean(
         product
         && product.status === 'available'
-        && product.sellerOpenid !== openId
+        && product.sellerOpenid !== identity.openId
+        && sameSchool
       ),
-      isOwnProduct: Boolean(product && product.sellerOpenid === openId),
+      isOwnProduct: Boolean(product && product.sellerOpenid === identity.openId),
+      isCrossSchool: Boolean(
+        product
+        && product.sellerOpenid !== identity.openId
+        && !sameSchool
+      ),
       reused: false
     };
   });
@@ -428,20 +505,28 @@ exports.main = async (event = {}) => {
   const openId = context && typeof context.OPENID === 'string'
     ? context.OPENID
     : '';
-  if (!openId) {
+  const appId = context && typeof context.APPID === 'string'
+    ? context.APPID
+    : '';
+  if (!openId || !appId) {
     return failure(ERROR_CODES.UNAUTHORIZED, '登录状态已失效，请重新登录');
   }
+  const identity = {
+    openId,
+    appId,
+    userId: createUserId(appId, openId)
+  };
 
   const trace = { step: 'route_action' };
   try {
     if (action === 'getFavoriteStatus') {
-      return await getFavoriteStatus(data, openId, trace);
+      return await getFavoriteStatus(data, identity, trace);
     }
     if (action === 'addFavorite') {
-      return await addFavorite(data, openId, trace);
+      return await addFavorite(data, identity, trace);
     }
     if (action === 'removeFavorite') {
-      return await removeFavorite(data, openId, trace);
+      return await removeFavorite(data, identity, trace);
     }
     return await listMyFavorites(data, openId, trace);
   } catch (error) {
@@ -467,3 +552,9 @@ exports.main = async (event = {}) => {
     );
   }
 };
+
+exports.__test = Object.freeze({
+  canCreateSchoolRelation,
+  assertCanCreateSchoolRelation,
+  createUserId
+});

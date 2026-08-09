@@ -182,14 +182,10 @@ async function verifyCrossSchoolRelist() {
   };
   const contextRef = { current: { OPENID: 'owner-openid' } };
   const manageProduct = loadWithCloudMock('cloudfunctions/manageProduct/index.js', db, contextRef);
-  const rejected = await manageProduct.main({ action: 'relist', productId: 'product-relist-school' });
-  check(rejected.success === false && rejected.code === 'PRODUCT_SCHOOL_MISMATCH', 'cross-school relist was not rejected');
-  check(products.get('product-relist-school').status === 'offline', 'rejected relist changed product status');
-  check(products.get('product-relist-school').schoolId === schoolA, 'rejected relist changed product school');
-  users.set('u_owner', { ...users.get('u_owner'), schoolId: schoolA, schoolName: '学校 A' });
   const allowed = await manageProduct.main({ action: 'relist', productId: 'product-relist-school' });
-  check(allowed.success === true && allowed.data.status === 'available', 'same-school relist was rejected');
-  check(products.get('product-relist-school').schoolId === schoolA, 'same-school relist changed product school');
+  check(allowed.success === true && allowed.data.status === 'available', 'historical product owner could not relist the product');
+  check(products.get('product-relist-school').schoolId === schoolA, 'historical product relist changed product school');
+  check(users.get('u_owner').schoolId === schoolB, 'historical product relist changed the owner school');
 }
 
 (async () => {

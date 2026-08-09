@@ -21,6 +21,13 @@ const MARKET_MODE = Object.freeze({
   LEGACY: 'legacy',
   SCHOOL_SCOPED: 'schoolScoped'
 });
+const DETAIL_ACCESS_MODE = Object.freeze({
+  ANONYMOUS: 'anonymous',
+  ACCOUNT_NOT_READY: 'accountNotReady',
+  SAME_SCHOOL: 'sameSchool',
+  CROSS_SCHOOL_READONLY: 'crossSchoolReadonly',
+  OWNER: 'owner'
+});
 const PUBLIC_STATUS_SET = new Set(PUBLIC_PRODUCT_STATUSES);
 const SORT_SET = new Set(Object.values(PRODUCT_SORT));
 const CATEGORY_TONES = {
@@ -124,6 +131,23 @@ function normalizeMarketScope(value) {
   return {
     schoolId: normalizeString(scope.schoolId),
     schoolName: normalizeString(scope.schoolName)
+  };
+}
+
+function normalizeDetailAccess(value) {
+  const access = value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : {};
+  const supportedModes = new Set(Object.values(DETAIL_ACCESS_MODE));
+  const mode = supportedModes.has(access.mode)
+    ? access.mode
+    : DETAIL_ACCESS_MODE.ANONYMOUS;
+  return {
+    mode,
+    canCreateRelation: access.canCreateRelation === true,
+    isCrossSchool: mode === DETAIL_ACCESS_MODE.CROSS_SCHOOL_READONLY
+      && access.isCrossSchool === true,
+    isOwner: mode === DETAIL_ACCESS_MODE.OWNER && access.isOwner === true
   };
 }
 
@@ -532,7 +556,12 @@ async function getProductDetail(productId) {
   if (product.id !== id) {
     throw createProductError('INVALID_RESPONSE');
   }
-  return product;
+  const detailAccess = normalizeDetailAccess(payload.data && payload.data.access);
+  return Object.assign({}, product, {
+    detailAccess,
+    isCrossSchoolReadonly: detailAccess.isCrossSchool,
+    canCreateRelation: detailAccess.canCreateRelation
+  });
 }
 
 async function searchProducts(keyword) {
@@ -552,5 +581,7 @@ module.exports = {
   searchProducts,
   normalizeProduct,
   normalizeProductList,
-  MARKET_MODE
+  normalizeDetailAccess,
+  MARKET_MODE,
+  DETAIL_ACCESS_MODE
 };

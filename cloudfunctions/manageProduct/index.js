@@ -9,8 +9,6 @@ const command = db.command;
 const products = db.collection('products');
 
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
-const USER_ID_PATTERN = /^u_[a-zA-Z0-9_-]{1,62}$/;
-const SCHOOL_ID_PATTERN = /^s_[0-9a-f]{32}$/;
 const MUTATION_ID_PATTERN = /^[a-zA-Z0-9_-]{12,80}$/;
 const IMAGE_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:jpg|jpeg|png|gif|webp)$/i;
 const VIDEO_FILE_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,160}\.(?:mp4|mov|m4v)$/i;
@@ -107,7 +105,6 @@ const ERROR_CODES = {
   UNAUTHORIZED: 'UNAUTHORIZED',
   PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
   PRODUCT_FORBIDDEN: 'PRODUCT_FORBIDDEN',
-  PRODUCT_SCHOOL_MISMATCH: 'PRODUCT_SCHOOL_MISMATCH',
   PRODUCT_DELETED: 'PRODUCT_DELETED',
   PRODUCT_NOT_EDITABLE: 'PRODUCT_NOT_EDITABLE',
   PRODUCT_VERSION_CONFLICT: 'PRODUCT_VERSION_CONFLICT',
@@ -562,32 +559,6 @@ async function performTransition(productId, openId, action) {
         ERROR_CODES.INVALID_STATUS_TRANSITION,
         '当前商品状态不支持此操作'
       );
-    }
-
-    if (action === ACTIONS.RELIST) {
-      const sellerId = normalizeText(product.sellerId);
-      const productSchoolId = normalizeText(product.schoolId);
-      if (!USER_ID_PATTERN.test(sellerId) || !SCHOOL_ID_PATTERN.test(productSchoolId)) {
-        businessError(
-          ERROR_CODES.PRODUCT_SCHOOL_MISMATCH,
-          '该商品缺少有效校园归属，暂不能重新上架'
-        );
-      }
-      const userDocument = transaction.collection('users').doc(sellerId);
-      const currentUser = extractProduct(await userDocument.get());
-      const currentSchoolId = normalizeText(currentUser && currentUser.schoolId);
-      if (
-        !currentUser
-        || currentUser.status !== 'active'
-        || currentUser.openid !== openId
-        || !SCHOOL_ID_PATTERN.test(currentSchoolId)
-        || currentSchoolId !== productSchoolId
-      ) {
-        businessError(
-          ERROR_CODES.PRODUCT_SCHOOL_MISMATCH,
-          '该商品发布于原学校，当前学校与商品所属学校不同，暂不能重新上架'
-        );
-      }
     }
 
     await document.update({

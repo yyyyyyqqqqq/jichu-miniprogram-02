@@ -548,7 +548,7 @@ record('favorites use guarded services, transactions and safe public fields', ()
   assert(/createFavoriteId\(openId,\s*productId\)/.test(functionSource), 'favorite relation id is not deterministic');
   assert(/db\.runTransaction/.test(functionSource), 'favorite mutations are not transactional');
   assert(/Math\.max\(0,\s*currentCount\s*-\s*1\)/.test(functionSource), 'favoriteCount can become negative');
-  assert(/product\.sellerOpenid\s*===\s*openId/.test(functionSource), 'own-product favorite rejection is missing');
+  assert(/product\.sellerOpenid\s*===\s*identity\.openId/.test(functionSource), 'own-product favorite rejection is missing');
   assert(/product\.status\s*!==\s*['"]available['"]/.test(functionSource), 'non-available products can be newly favorited');
   assert(/product\.status\s*===\s*['"]deleted['"]/.test(functionSource), 'deleted product favorite rejection is missing');
   assert(/ALLOWED_LIST_STATUSES/.test(functionSource) && !/ALLOWED_LIST_STATUSES\s*=\s*new Set\(\[[^\]]*deleted/s.test(functionSource), 'deleted favorites can enter the list');
@@ -4186,6 +4186,7 @@ async function verifyFavoriteProductFunctionFlow() {
   const originalLoad = Module._load;
   const productRecords = new Map();
   const favoriteRecords = new Map();
+  const userRecords = new Map();
   let currentOpenId = 'owner-openid';
   let forcedFavoriteReadError = null;
 
@@ -4284,7 +4285,9 @@ async function verifyFavoriteProductFunctionFlow() {
   }
 
   function collection(name) {
-    const records = name === 'products' ? productRecords : favoriteRecords;
+    const records = name === 'products'
+      ? productRecords
+      : name === 'users' ? userRecords : favoriteRecords;
     return {
       doc(id) {
         return createDocument(records, id);
@@ -4338,6 +4341,8 @@ async function verifyFavoriteProductFunctionFlow() {
     sellerName: '卖家',
     sellerAvatar: '',
     sellerVerified: false,
+    schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    schoolName: '学校 A',
     tags: [],
     viewCount: 3,
     createdAt: new Date('2026-07-18T08:00:00.000Z')
@@ -4352,6 +4357,15 @@ async function verifyFavoriteProductFunctionFlow() {
     _id: 'product-own',
     ...baseProduct,
     sellerOpenid: 'owner-openid',
+    status: 'available',
+    favoriteCount: 0
+  });
+  productRecords.set('product-cross-school', {
+    _id: 'product-cross-school',
+    ...baseProduct,
+    sellerOpenid: 'seller-openid',
+    schoolId: 's_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    schoolName: '学校 B',
     status: 'available',
     favoriteCount: 0
   });
@@ -4375,6 +4389,16 @@ async function verifyFavoriteProductFunctionFlow() {
 
   try {
     const favoriteFunction = require(functionPath);
+    userRecords.set(
+      favoriteFunction.__test.createUserId('test-app', currentOpenId),
+      {
+        _id: favoriteFunction.__test.createUserId('test-app', currentOpenId),
+        openid: currentOpenId,
+        status: 'active',
+        schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        schoolName: '学校 A'
+      }
+    );
     const initialStatus = await favoriteFunction.main({
       action: 'getFavoriteStatus',
       data: { productId: 'product-available' }
@@ -4409,6 +4433,41 @@ async function verifyFavoriteProductFunctionFlow() {
       data: { productId: 'product-available' }
     });
     assert(status.success === true && status.data.isFavorited === true, 'favorite status is incorrect');
+
+    const currentUserId = favoriteFunction.__test.createUserId('test-app', currentOpenId);
+    userRecords.set(currentUserId, {
+      ...userRecords.get(currentUserId),
+      schoolId: 's_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      schoolName: '学校 B'
+    });
+    const historicalFavorite = await favoriteFunction.main({
+      action: 'addFavorite',
+      data: { productId: 'product-available', schoolId: 's_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }
+    });
+    assert(
+      historicalFavorite.success === true
+      && historicalFavorite.data.reused === true
+      && favoriteRecords.size === 1,
+      'historical cross-school favorite is not preserved idempotently'
+    );
+    userRecords.set(currentUserId, {
+      ...userRecords.get(currentUserId),
+      schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      schoolName: '学校 A'
+    });
+    const crossSchoolFavorite = await favoriteFunction.main({
+      action: 'addFavorite',
+      data: {
+        productId: 'product-cross-school',
+        schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      }
+    });
+    assert(
+      crossSchoolFavorite.success === false
+      && crossSchoolFavorite.code === 'CROSS_SCHOOL_RELATION_FORBIDDEN'
+      && favoriteRecords.size === 1,
+      'direct cross-school favorite creation or forged school scope was accepted'
+    );
 
     const own = await favoriteFunction.main({
       action: 'addFavorite',
@@ -5957,7 +6016,9 @@ async function verifyMessagingFunctionFlow() {
       nickname,
       avatarUrl: '',
       campus: '即出大学',
-      status: 'active'
+      status: 'active',
+      schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      schoolName: '学校 A'
     });
   });
 
@@ -5977,6 +6038,8 @@ async function verifyMessagingFunctionFlow() {
       sellerId: ownerUserId,
       sellerName: '卖家',
       sellerAvatar: '',
+      schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      schoolName: '学校 A',
       createdAt: options.createdAt || new Date(
         Date.UTC(2026, 6, 18, 10, stores.products.size, 0)
       )
@@ -5988,6 +6051,12 @@ async function verifyMessagingFunctionFlow() {
   }
   addProduct('product-message-1', sellerOpenId, sellerUserId);
   addProduct('product-message-2', sellerOpenId, sellerUserId);
+  addProduct('product-message-cross-school', sellerOpenId, sellerUserId);
+  stores.products.set('product-message-cross-school', {
+    ...stores.products.get('product-message-cross-school'),
+    schoolId: 's_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    schoolName: '学校 B'
+  });
   addProduct('product-message-concurrent', sellerOpenId, sellerUserId);
   addProduct(
     'product-message-legacy',
@@ -6066,6 +6135,18 @@ async function verifyMessagingFunctionFlow() {
       data: { productId: 'product-offline' }
     });
     assert(offline.code === 'PRODUCT_UNAVAILABLE', 'offline product can create a new conversation');
+    const crossSchoolConversation = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: {
+        productId: 'product-message-cross-school',
+        schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      }
+    });
+    assert(
+      crossSchoolConversation.success === false
+      && crossSchoolConversation.code === 'CROSS_SCHOOL_RELATION_FORBIDDEN',
+      'direct cross-school conversation creation or forged school scope was accepted'
+    );
 
     const created = await messageAction.main({
       action: 'createOrGetConversation',
@@ -6087,6 +6168,26 @@ async function verifyMessagingFunctionFlow() {
       && repeated.data.reused === true,
       'repeat conversation creation is not idempotent'
     );
+    stores.users.set(buyerUserId, {
+      ...stores.users.get(buyerUserId),
+      schoolId: 's_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      schoolName: '学校 B'
+    });
+    const historicalConversation = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: { productId: 'product-message-1' }
+    });
+    assert(
+      historicalConversation.success === true
+      && historicalConversation.data.reused === true
+      && historicalConversation.data.conversationId === conversationId,
+      'historical cross-school conversation cannot be reused'
+    );
+    stores.users.set(buyerUserId, {
+      ...stores.users.get(buyerUserId),
+      schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      schoolName: '学校 A'
+    });
 
     const concurrentResults = await Promise.all([
       messageAction.main({

@@ -92,6 +92,13 @@
       </view>
     </view>
 
+    <view
+      wx:if="{{isCrossSchoolReadonly}}"
+      class="status-notice status-notice--cross-school"
+    >
+      {{readonlyNotice}}
+    </view>
+
     <view wx:if="{{product.isReserved}}" class="status-notice status-notice--reserved">
       该商品当前已预定，可继续联系卖家，但不能创建或接受新的预约
     </view>
@@ -161,7 +168,10 @@
       </view>
     </view>
 
-    <view class="surface-card seller-card" bindtap="onSellerTap">
+    <view
+      class="surface-card seller-card {{isCrossSchoolReadonly ? 'seller-card--readonly' : ''}}"
+      bindtap="onSellerTap"
+    >
       <view class="seller-avatar">{{product.seller.initial}}</view>
       <view class="seller-info">
         <view class="seller-name-row">
@@ -171,8 +181,8 @@
         <text class="seller-note">{{product.campus}} · 普通校园用户</text>
       </view>
       <view class="seller-link">
-        <text>查看主页</text>
-        <text class="seller-arrow">›</text>
+        <text>{{isCrossSchoolReadonly ? '仅展示信息' : '查看主页'}}</text>
+        <text wx:if="{{!isCrossSchoolReadonly}}" class="seller-arrow">›</text>
       </view>
     </view>
 
@@ -196,11 +206,11 @@
         {{isFavoriteLoading ? '处理中' : (isFavorited ? '★ 已收藏' : '☆ 收藏')}}
       </button>
       <button
-        class="primary-button action-button action-button--main {{isOwnProduct ? 'action-button--disabled' : ''}}"
-        disabled="{{isOwnProduct || isContactLoading}}"
+        class="primary-button action-button action-button--main {{isOwnProduct || isCrossSchoolReadonly ? 'action-button--disabled' : ''}}"
+        disabled="{{isOwnProduct || isCrossSchoolReadonly || isContactLoading}}"
         bindtap="onContactTap"
       >
-        {{isOwnProduct ? '这是我的商品' : (isContactLoading ? '正在进入会话' : '联系卖家')}}
+        {{isOwnProduct ? '这是我的商品' : (isCrossSchoolReadonly ? '其他学校 · 仅可查看' : (isContactLoading ? '正在进入会话' : '联系卖家'))}}
       </button>
     </view>
   </block>

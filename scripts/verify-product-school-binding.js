@@ -961,22 +961,19 @@ function verifyStaticBoundaries(projectRoot, collector) {
     'phase 18 final strict-for-all mode is not enabled'
   );
   collector.check(
-    !/SCHOOL_SELECTION_REQUIRED|SCHOOL_UNAVAILABLE|schoolId/.test(
-      favoriteSource
-    ),
-    'phase 17 changes favorite school permissions'
+    /CROSS_SCHOOL_RELATION_FORBIDDEN/.test(favoriteSource)
+      && /userSchoolId\s*===\s*productSchoolId/.test(favoriteSource),
+    'favorite creation lacks the Phase 19 school relation guard'
   );
   collector.check(
-    !/SCHOOL_SELECTION_REQUIRED|SCHOOL_UNAVAILABLE|schoolId/.test(
-      messageSource
-    ),
-    'phase 17 changes messaging school permissions'
+    /CROSS_SCHOOL_RELATION_FORBIDDEN/.test(messageSource)
+      && /userSchoolId\s*===\s*productSchoolId/.test(messageSource),
+    'conversation creation lacks the Phase 19 school relation guard'
   );
   collector.check(
-    !/SCHOOL_SELECTION_REQUIRED|SCHOOL_UNAVAILABLE|schoolId/.test(
-      appointmentSource
-    ),
-    'phase 17 changes appointment school permissions'
+    /CROSS_SCHOOL_RELATION_FORBIDDEN/.test(appointmentSource)
+      && /buyerSchoolId\s*===\s*productSchoolId/.test(appointmentSource),
+    'appointment creation lacks the Phase 19 school relation guard'
   );
   collector.check(
     !/switchSchool|changeSchool/.test(authSource),

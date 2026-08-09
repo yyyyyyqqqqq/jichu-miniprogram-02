@@ -263,7 +263,9 @@ async function verifyAppointmentFlow(root) {
       nickname,
       avatarUrl: '',
       campus: '即出大学',
-      status: 'active'
+      status: 'active',
+      schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      schoolName: '学校 A'
     });
   });
 
@@ -277,6 +279,8 @@ async function verifyAppointmentFlow(root) {
       version: 1,
       sellerOpenid: owner,
       sellerId: userId(owner),
+      schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      schoolName: '学校 A',
       location: '图书馆南门'
     });
   }
@@ -312,6 +316,12 @@ async function verifyAppointmentFlow(root) {
   addProduct('appointment-product-deleted', 'deleted');
   addProduct('appointment-product-offline', 'offline');
   addProduct('appointment-product-self', 'available', buyerOpenId);
+  addProduct('appointment-product-cross-school');
+  stores.products.set('appointment-product-cross-school', {
+    ...stores.products.get('appointment-product-cross-school'),
+    schoolId: 's_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    schoolName: '学校 B'
+  });
 
   const mainConversationId = addConversation(
     'appointment-product-main',
@@ -370,6 +380,10 @@ async function verifyAppointmentFlow(root) {
     'appointment-product-main',
     buyerOpenId,
     attackerOpenId
+  );
+  const crossSchoolConversationId = addConversation(
+    'appointment-product-cross-school',
+    buyerOpenId
   );
 
   const cloudMock = {
@@ -520,6 +534,16 @@ async function verifyAppointmentFlow(root) {
       && mismatch.code === 'FORBIDDEN',
       'product, self or conversation creation boundaries are incomplete'
     );
+    const crossSchoolCreate = await appointmentAction.main(
+      createEvent(crossSchoolConversationId, 'create_cross_school', {
+        schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      })
+    );
+    assert(
+      crossSchoolCreate.success === false
+      && crossSchoolCreate.code === 'CROSS_SCHOOL_RELATION_FORBIDDEN',
+      'direct cross-school appointment creation or forged school scope was accepted'
+    );
 
     currentOpenId = attackerOpenId;
     const attackerCreate = await appointmentAction.main(
@@ -570,12 +594,27 @@ async function verifyAppointmentFlow(root) {
     const repeatedCreate = await appointmentAction.main(
       createEvent(mainConversationId, 'create_main_0001')
     );
+    stores.users.set(userId(buyerOpenId), {
+      ...stores.users.get(userId(buyerOpenId)),
+      schoolId: 's_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      schoolName: '学校 B'
+    });
+    const historicalCreate = await appointmentAction.main(
+      createEvent(mainConversationId, 'create_main_0001')
+    );
+    stores.users.set(userId(buyerOpenId), {
+      ...stores.users.get(userId(buyerOpenId)),
+      schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      schoolName: '学校 A'
+    });
     const duplicateActive = await appointmentAction.main(
       createEvent(mainConversationId, 'create_main_0002')
     );
     assert(
       repeatedCreate.success === true
       && repeatedCreate.data.reused === true
+      && historicalCreate.success === true
+      && historicalCreate.data.reused === true
       && duplicateActive.code === 'APPOINTMENT_ALREADY_EXISTS'
       && stores.appointments.size === 1
       && stores.messages.size === 1,
