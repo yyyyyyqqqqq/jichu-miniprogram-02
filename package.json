@@ -59,6 +59,9 @@
     "phase-19:verify": "node scripts/verify-phase-19.js",
     "phase-19:deploy": "node scripts/deploy-phase-19.js",
     "phase-19:devtools": "node scripts/verify-phase-19-devtools.js",
+    "phase-20:verify": "node scripts/verify-phase-20.js",
+    "phase-20:deploy": "node scripts/deploy-phase-20.js",
+    "phase-20:devtools": "node scripts/verify-phase-20-devtools.js",
     "phase-18-auth-market:deploy": "node scripts/deploy-phase-18-auth-market.js",
     "phase-18-data-migration:devtools": "node scripts/verify-phase-18-data-migration-devtools.js",
     "verify": "node scripts/verify-project.js"

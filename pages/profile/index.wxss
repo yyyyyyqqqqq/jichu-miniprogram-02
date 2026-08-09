@@ -258,6 +258,13 @@
   white-space: nowrap;
 }
 
+.account-school-hint {
+  margin-top: 7rpx;
+  color: #9aa39e;
+  font-size: 20rpx;
+  line-height: 1.5;
+}
+
 .account-school-action {
   flex: none;
   color: #13865a;

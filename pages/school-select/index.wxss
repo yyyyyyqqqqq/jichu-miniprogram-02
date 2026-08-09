@@ -49,6 +49,45 @@
   line-height: 1.6;
 }
 
+.cooldown-card {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 20rpx;
+  padding: 22rpx 24rpx;
+  border: 1rpx solid #dce8e1;
+  border-radius: 20rpx;
+}
+
+.cooldown-card--ready {
+  background: #eff9f4;
+}
+
+.cooldown-card--locked {
+  border-color: #f0d3a9;
+  background: #fff8ea;
+}
+
+.cooldown-title {
+  color: #2e5d47;
+  font-size: 25rpx;
+  font-weight: 700;
+}
+
+.cooldown-card--locked .cooldown-title {
+  color: #995f0e;
+}
+
+.cooldown-copy {
+  margin-top: 8rpx;
+  color: #6e8076;
+  font-size: 22rpx;
+  line-height: 1.6;
+}
+
+.cooldown-card--locked .cooldown-copy {
+  color: #927044;
+}
+
 .school-panel {
   min-height: 420rpx;
   padding: 26rpx;

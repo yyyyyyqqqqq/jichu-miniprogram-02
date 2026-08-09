@@ -13,9 +13,24 @@ function getSchoolPresentation(user) {
   const legacyCampus = user && typeof user.campus === 'string'
     ? user.campus.trim()
     : '';
+  const canChangeSchool = !user || user.canChangeSchool !== false;
+  const nextAllowedAt = user && typeof user.nextSchoolChangeAllowedAt === 'string'
+    ? user.nextSchoolChangeAllowedAt
+    : '';
+  const nextAllowedDate = nextAllowedAt ? new Date(nextAllowedAt) : null;
+  const nextAllowedText = nextAllowedDate
+    && !Number.isNaN(nextAllowedDate.getTime())
+    ? `${nextAllowedDate.getFullYear()}-${String(nextAllowedDate.getMonth() + 1).padStart(2, '0')}-${String(nextAllowedDate.getDate()).padStart(2, '0')} ${String(nextAllowedDate.getHours()).padStart(2, '0')}:${String(nextAllowedDate.getMinutes()).padStart(2, '0')}`
+    : '';
   return {
     displaySchoolName: schoolName || legacyCampus || '校园信息待完善',
-    hasBoundSchool: Boolean(schoolName)
+    hasBoundSchool: Boolean(schoolName),
+    canChangeSchool,
+    schoolChangeHint: canChangeSchool
+      ? '当前可修改，成功后 7 天内不可再次修改'
+      : nextAllowedText
+        ? `冷却中，可于 ${nextAllowedText} 后再次修改`
+        : '学校修改后 7 天内不可再次修改'
   };
 }
 
@@ -27,7 +42,9 @@ Page({
     isRestoring: false,
     errorMessage: '',
     displaySchoolName: '校园信息待完善',
-    hasBoundSchool: false
+    hasBoundSchool: false,
+    canChangeSchool: true,
+    schoolChangeHint: ''
   },
 
   onLoad() {

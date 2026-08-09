@@ -105,8 +105,11 @@
       <view class="account-school-copy">
         <text class="account-label">学校</text>
         <text class="account-school-name">{{displaySchoolName}}</text>
+        <text class="account-school-hint">{{schoolChangeHint}}</text>
       </view>
-      <text class="account-school-action">{{hasBoundSchool ? '修改学校' : '选择学校'}}</text>
+      <text class="account-school-action">
+        {{hasBoundSchool ? (canChangeSchool ? '修改学校' : '查看冷却') : '选择学校'}}
+      </text>
       <text class="account-school-arrow">›</text>
     </view>
     <view class="account-row">

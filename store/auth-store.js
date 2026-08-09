@@ -80,6 +80,7 @@ function toCachedUser(value) {
     : '';
   const nickname = rawNickname === '微信用户' ? '' : rawNickname;
   const schoolVersion = Number(value.schoolVersion);
+  const schoolChangeRemainingMs = Number(value.schoolChangeRemainingMs);
 
   if (!id) {
     return null;
@@ -105,8 +106,19 @@ function toCachedUser(value) {
     schoolUpdatedAt: typeof value.schoolUpdatedAt === 'string'
       ? value.schoolUpdatedAt
       : '',
+    schoolChangedAt: typeof value.schoolChangedAt === 'string'
+      ? value.schoolChangedAt
+      : '',
     schoolVersion: Number.isInteger(schoolVersion) && schoolVersion > 0
       ? schoolVersion
+      : 0,
+    canChangeSchool: value.canChangeSchool !== false,
+    nextSchoolChangeAllowedAt: typeof value.nextSchoolChangeAllowedAt === 'string'
+      ? value.nextSchoolChangeAllowedAt
+      : '',
+    schoolChangeRemainingMs: Number.isFinite(schoolChangeRemainingMs)
+      && schoolChangeRemainingMs > 0
+      ? Math.floor(schoolChangeRemainingMs)
       : 0,
     schoolRequired: value.schoolRequired !== false,
     schoolUnavailable: value.schoolUnavailable === true,
@@ -157,7 +169,11 @@ function writeCachedUser(user) {
     schoolName: user.schoolName || '',
     schoolSelectedAt: user.schoolSelectedAt || '',
     schoolUpdatedAt: user.schoolUpdatedAt || '',
+    schoolChangedAt: user.schoolChangedAt || '',
     schoolVersion: user.schoolVersion || 0,
+    canChangeSchool: user.canChangeSchool !== false,
+    nextSchoolChangeAllowedAt: user.nextSchoolChangeAllowedAt || '',
+    schoolChangeRemainingMs: user.schoolChangeRemainingMs || 0,
     schoolRequired: user.schoolRequired !== false,
     schoolUnavailable: user.schoolUnavailable === true
   });
@@ -197,7 +213,10 @@ function normalizeError(error) {
     code: error && error.code ? error.code : 'UNKNOWN_ERROR',
     message: error && error.message
       ? error.message
-      : '登录状态校验失败，请重试'
+      : '登录状态校验失败，请重试',
+    details: error && error.details && typeof error.details === 'object'
+      ? { ...error.details }
+      : null
   };
 }
 

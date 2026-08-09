@@ -504,7 +504,23 @@ record('authUser obtains identity securely and returns a safe envelope', () => {
   );
   assert(/success:\s*true/.test(source) && /success:\s*false/.test(source), 'authUser response envelope is inconsistent');
   assert(/code/.test(source) && /message/.test(source) && /data/.test(source), 'authUser response fields are incomplete');
-  assert(!/console\.(?:log|info|warn|error)/.test(source), 'authUser writes identity information to logs');
+  assert(!/console\.(?:log|warn|error)/.test(source), 'authUser writes unsafe logs');
+  const safeSchoolLogStart = source.indexOf("console.info('[authUser] school change'");
+  const safeSchoolLogEnd = source.indexOf(');', safeSchoolLogStart);
+  const safeSchoolLog = safeSchoolLogStart >= 0 && safeSchoolLogEnd > safeSchoolLogStart
+    ? source.slice(safeSchoolLogStart, safeSchoolLogEnd + 2)
+    : '';
+  assert(
+    safeSchoolLog
+    && /outcome/.test(safeSchoolLog)
+    && /code/.test(safeSchoolLog)
+    && !/(?:openid|openId|OPENID|userId|schoolId|schoolName|token|secret)/.test(safeSchoolLog),
+    'authUser school change log is missing or contains identity data'
+  );
+  assert(
+    (source.match(/console\.info\(/g) || []).length === 1,
+    'authUser contains an unexpected info log'
+  );
   assert(!/nickname:\s*['"]微信用户['"]/.test(source), 'authUser still writes a fixed virtual nickname');
   assert(!/user-001|DEFAULT_USER|mock user|test user/i.test(source), 'authUser contains a fixed virtual user');
   assert(/profileCompleted:\s*Boolean/.test(source), 'authUser does not derive profile completion from submitted profile');

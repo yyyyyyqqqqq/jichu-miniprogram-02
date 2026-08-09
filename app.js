@@ -10,6 +10,12 @@ App({
       .catch(() => {});
   },
 
+  onShow() {
+    CloudService.ensureCloudReady()
+      .then(() => AuthStore.refreshCurrentUser())
+      .catch(() => {});
+  },
+
   globalData: {
     appName: '即出',
     initializedAt: ''

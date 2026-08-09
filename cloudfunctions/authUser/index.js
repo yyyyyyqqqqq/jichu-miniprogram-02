@@ -12,6 +12,7 @@ const schools = db.collection('schools');
 const NICKNAME_MAX_LENGTH = 20;
 const CAMPUS_MAX_LENGTH = 40;
 const SCHOOL_ID_PATTERN = /^s_[0-9a-f]{32}$/;
+const SCHOOL_CHANGE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const LEGACY_DEFAULT_NICKNAMES = new Set(['微信用户']);
 const AVATAR_FILE_NAME_PATTERN =
   /^[a-zA-Z0-9_-]{1,160}\.(?:jpg|jpeg|png|gif|webp)$/i;
@@ -29,6 +30,7 @@ const ERROR_CODES = {
   SCHOOL_REQUIRED: 'SCHOOL_REQUIRED',
   SCHOOL_UNAVAILABLE: 'SCHOOL_UNAVAILABLE',
   SCHOOL_UNCHANGED: 'SCHOOL_UNCHANGED',
+  SCHOOL_CHANGE_COOLDOWN: 'SCHOOL_CHANGE_COOLDOWN',
   SCHOOL_UPDATE_FAILED: 'SCHOOL_UPDATE_FAILED',
   PROFILE_INCOMPLETE: 'PROFILE_INCOMPLETE',
   AUTH_FAILED: 'AUTH_FAILED',
@@ -38,29 +40,31 @@ const ERROR_CODES = {
   INTERNAL_ERROR: 'INTERNAL_ERROR'
 };
 
-function success(user) {
+function success(user, extraData = {}) {
   return {
     success: true,
     code: ERROR_CODES.OK,
     message: '',
     data: {
-      user
+      user,
+      ...extraData
     }
   };
 }
 
-function failure(code, message) {
+function failure(code, message, data = null) {
   return {
     success: false,
     code,
     message,
-    data: null
+    data
   };
 }
 
-function businessError(code, message) {
+function businessError(code, message, data = null) {
   const error = new Error(message);
   error.businessCode = code;
+  error.businessData = data;
   throw error;
 }
 
@@ -107,6 +111,54 @@ function normalizeSchoolVersion(value) {
   return Number.isInteger(version) && version > 0 ? version : 0;
 }
 
+function toTimestamp(value) {
+  const isoString = toIsoString(value);
+  const timestamp = isoString ? new Date(isoString).getTime() : NaN;
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function getSchoolChangePolicy(record, now = new Date()) {
+  const nowTimestamp = now instanceof Date
+    ? now.getTime()
+    : new Date(now).getTime();
+  const safeNow = Number.isFinite(nowTimestamp) ? nowTimestamp : Date.now();
+  const schoolChangedAt = toIsoString(record && record.schoolChangedAt);
+  const changedTimestamp = toTimestamp(record && record.schoolChangedAt);
+  const nextAllowedTimestamp = changedTimestamp > 0
+    ? changedTimestamp + SCHOOL_CHANGE_COOLDOWN_MS
+    : 0;
+  const remainingMs = nextAllowedTimestamp > safeNow
+    ? nextAllowedTimestamp - safeNow
+    : 0;
+  return {
+    schoolChangedAt,
+    canChangeSchool: remainingMs === 0,
+    nextSchoolChangeAllowedAt: nextAllowedTimestamp > 0
+      ? new Date(nextAllowedTimestamp).toISOString()
+      : '',
+    schoolChangeRemainingMs: remainingMs
+  };
+}
+
+function assertSchoolChangeAllowed(record, now = new Date()) {
+  const policy = getSchoolChangePolicy(record, now);
+  if (!policy.canChangeSchool) {
+    businessError(
+      ERROR_CODES.SCHOOL_CHANGE_COOLDOWN,
+      '学校修改后 7 天内不可再次修改',
+      policy
+    );
+  }
+  return policy;
+}
+
+function logSchoolChange(outcome, code = ERROR_CODES.OK) {
+  console.info('[authUser] school change', {
+    outcome,
+    code
+  });
+}
+
 function isProfileComplete(record) {
   return Boolean(
     record
@@ -129,6 +181,7 @@ function toSafeUser(record, schoolState = {}) {
   const schoolName = typeof schoolState.schoolName === 'string'
     ? schoolState.schoolName
     : normalizeText(record.schoolName);
+  const schoolChangePolicy = getSchoolChangePolicy(record);
 
   return {
     id: publicUserId,
@@ -148,7 +201,11 @@ function toSafeUser(record, schoolState = {}) {
     schoolName,
     schoolSelectedAt: toIsoString(record.schoolSelectedAt),
     schoolUpdatedAt: toIsoString(record.schoolUpdatedAt),
+    schoolChangedAt: schoolChangePolicy.schoolChangedAt,
     schoolVersion: normalizeSchoolVersion(record.schoolVersion),
+    canChangeSchool: schoolChangePolicy.canChangeSchool,
+    nextSchoolChangeAllowedAt: schoolChangePolicy.nextSchoolChangeAllowedAt,
+    schoolChangeRemainingMs: schoolChangePolicy.schoolChangeRemainingMs,
     schoolRequired: schoolState.schoolRequired !== false,
     schoolUnavailable: schoolState.schoolUnavailable === true,
     createdAt: toIsoString(record.createdAt),
@@ -514,6 +571,9 @@ async function selectSchool(identity, input) {
 
     const previousVersion = normalizeSchoolVersion(existing.schoolVersion);
     const hasPreviousSelection = Boolean(normalizeText(existing.schoolId));
+    if (hasPreviousSelection) {
+      assertSchoolChangeAllowed(existing, now);
+    }
     const updateData = {
       schoolId: requestedSchoolId,
       schoolName: normalizeText(selectedSchool.name),
@@ -524,6 +584,9 @@ async function selectSchool(identity, input) {
         : 1,
       updatedAt: db.serverDate()
     };
+    if (hasPreviousSelection) {
+      updateData.schoolChangedAt = now;
+    }
     await userDocument.update({
       data: updateData
     });
@@ -533,6 +596,9 @@ async function selectSchool(identity, input) {
         ...updateData,
         schoolSelectedAt: existing.schoolSelectedAt || now,
         schoolUpdatedAt: now,
+        schoolChangedAt: hasPreviousSelection
+          ? now
+          : existing.schoolChangedAt,
         updatedAt: now
       },
       schoolState: {
@@ -579,7 +645,12 @@ async function updateSchool(identity, input) {
       );
     }
     if (existingState.schoolId === requestedSchoolId) {
-      businessError(ERROR_CODES.SCHOOL_UNCHANGED, '新学校与当前学校相同');
+      logSchoolChange('unchanged', ERROR_CODES.SCHOOL_UNCHANGED);
+      return {
+        record: existing,
+        schoolState: existingState,
+        unchanged: true
+      };
     }
 
     const selectedSchool = await findSchool(
@@ -592,12 +663,14 @@ async function updateSchool(identity, input) {
     if (!isSchoolActive(selectedSchool)) {
       businessError(ERROR_CODES.SCHOOL_NOT_ACTIVE, '该学校暂未开放');
     }
+    assertSchoolChangeAllowed(existing, now);
 
     const updateData = {
       schoolId: requestedSchoolId,
       schoolName: normalizeText(selectedSchool.name),
       schoolSelectedAt: existing.schoolSelectedAt || db.serverDate(),
       schoolUpdatedAt: db.serverDate(),
+      schoolChangedAt: now,
       schoolVersion: Math.max(normalizeSchoolVersion(existing.schoolVersion), 1) + 1,
       updatedAt: db.serverDate()
     };
@@ -611,6 +684,7 @@ async function updateSchool(identity, input) {
         ...updateData,
         schoolSelectedAt: existing.schoolSelectedAt || now,
         schoolUpdatedAt: now,
+        schoolChangedAt: now,
         updatedAt: now
       },
       schoolState: {
@@ -618,11 +692,20 @@ async function updateSchool(identity, input) {
         schoolName: updateData.schoolName,
         schoolRequired: false,
         schoolUnavailable: false
-      }
+      },
+      unchanged: false
     };
   });
 
-  return success(toSafeUser(result.record, result.schoolState));
+  if (!result.unchanged) {
+    logSchoolChange('success');
+  }
+  return success(toSafeUser(result.record, result.schoolState), {
+    schoolChange: {
+      changed: !result.unchanged,
+      reason: result.unchanged ? 'unchanged' : 'updated'
+    }
+  });
 }
 
 function classifyFailure(error) {
@@ -686,7 +769,14 @@ exports.main = async (event = {}) => {
     return await current(identity);
   } catch (error) {
     if (error && error.businessCode) {
-      return failure(error.businessCode, error.message);
+      if (action === 'updateSchool') {
+        logSchoolChange('rejected', error.businessCode);
+      }
+      return failure(
+        error.businessCode,
+        error.message,
+        error.businessData || null
+      );
     }
     const classifiedCode = classifyFailure(error);
     const code = action === 'updateSchool'
@@ -700,3 +790,11 @@ exports.main = async (event = {}) => {
     );
   }
 };
+
+exports.__test = Object.freeze({
+  SCHOOL_CHANGE_COOLDOWN_MS,
+  getSchoolChangePolicy,
+  assertSchoolChangeAllowed,
+  normalizeSchoolVersion,
+  toIsoString
+});

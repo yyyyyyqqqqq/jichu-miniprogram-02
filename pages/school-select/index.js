@@ -9,6 +9,39 @@ const {
 
 const SEARCH_DEBOUNCE_MS = 350;
 
+function formatDateTime(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const pad = (number) => String(number).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function buildCooldownPresentation(user) {
+  const value = user && typeof user === 'object' ? user : {};
+  const canChangeSchool = value.canChangeSchool !== false;
+  const nextSchoolChangeAllowedAt = typeof value.nextSchoolChangeAllowedAt === 'string'
+    ? value.nextSchoolChangeAllowedAt
+    : '';
+  const nextAllowedText = formatDateTime(nextSchoolChangeAllowedAt);
+  return {
+    canChangeSchool,
+    schoolChangedAt: typeof value.schoolChangedAt === 'string'
+      ? value.schoolChangedAt
+      : '',
+    nextSchoolChangeAllowedAt,
+    schoolChangeRemainingMs: Number(value.schoolChangeRemainingMs) > 0
+      ? Math.floor(Number(value.schoolChangeRemainingMs))
+      : 0,
+    cooldownText: canChangeSchool
+      ? '当前可以修改学校；成功后 7 天内不能再次修改。'
+      : nextAllowedText
+        ? `学校修改后 7 天内不可再次修改，可于 ${nextAllowedText} 后重试。`
+        : '学校修改后 7 天内不可再次修改。'
+  };
+}
+
 Page({
   data: {
     mode: 'select',
@@ -20,6 +53,11 @@ Page({
     currentSchoolId: '',
     currentSchoolName: '',
     schoolUnavailable: false,
+    canChangeSchool: true,
+    schoolChangedAt: '',
+    nextSchoolChangeAllowedAt: '',
+    schoolChangeRemainingMs: 0,
+    cooldownText: '',
     keyword: '',
     schools: [],
     viewState: 'loading',
@@ -57,6 +95,7 @@ Page({
         currentSchoolId: user && user.schoolId ? user.schoolId : '',
         currentSchoolName: user && user.schoolName ? user.schoolName : '',
         schoolUnavailable: Boolean(user && user.schoolUnavailable),
+        ...buildCooldownPresentation(user),
         isSubmitting: Boolean(
           state.selectingSchool
           || state.updatingSchool
@@ -67,6 +106,23 @@ Page({
   },
 
   async onShow() {
+    if (this.isChangeMode) {
+      const refreshedState = await AuthStore.refreshCurrentUser();
+      if (!this.isPageActive) {
+        return;
+      }
+      if (refreshedState.status === 'error') {
+        this.hasLoadedSchools = false;
+        this.setData({
+          schools: [],
+          viewState: 'error',
+          errorMessage: refreshedState.error && refreshedState.error.message
+            ? refreshedState.error.message
+            : '无法读取服务端学校修改状态，请稍后重试'
+        });
+        return;
+      }
+    }
     const allowed = await this.ensureSelectionAccess();
     if (
       allowed
@@ -263,6 +319,13 @@ Page({
     ) {
       return;
     }
+    if (this.isChangeMode && !this.data.canChangeSchool) {
+      wx.showToast({
+        title: '学校修改仍在 7 天冷却期',
+        icon: 'none'
+      });
+      return;
+    }
     const schoolId = event
       && event.currentTarget
       && event.currentTarget.dataset
@@ -292,7 +355,7 @@ Page({
     wx.showModal({
       title: this.isChangeMode ? '确认修改学校？' : `确认选择“${school.name}”吗？`,
       content: this.isChangeMode
-        ? `当前学校：${currentSchoolName}\n新学校：${school.name}\n\n修改后，你将进入新学校的校园市场。此前发布的商品仍保留在原学校，不会自动迁移。`
+        ? `当前学校：${currentSchoolName}\n新学校：${school.name}\n\n修改后，你将进入新学校的校园市场，且 7 天内不能再次修改。此前发布的商品仍保留在原学校，不会自动迁移。`
         : '选择后，你将进入对应的校园市场。学校名称由云端权威数据确认。',
       confirmText: this.isChangeMode ? '确认修改' : '确认选择',
       confirmColor: '#16a36a',
@@ -367,12 +430,20 @@ Page({
       }, 350);
     } catch (error) {
       if (this.isPageActive) {
+        const cooldownPatch = error
+          && error.code === 'SCHOOL_CHANGE_COOLDOWN'
+          ? buildCooldownPresentation({
+            ...(error.details || {}),
+            canChangeSchool: false
+          })
+          : {};
         this.setData({
           isSubmitting: false,
           selectedSchoolId: '',
           errorMessage: error && error.message
             ? error.message
-            : '学校选择失败，请稍后重试'
+            : '学校选择失败，请稍后重试',
+          ...cooldownPatch
         });
       }
     }

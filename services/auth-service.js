@@ -16,6 +16,7 @@ const AUTH_ERROR_MESSAGES = {
   SCHOOL_ALREADY_SELECTED: '你已经完成学校选择',
   SCHOOL_REQUIRED: '请先完成学校选择',
   SCHOOL_UNCHANGED: '新学校与当前学校相同',
+  SCHOOL_CHANGE_COOLDOWN: '学校修改后 7 天内不可再次修改',
   SCHOOL_UPDATE_FAILED: '学校修改失败，请稍后重试',
   PROFILE_INCOMPLETE: '请先完善个人资料',
   SCHOOL_SELECTION_REQUIRED: '请先选择学校',
@@ -30,15 +31,18 @@ const AUTH_ERROR_MESSAGES = {
 };
 
 class AuthError extends Error {
-  constructor(code, message) {
+  constructor(code, message, details = null) {
     super(message || AUTH_ERROR_MESSAGES[code] || AUTH_ERROR_MESSAGES.UNKNOWN_ERROR);
     this.name = 'AuthError';
     this.code = code || 'UNKNOWN_ERROR';
+    this.details = details && typeof details === 'object'
+      ? { ...details }
+      : null;
   }
 }
 
-function createAuthError(code) {
-  return new AuthError(code, AUTH_ERROR_MESSAGES[code]);
+function createAuthError(code, details = null) {
+  return new AuthError(code, AUTH_ERROR_MESSAGES[code], details);
 }
 
 function normalizeUser(value) {
@@ -64,6 +68,7 @@ function normalizeUser(value) {
     ? value.schoolId.trim()
     : '';
   const schoolVersion = Number(value.schoolVersion);
+  const schoolChangeRemainingMs = Number(value.schoolChangeRemainingMs);
 
   return {
     id,
@@ -85,8 +90,19 @@ function normalizeUser(value) {
     schoolUpdatedAt: typeof value.schoolUpdatedAt === 'string'
       ? value.schoolUpdatedAt
       : '',
+    schoolChangedAt: typeof value.schoolChangedAt === 'string'
+      ? value.schoolChangedAt
+      : '',
     schoolVersion: Number.isInteger(schoolVersion) && schoolVersion > 0
       ? schoolVersion
+      : 0,
+    canChangeSchool: value.canChangeSchool !== false,
+    nextSchoolChangeAllowedAt: typeof value.nextSchoolChangeAllowedAt === 'string'
+      ? value.nextSchoolChangeAllowedAt
+      : '',
+    schoolChangeRemainingMs: Number.isFinite(schoolChangeRemainingMs)
+      && schoolChangeRemainingMs > 0
+      ? Math.floor(schoolChangeRemainingMs)
       : 0,
     schoolRequired: value.schoolRequired !== false,
     schoolUnavailable: value.schoolUnavailable === true,
@@ -196,7 +212,7 @@ async function login(profile) {
     profile: safeProfile
   });
   if (!payload.success) {
-    throw createAuthError(payload.code || 'AUTH_FAILED');
+    throw createAuthError(payload.code || 'AUTH_FAILED', payload.data);
   }
   return normalizeUser(payload.data && payload.data.user);
 }
@@ -207,7 +223,7 @@ async function getCurrentUser() {
     if (payload.code === 'USER_NOT_FOUND') {
       return null;
     }
-    throw createAuthError(payload.code || 'AUTH_FAILED');
+    throw createAuthError(payload.code || 'AUTH_FAILED', payload.data);
   }
   return normalizeUser(payload.data && payload.data.user);
 }
@@ -220,7 +236,7 @@ async function updateProfile(profile) {
     profile: safeProfile
   });
   if (!payload.success) {
-    throw createAuthError(payload.code || 'AUTH_FAILED');
+    throw createAuthError(payload.code || 'AUTH_FAILED', payload.data);
   }
   return normalizeUser(payload.data && payload.data.user);
 }
@@ -236,7 +252,7 @@ async function selectSchool(schoolId) {
     schoolId: normalizedSchoolId
   });
   if (!payload.success) {
-    throw createAuthError(payload.code || 'AUTH_FAILED');
+    throw createAuthError(payload.code || 'AUTH_FAILED', payload.data);
   }
   return normalizeUser(payload.data && payload.data.user);
 }
@@ -252,7 +268,10 @@ async function updateSchool(schoolId) {
     schoolId: normalizedSchoolId
   });
   if (!payload.success) {
-    throw createAuthError(payload.code || 'SCHOOL_UPDATE_FAILED');
+    throw createAuthError(
+      payload.code || 'SCHOOL_UPDATE_FAILED',
+      payload.data
+    );
   }
   return normalizeUser(payload.data && payload.data.user);
 }

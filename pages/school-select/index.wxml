@@ -14,6 +14,16 @@
     </text>
   </view>
 
+  <view
+    wx:if="{{isChangeMode}}"
+    class="cooldown-card {{canChangeSchool ? 'cooldown-card--ready' : 'cooldown-card--locked'}}"
+  >
+    <text class="cooldown-title">
+      {{canChangeSchool ? '当前可以修改学校' : '学校修改冷却中'}}
+    </text>
+    <text class="cooldown-copy">{{cooldownText}}</text>
+  </view>
+
   <view class="surface-card school-panel">
     <view class="search-box">
       <text class="search-icon">⌕</text>
@@ -64,7 +74,7 @@
         wx:key="id"
         data-id="{{item.id}}"
         class="school-item {{currentSchoolId === item.id ? 'school-item--current' : ''}}"
-        disabled="{{isSubmitting || isConfirming || isReturning}}"
+        disabled="{{isSubmitting || isConfirming || isReturning || (isChangeMode && !canChangeSchool)}}"
         bindtap="onSchoolTap"
       >
         <view class="school-item-copy">
@@ -85,7 +95,7 @@
   </view>
 
   <view class="selection-note">
-    {{isChangeMode ? '修改学校不会迁移此前发布的商品；旧商品继续属于发布时学校。' : '学校名称与开放状态由云端权威数据校验，不能通过自由文本修改。'}}
+    {{isChangeMode ? '学校修改由服务端校验，成功后 7 天内不可再次修改；旧商品和历史关系不会迁移或删除。' : '学校名称与开放状态由云端权威数据校验，不能通过自由文本修改。'}}
   </view>
   <button
     class="logout-button"

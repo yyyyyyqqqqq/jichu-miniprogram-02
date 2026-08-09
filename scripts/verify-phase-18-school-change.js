@@ -333,6 +333,8 @@ async function verifyServerAndProductFlow(root, collector) {
     check(changed.data.user.schoolVersion === 2, 'school change increments school version');
     check(changed.data.user.schoolSelectedAt === selectedAt.toISOString(), 'school change preserves first selection time');
     check(Boolean(changed.data.user.schoolUpdatedAt), 'school change returns updated school time');
+    check(Boolean(changed.data.user.schoolChangedAt), 'school change returns authoritative changed time');
+    check(changed.data.user.canChangeSchool === false, 'successful change enters server cooldown');
     check(users.get(userId).schoolId === schoolB, 'current user record is updated');
     check(users.get(userId).schoolName === '第二验证学院', 'stored school name is authoritative');
     check(JSON.stringify(users.get(otherUserId)) === JSON.stringify(otherBefore), 'forged user id cannot modify another user');
@@ -346,7 +348,17 @@ async function verifyServerAndProductFlow(root, collector) {
       action: 'updateSchool',
       data: { schoolId: schoolB }
     });
-    check(repeated.code === 'SCHOOL_UNCHANGED', 'same-school repeated request is rejected stably');
+    check(
+      repeated.success === true
+      && repeated.data.schoolChange.changed === false
+      && repeated.data.schoolChange.reason === 'unchanged',
+      'same-school repeated request returns an explicit no-op'
+    );
+    check(repeated.data.user.schoolVersion === 2, 'same-school no-op preserves school version');
+    check(
+      repeated.data.user.schoolChangedAt === changed.data.user.schoolChangedAt,
+      'same-school no-op preserves cooldown timestamp'
+    );
     check(writes.users === repeatedWrites, 'same-school repeated request performs no write');
 
     const productAAfterChange = cloneRecord(products.get(productAId));
