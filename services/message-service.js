@@ -177,12 +177,16 @@ function normalizePublicUser(value) {
   const record = value && typeof value === 'object' ? value : {};
   const nickname = normalizeString(record.nickname) || '即出用户';
   const publicUserId = normalizeString(record.publicUserId);
+  const schoolName = normalizeString(record.schoolName);
+  const campus = normalizeString(record.campus);
   return {
     publicUserId: PUBLIC_USER_ID_PATTERN.test(publicUserId) ? publicUserId : '',
     nickname,
     avatarUrl: normalizeString(record.avatarUrl),
     avatarText: nickname.slice(0, 1) || '即',
-    campus: normalizeString(record.campus) || '校园信息待完善'
+    schoolName,
+    campus,
+    schoolDisplayName: schoolName || campus || '校园信息待完善'
   };
 }
 

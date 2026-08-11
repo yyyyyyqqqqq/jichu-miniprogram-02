@@ -28,7 +28,7 @@
         </view>
         <view class="other-user-copy">
           <text class="other-user-name">{{conversation.otherUser.nickname}}</text>
-          <text class="other-user-campus">{{conversation.otherUser.campus}}</text>
+          <text class="other-user-campus">{{conversation.otherUser.schoolDisplayName}}</text>
         </view>
       </view>
 

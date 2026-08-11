@@ -76,6 +76,9 @@
     "phase-23:performance": "node scripts/phase-23-performance.js",
     "phase-23:security-probes": "node scripts/phase-23-security-probes.js",
     "phase-23:deploy": "node scripts/deploy-phase-23.js",
+    "phase-24:verify": "node scripts/verify-phase-24.js",
+    "phase-24:deploy-message-query": "node scripts/deploy-phase-24-message-query.js",
+    "phase-24:devtools": "node scripts/verify-phase-24-devtools.js",
     "verify": "node scripts/verify-project.js"
   },
   "dependencies": {

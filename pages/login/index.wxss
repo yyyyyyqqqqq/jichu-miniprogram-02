@@ -268,13 +268,18 @@
 
 .wechat-login-button {
   height: 86rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-top: 34rpx;
+  padding-top: 0;
+  padding-bottom: 0;
   border-radius: 22rpx;
   background: #16a36a;
   color: #ffffff;
   font-size: 28rpx;
   font-weight: 700;
-  line-height: 86rpx;
+  line-height: normal;
 }
 
 .wechat-login-button--profile-save {

@@ -15,6 +15,7 @@ page {
 view,
 text,
 input,
+textarea,
 button,
 scroll-view {
   box-sizing: border-box;

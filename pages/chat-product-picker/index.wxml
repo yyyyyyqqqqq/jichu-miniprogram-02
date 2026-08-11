@@ -44,7 +44,7 @@
       </view>
       <view class="owner-summary__copy">
         <text class="owner-summary__name">{{owner.nickname}}</text>
-        <text class="owner-summary__campus">{{owner.campus}}</text>
+        <text class="owner-summary__campus">{{owner.schoolDisplayName}}</text>
       </view>
     </view>
 

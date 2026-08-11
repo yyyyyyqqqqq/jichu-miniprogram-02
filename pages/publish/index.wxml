@@ -240,6 +240,12 @@
     </view>
   </block>
 
+  <view wx:elif="{{isAuthPending}}" class="surface-card placeholder-page login-placeholder">
+    <view class="placeholder-mark">验</view>
+    <view class="placeholder-title">正在确认登录状态</view>
+    <view class="placeholder-description">请稍候</view>
+  </view>
+
   <view wx:else class="surface-card placeholder-page login-placeholder">
     <view class="placeholder-mark">登</view>
     <view class="placeholder-title">登录后发布校园闲置</view>

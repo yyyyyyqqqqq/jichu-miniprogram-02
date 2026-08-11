@@ -221,6 +221,7 @@ function safeUser(record, publicUserId) {
     publicUserId,
     nickname,
     avatarUrl: normalizeString(record && record.avatarUrl),
+    schoolName: normalizeString(record && record.schoolName),
     campus: normalizeString(record && record.campus) || '校园信息待完善'
   };
 }

@@ -248,15 +248,28 @@ function bootstrap(options = {}) {
     return Promise.resolve(getState());
   }
 
-  const cachedUser = readCachedUser();
+  // 只有已经由服务端确认过的内存会话，才允许在前台刷新期间继续作为
+  // authenticated 展示。冷启动缓存仍必须经过 current 校验，显式退出
+  // 则在上面的分支立即清空，不能借此恢复旧账号摘要。
+  const preservesTrustedSession = Boolean(
+    force
+    && state.status === AUTH_STATUS.AUTHENTICATED
+    && state.user
+    && state.explicitLogout !== true
+  );
+  const cachedUser = preservesTrustedSession
+    ? cloneUser(state.user)
+    : readCachedUser();
   const version = operationVersion + 1;
   operationVersion = version;
 
   setState({
-    status: AUTH_STATUS.RESTORING,
+    status: preservesTrustedSession
+      ? AUTH_STATUS.AUTHENTICATED
+      : AUTH_STATUS.RESTORING,
     user: cachedUser,
     error: null,
-    initialized: false,
+    initialized: preservesTrustedSession ? true : false,
     restoring: true
   });
 
@@ -289,7 +302,11 @@ function bootstrap(options = {}) {
           clearCachedUser();
         }
         setState({
-          status: AUTH_STATUS.ERROR,
+          status: normalizedError.code === 'USER_DISABLED'
+            ? AUTH_STATUS.ERROR
+            : (preservesTrustedSession
+              ? AUTH_STATUS.AUTHENTICATED
+              : AUTH_STATUS.ERROR),
           user: normalizedError.code === 'USER_DISABLED' ? null : cachedUser,
           error: normalizedError
         });

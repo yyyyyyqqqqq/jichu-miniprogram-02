@@ -18,6 +18,7 @@ const {
 Page({
   data: {
     isLoggedIn: false,
+    isAuthPending: true,
     schoolName: '',
     categories: PRODUCT_PUBLISH_CATEGORIES,
     conditions: PRODUCT_CONDITIONS,
@@ -50,8 +51,11 @@ Page({
         return;
       }
       const user = AuthStore.getCurrentUser();
+      const isLoggedIn = AuthStore.isSchoolReady();
       this.setData({
-        isLoggedIn: AuthStore.isSchoolReady(),
+        isLoggedIn,
+        isAuthPending: !isLoggedIn
+          && (!state.initialized || state.restoring),
         schoolName: user && typeof user.schoolName === 'string'
           ? user.schoolName.trim()
           : ''
@@ -68,6 +72,7 @@ Page({
       const user = AuthStore.getCurrentUser();
       this.setData({
         isLoggedIn: true,
+        isAuthPending: false,
         schoolName: user && typeof user.schoolName === 'string'
           ? user.schoolName.trim()
           : ''
