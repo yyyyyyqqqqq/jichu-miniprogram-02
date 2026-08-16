@@ -1,6 +1,7 @@
 const {
   CLOUD_CONFIG,
-  PUBLIC_ENVIRONMENT_ID
+  PUBLIC_ENVIRONMENT_ID,
+  PUBLIC_ENVIRONMENT_NAME
 } = require('../config/cloud');
 
 let cloudInitPromise = null;
@@ -82,13 +83,22 @@ function assertCloudEnvironmentConfigured() {
   const environmentId = typeof CLOUD_CONFIG.environmentId === 'string'
     ? CLOUD_CONFIG.environmentId.trim()
     : '';
-  if (!environmentId || environmentId === PUBLIC_ENVIRONMENT_ID) {
+  const environmentName = typeof CLOUD_CONFIG.environmentName === 'string'
+    ? CLOUD_CONFIG.environmentName.trim()
+    : '';
+  if (
+    !environmentId
+    || environmentId === PUBLIC_ENVIRONMENT_ID
+    || !environmentName
+    || environmentName === PUBLIC_ENVIRONMENT_NAME
+    || CLOUD_CONFIG.environmentValidationError
+  ) {
     throw createCloudError(
       'CLOUD_CONFIG_MISSING',
-      'Cloud environment is not configured. Copy config/cloud.private.example.js to config/cloud.private.js and set environmentId.'
+      `Cloud environment role is not safely configured (${CLOUD_CONFIG.environmentValidationError || 'ENVIRONMENT_CONFIG_MISSING'}).`
     );
   }
-  return environmentId;
+  return { environmentId, environmentName };
 }
 
 function ensureCloudReady() {
@@ -112,8 +122,15 @@ function ensureCloudReady() {
         );
       }
 
-      const environmentId = assertCloudEnvironmentConfigured();
+      const { environmentId, environmentName } = assertCloudEnvironmentConfigured();
       try {
+        if (
+          typeof console !== 'undefined'
+          && console
+          && typeof console.info === 'function'
+        ) {
+          console.info(`[ENV] ${environmentName.toUpperCase()}`);
+        }
         wx.cloud.init({
           env: environmentId,
           traceUser: true

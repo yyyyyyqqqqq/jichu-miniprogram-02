@@ -1,0 +1,113 @@
+.profile-edit-page {
+  padding-top: 42rpx;
+}
+
+.profile-edit-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-top: 32rpx;
+  padding: 34rpx 30rpx;
+}
+
+.field-label {
+  color: #34423b;
+  font-size: 25rpx;
+  font-weight: 700;
+}
+
+.field-label--spaced {
+  margin-top: 30rpx;
+}
+
+.avatar-picker {
+  width: 144rpx;
+  height: 144rpx;
+  margin: 18rpx 0 0;
+  padding: 0;
+  overflow: hidden;
+  border: 2rpx dashed #abd9c5;
+  border-radius: 42rpx;
+  background: #f0faf5;
+  line-height: 1;
+}
+
+.avatar-preview,
+.avatar-empty {
+  width: 100%;
+  height: 100%;
+}
+
+.avatar-preview {
+  display: block;
+}
+
+.avatar-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #4c8e70;
+  font-size: 21rpx;
+}
+
+.avatar-empty-icon {
+  margin-bottom: 10rpx;
+  font-size: 42rpx;
+  font-weight: 300;
+}
+
+.field-hint,
+.privacy-note {
+  color: #8b9590;
+  font-size: 21rpx;
+  line-height: 1.65;
+}
+
+.field-hint {
+  margin-top: 12rpx;
+}
+
+.profile-input {
+  height: 82rpx;
+  margin-top: 14rpx;
+  padding: 0 22rpx;
+  border: 1rpx solid #dfe8e3;
+  border-radius: 18rpx;
+  background: #f8faf9;
+  color: #26352d;
+  font-size: 26rpx;
+}
+
+.profile-error {
+  margin-top: 24rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 16rpx;
+  background: #fff1ee;
+  color: #bd513e;
+  font-size: 23rpx;
+}
+
+.save-button {
+  width: 100%;
+  height: 92rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 32rpx;
+  border-radius: 24rpx;
+  background: #16a36a;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.save-button[disabled] {
+  background: #a8d6c2;
+}
+
+.privacy-note {
+  padding: 26rpx 28rpx 0;
+  text-align: center;
+}

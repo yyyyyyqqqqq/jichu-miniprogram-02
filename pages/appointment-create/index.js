@@ -8,6 +8,7 @@ const {
 } = require('../../constants/routes');
 
 const CONVERSATION_ID_PATTERN = /^c_[a-f0-9]{64}$/;
+const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 
 function pad(value) {
   return String(value).padStart(2, '0');
@@ -52,6 +53,10 @@ Page({
       return;
     }
     this.conversationId = conversationId;
+    const productId = typeof options.productId === 'string'
+      ? options.productId.trim()
+      : '';
+    this.productId = PRODUCT_ID_PATTERN.test(productId) ? productId : '';
 
     const now = new Date();
     const initial = new Date(now.getTime() + 60 * 60 * 1000);
@@ -76,7 +81,9 @@ Page({
 
   async initialize() {
     const allowed = await AuthGuard.requireLogin({
-      target: AUTH_TARGETS.MESSAGES
+      target: AUTH_TARGETS.APPOINTMENT_CREATE,
+      conversationId: this.conversationId,
+      productId: this.productId
     });
     if (!allowed || !this.isPageActive) {
       return;
@@ -86,10 +93,24 @@ Page({
       errorMessage: ''
     });
     try {
-      const [conversation, activeAppointment] = await Promise.all([
-        MessageService.getConversation(this.conversationId),
-        AppointmentService.getActiveByConversation(this.conversationId)
-      ]);
+      const conversation = await MessageService.getConversation(
+        this.conversationId
+      );
+      if (!this.isPageActive) {
+        return;
+      }
+      this.conversationId = conversation.conversationId;
+      const currentProductId = conversation.product.productId;
+      if (this.productId && this.productId !== currentProductId) {
+        this.setData({
+          viewState: 'error',
+          errorMessage: '商品上下文已变化，请返回聊天页重新发起预约'
+        });
+        return;
+      }
+      this.productId = currentProductId;
+      const activeAppointment = await AppointmentService
+        .getActiveByConversation(this.conversationId, this.productId);
       if (!this.isPageActive) {
         return;
       }
@@ -219,6 +240,7 @@ Page({
     try {
       const result = await AppointmentService.createAppointment({
         conversationId: this.conversationId,
+        productId: this.productId,
         scheduledAt,
         location: this.data.location,
         note: this.data.note,

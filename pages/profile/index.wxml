@@ -7,11 +7,11 @@
       mode="aspectFill"
     />
     <view wx:else class="avatar-placeholder">
-      {{user ? user.avatarText : '即'}}
+      {{user ? user.avatarText : '校'}}
     </view>
     <view class="profile-copy">
       <text class="profile-name">
-        {{user ? user.nickname : '登录后使用完整功能'}}
+        {{user ? (user.displayNickname || user.nickname || '校园用户') : '登录后使用完整功能'}}
       </text>
       <text class="profile-note" wx:if="{{isLoggedIn}}">
         {{displaySchoolName}}
@@ -20,7 +20,7 @@
         正在后台校验登录状态
       </text>
       <text class="profile-note" wx:else>
-        浏览商品无需登录，受限功能会引导登录
+        登录并选择学校后进入校园市场
       </text>
     </view>
     <button
@@ -35,7 +35,7 @@
 
   <view wx:if="{{isRestoring}}" class="auth-notice auth-notice--restoring">
     <view class="notice-dot"></view>
-    <text>正在校准云端身份，公开浏览不受影响</text>
+    <text>正在校准云端身份，请稍候</text>
   </view>
 
   <view wx:if="{{authStatus === 'error'}}" class="auth-notice auth-notice--error">

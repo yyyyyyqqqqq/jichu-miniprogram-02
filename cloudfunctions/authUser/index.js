@@ -32,7 +32,6 @@ const ERROR_CODES = {
   SCHOOL_UNCHANGED: 'SCHOOL_UNCHANGED',
   SCHOOL_CHANGE_COOLDOWN: 'SCHOOL_CHANGE_COOLDOWN',
   SCHOOL_UPDATE_FAILED: 'SCHOOL_UPDATE_FAILED',
-  PROFILE_INCOMPLETE: 'PROFILE_INCOMPLETE',
   AUTH_FAILED: 'AUTH_FAILED',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
   USER_DISABLED: 'USER_DISABLED',
@@ -157,16 +156,6 @@ function logSchoolChange(outcome, code = ERROR_CODES.OK) {
     outcome,
     code
   });
-}
-
-function isProfileComplete(record) {
-  return Boolean(
-    record
-    && record.profileCompleted === true
-    && normalizeNickname(record.nickname)
-    && typeof record.avatarUrl === 'string'
-    && record.avatarUrl.trim()
-  );
 }
 
 function toSafeUser(record, schoolState = {}) {
@@ -487,6 +476,47 @@ async function login(identity, input) {
   }));
 }
 
+async function loginIdentity(identity) {
+  const userId = createUserId(identity.appId, identity.openId);
+  const existing = await findUser(userId);
+  assertExistingUser(existing, identity);
+  const now = new Date();
+
+  if (!existing) {
+    const record = {
+      openid: identity.openId,
+      nickname: '',
+      avatarUrl: '',
+      bio: '',
+      campus: '',
+      role: 'user',
+      status: 'active',
+      profileCompleted: false,
+      createdAt: db.serverDate(),
+      updatedAt: db.serverDate(),
+      lastLoginAt: db.serverDate()
+    };
+    await users.doc(userId).set({ data: record });
+    return success(await toResolvedSafeUser({
+      ...record,
+      _id: userId,
+      createdAt: now,
+      updatedAt: now,
+      lastLoginAt: now
+    }));
+  }
+
+  const updateData = {
+    lastLoginAt: db.serverDate()
+  };
+  await users.doc(userId).update({ data: updateData });
+  return success(await toResolvedSafeUser({
+    ...existing,
+    ...updateData,
+    lastLoginAt: now
+  }));
+}
+
 async function current(identity) {
   const userId = createUserId(identity.appId, identity.openId);
   const existing = await findUser(userId);
@@ -628,10 +658,6 @@ async function updateSchool(identity, input) {
       businessError(ERROR_CODES.USER_NOT_FOUND, '当前微信身份尚未登录');
     }
     assertExistingUser(existing, identity);
-    if (!isProfileComplete(existing)) {
-      businessError(ERROR_CODES.PROFILE_INCOMPLETE, '请先完善个人资料');
-    }
-
     const schoolCollection = transaction.collection('schools');
     const existingState = await resolveSchoolState(existing, schoolCollection);
     if (existingState.schoolRequired) {
@@ -737,6 +763,7 @@ exports.main = async (event = {}) => {
     ? request.data
     : {};
   const allowedActions = [
+    'loginIdentity',
     'login',
     'current',
     'updateProfile',
@@ -754,6 +781,9 @@ exports.main = async (event = {}) => {
   }
 
   try {
+    if (action === 'loginIdentity') {
+      return await loginIdentity(identity);
+    }
     if (action === 'login') {
       return await login(identity, data.profile);
     }

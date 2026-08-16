@@ -1,5 +1,8 @@
 const { CLOUD_CONFIG } = require('../config/cloud');
 const CloudService = require('./cloud-service');
+const {
+  buildUserPresentation
+} = require('../utils/user-presentation');
 
 const AUTH_ERROR_MESSAGES = {
   NETWORK_ERROR: '网络连接失败，请稍后重试',
@@ -63,7 +66,10 @@ function normalizeUser(value) {
   const rawNickname = typeof value.nickname === 'string'
     ? value.nickname.trim()
     : '';
-  const nickname = rawNickname === '微信用户' ? '' : rawNickname;
+  const presentation = buildUserPresentation({
+    nickname: rawNickname,
+    avatarUrl: value.avatarUrl
+  });
   const schoolId = typeof value.schoolId === 'string'
     ? value.schoolId.trim()
     : '';
@@ -72,9 +78,10 @@ function normalizeUser(value) {
 
   return {
     id,
-    nickname,
-    avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl : '',
-    avatarText: nickname.slice(0, 1) || '即',
+    nickname: rawNickname === '微信用户' ? '' : rawNickname,
+    displayNickname: presentation.nickname,
+    avatarUrl: presentation.avatarUrl,
+    avatarText: presentation.avatarText,
     campus: typeof value.campus === 'string' ? value.campus : '',
     bio: typeof value.bio === 'string' ? value.bio : '',
     role: 'user',
@@ -217,6 +224,14 @@ async function login(profile) {
   return normalizeUser(payload.data && payload.data.user);
 }
 
+async function loginIdentity() {
+  const payload = await callCloudFunction('loginIdentity');
+  if (!payload.success) {
+    throw createAuthError(payload.code || 'AUTH_FAILED', payload.data);
+  }
+  return normalizeUser(payload.data && payload.data.user);
+}
+
 async function getCurrentUser() {
   const payload = await callCloudFunction('current');
   if (!payload.success) {
@@ -288,6 +303,7 @@ function clearLocalSession() {
 
 module.exports = {
   AuthError,
+  loginIdentity,
   login,
   updateProfile,
   selectSchool,

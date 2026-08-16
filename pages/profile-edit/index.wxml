@@ -1,0 +1,52 @@
+<view class="page-shell profile-edit-page">
+  <view class="page-title">编辑个人资料</view>
+  <view class="page-subtitle">头像和昵称仅用于校园交易中的公开展示</view>
+
+  <view class="surface-card profile-edit-card">
+    <view class="field-label">头像</view>
+    <button
+      class="avatar-picker"
+      open-type="chooseAvatar"
+      disabled="{{isSaving || isUpdatingProfile}}"
+      bindchooseavatar="onChooseAvatar"
+    >
+      <image
+        wx:if="{{avatarPreviewUrl}}"
+        class="avatar-preview"
+        src="{{avatarPreviewUrl}}"
+        mode="aspectFill"
+      />
+      <view wx:else class="avatar-empty">
+        <text class="avatar-empty-icon">＋</text>
+        <text>选择头像</text>
+      </view>
+    </button>
+    <text class="field-hint">由你主动选择，不会从微信自动读取</text>
+
+    <view class="field-label field-label--spaced">昵称</view>
+    <input
+      class="profile-input"
+      type="nickname"
+      maxlength="20"
+      value="{{nickname}}"
+      placeholder="请输入 1～20 个字符"
+      disabled="{{isSaving || isUpdatingProfile}}"
+      bindinput="onNicknameInput"
+    />
+
+    <view wx:if="{{errorMessage}}" class="profile-error">{{errorMessage}}</view>
+
+    <button
+      class="save-button"
+      loading="{{isSaving || isUpdatingProfile}}"
+      disabled="{{isSaving || isUpdatingProfile}}"
+      bindtap="onSaveTap"
+    >
+      {{isSaving || isUpdatingProfile ? '正在保存' : '保存资料'}}
+    </button>
+  </view>
+
+  <view class="privacy-note">
+    本页不修改微信身份、学校归属、换校冷却或历史交易关系。
+  </view>
+</view>

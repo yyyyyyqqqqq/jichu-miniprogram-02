@@ -31,21 +31,75 @@ function loadEnvironmentId() {
   return environmentId;
 }
 
-function parseJsonOutput(stdout) {
-  const lines = String(stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    try {
-      return JSON.parse(lines[index]);
-    } catch (error) {
-      // Continue looking for the final JSON line.
+function isStructuredJson(value) {
+  return Boolean(value && typeof value === 'object');
+}
+
+function findStructuredJsonCandidates(source) {
+  const candidates = [];
+  for (let start = 0; start < source.length; start += 1) {
+    if (source[start] !== '{' && source[start] !== '[') continue;
+    const stack = [];
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < source.length; index += 1) {
+      const character = source[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === '\\') escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') {
+        inString = true;
+        continue;
+      }
+      if (character === '{' || character === '[') {
+        stack.push(character);
+        continue;
+      }
+      if (character !== '}' && character !== ']') continue;
+      const expected = character === '}' ? '{' : '[';
+      if (stack.pop() !== expected) break;
+      if (stack.length > 0) continue;
+      const candidateSource = source.slice(start, index + 1);
+      try {
+        const value = JSON.parse(candidateSource);
+        if (isStructuredJson(value)) {
+          candidates.push({ start, end: index + 1, value });
+          start = index;
+        }
+      } catch (error) {
+        // A balanced log fragment is not necessarily JSON.
+      }
+      break;
     }
   }
-  const start = String(stdout || '').indexOf('{');
-  const end = String(stdout || '').lastIndexOf('}');
-  if (start >= 0 && end > start) {
-    return JSON.parse(String(stdout).slice(start, end + 1));
+  return candidates;
+}
+
+function parseJsonOutput(stdout) {
+  const source = String(stdout || '').replace(/^\uFEFF/, '').trim();
+  if (!source) {
+    const error = new Error('CloudBase CLI returned empty output');
+    error.code = 'CLOUD_CLI_JSON_INVALID';
+    throw error;
   }
-  throw new Error('CloudBase CLI did not return JSON');
+  try {
+    const direct = JSON.parse(source);
+    if (isStructuredJson(direct)) return direct;
+  } catch (error) {
+    // Structured output may be surrounded by non-JSON CLI diagnostics.
+  }
+  const candidates = findStructuredJsonCandidates(source);
+  if (candidates.length !== 1) {
+    const error = new Error(
+      `CloudBase CLI returned ${candidates.length} structured JSON candidates`
+    );
+    error.code = 'CLOUD_CLI_JSON_AMBIGUOUS';
+    throw error;
+  }
+  return candidates[0].value;
 }
 
 function runCloudBase(args, options = {}) {
@@ -471,6 +525,7 @@ module.exports = {
   applyPlatformStatusOperation,
   applyChanges,
   parseJsonOutput,
+  findStructuredJsonCandidates,
   extractCommandResults,
   extractDocuments,
   decodeExtendedJson

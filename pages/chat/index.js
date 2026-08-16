@@ -216,7 +216,8 @@ Page({
 
   async initializeConversation() {
     const allowed = await AuthGuard.requireLogin({
-      target: AUTH_TARGETS.MESSAGES
+      target: AUTH_TARGETS.CHAT,
+      conversationId: this.conversationId
     });
     if (!allowed || !this.isPageActive) {
       return;
@@ -230,8 +231,19 @@ Page({
       messageErrorCode: ''
     });
     try {
+      const conversation = await MessageService.getConversation(
+        this.conversationId
+      );
+      if (
+        !this.isPageActive
+        || requestVersion !== this.requestVersion
+      ) {
+        return;
+      }
+      this.conversationId = conversation.conversationId;
+      const productId = conversation.product.productId;
       const appointmentRequest = AppointmentService
-        .getActiveByConversation(this.conversationId)
+        .getActiveByConversation(this.conversationId, productId)
         .then((appointment) => ({
           success: true,
           appointment
@@ -240,12 +252,7 @@ Page({
           success: false,
           appointment: null
         }));
-      const [
-        conversation,
-        messageResult,
-        appointmentResult
-      ] = await Promise.all([
-        MessageService.getConversation(this.conversationId),
+      const [messageResult, appointmentResult] = await Promise.all([
         MessageService.listMessages(this.conversationId, {
           pageSize: 20
         }),
@@ -434,7 +441,12 @@ Page({
     this.setData({ isLoadingAppointment: true });
     try {
       const appointment = await AppointmentService
-        .getActiveByConversation(this.conversationId);
+        .getActiveByConversation(
+          this.conversationId,
+          this.data.conversation
+            && this.data.conversation.product
+            && this.data.conversation.product.productId
+        );
       if (this.isPageActive && this.isPageVisible) {
         this.setData({
           activeAppointment: appointment
@@ -1835,7 +1847,7 @@ Page({
       return;
     }
     NavigationService.safeNavigateTo(
-      `${ROUTES.APPOINTMENT_CREATE}?conversationId=${encodeURIComponent(this.conversationId)}`
+      `${ROUTES.APPOINTMENT_CREATE}?conversationId=${encodeURIComponent(this.conversationId)}&productId=${encodeURIComponent(product.productId)}`
     );
   },
 

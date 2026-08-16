@@ -1,4 +1,5 @@
 const cloud = require('wx-server-sdk');
+const maintenance = require('./maintenance');
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV
@@ -37,6 +38,7 @@ const ERROR_CODES = {
   LOGIN_REQUIRED: 'LOGIN_REQUIRED',
   CONVERSATION_NOT_FOUND: 'CONVERSATION_NOT_FOUND',
   FORBIDDEN: 'FORBIDDEN',
+  SERVICE_MAINTENANCE: 'SERVICE_MAINTENANCE',
   INVALID_OWNER_SCOPE: 'INVALID_OWNER_SCOPE',
   DATABASE_ERROR: 'DATABASE_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
@@ -58,6 +60,12 @@ function failure(code, message) {
     message,
     data: null
   };
+}
+
+function businessError(code, message) {
+  const error = new Error(message);
+  error.businessCode = code;
+  throw error;
 }
 
 function normalizeString(value) {
@@ -195,6 +203,28 @@ function buildCursorCondition(identityField, openId, timeField, cursor) {
   ]);
 }
 
+function buildConversationCursorCondition(identityField, openId, cursor) {
+  if (!cursor) {
+    return {
+      [identityField]: openId,
+      status: 'active'
+    };
+  }
+  return command.or([
+    {
+      [identityField]: openId,
+      status: 'active',
+      lastMessageAt: command.lt(cursor.date)
+    },
+    {
+      [identityField]: openId,
+      status: 'active',
+      lastMessageAt: command.eq(cursor.date),
+      _id: command.lt(cursor.id)
+    }
+  ]);
+}
+
 async function fetchConversationBranch(
   identityField,
   openId,
@@ -202,12 +232,7 @@ async function fetchConversationBranch(
   pageSize
 ) {
   const result = await conversations
-    .where(buildCursorCondition(
-      identityField,
-      openId,
-      'lastMessageAt',
-      cursor
-    ))
+    .where(buildConversationCursorCondition(identityField, openId, cursor))
     .orderBy('lastMessageAt', 'desc')
     .orderBy('_id', 'desc')
     .limit(pageSize + 1)
@@ -254,15 +279,21 @@ async function enrichConversation(conversation, openId) {
   const unreadCount = slot === 'A'
     ? normalizeCount(conversation.participantAUnreadCount)
     : normalizeCount(conversation.participantBUnreadCount);
+  const contextProductId = normalizeString(
+    conversation.lastProductId || conversation.productId
+  );
   const [otherUser, product] = await Promise.all([
     otherUserId
       ? getDocumentOrNull(users.doc(otherUserId))
       : Promise.resolve(null),
-    conversation.productId
-      ? getDocumentOrNull(products.doc(conversation.productId))
+    contextProductId
+      ? getDocumentOrNull(products.doc(contextProductId))
       : Promise.resolve(null)
   ]);
-  const safeProductValue = safeProduct(product, conversation.productSnapshot);
+  const safeProductValue = safeProduct(
+    product,
+    conversation.lastProductSnapshot || conversation.productSnapshot
+  );
   return {
     conversationId: String(conversation._id || ''),
     otherUser: safeUser(otherUser, otherUserId),
@@ -328,14 +359,28 @@ async function listConversations(data, openId) {
 }
 
 async function getConversationRecord(conversationId, openId) {
-  const conversation = await getDocumentOrNull(
+  const requested = await getDocumentOrNull(
     conversations.doc(conversationId)
   );
-  if (!conversation) {
+  if (!requested) {
     return {
       error: failure(
         ERROR_CODES.CONVERSATION_NOT_FOUND,
         '会话不存在或已失效'
+      )
+    };
+  }
+  const mergedInto = normalizeConversationId(requested.mergedInto);
+  const conversation = normalizeString(requested.status) === 'merged'
+    && mergedInto
+    && mergedInto !== conversationId
+    ? await getDocumentOrNull(conversations.doc(mergedInto))
+    : requested;
+  if (!conversation) {
+    return {
+      error: failure(
+        ERROR_CODES.CONVERSATION_NOT_FOUND,
+        '合并后的会话暂时不可用'
       )
     };
   }
@@ -344,7 +389,7 @@ async function getConversationRecord(conversationId, openId) {
       error: failure(ERROR_CODES.FORBIDDEN, '无权访问该会话')
     };
   }
-  return { conversation };
+  return { conversation, conversationId: String(conversation._id || '') };
 }
 
 async function getConversation(data, openId) {
@@ -368,6 +413,9 @@ function toSafeMessage(record, openId) {
     senderPublicUserId: String(record.senderPublicUserId || ''),
     isMine: record.senderOpenid === openId,
     type,
+    contextProductId: normalizeString(
+      record.contextProductId || record.productId
+    ),
     createdAt: toIsoString(record.createdAt)
   };
   if (type === 'text') {
@@ -435,9 +483,10 @@ async function listMessages(data, openId) {
     MAX_PAGE_SIZE
   );
   const cursor = normalizeCursor(data.cursor, /^m_[a-f0-9]{64}$/);
+  const canonicalConversationId = conversationResult.conversationId;
   const condition = buildCursorCondition(
     'conversationId',
-    conversationId,
+    canonicalConversationId,
     'createdAt',
     cursor
   );
@@ -552,7 +601,9 @@ async function listConversationProducts(data, openId) {
   const records = Array.isArray(result.data) ? result.data : [];
   const visible = records
     .filter((record) => (
-      String(record._id || '') !== normalizeString(conversation.productId)
+      String(record._id || '') !== normalizeString(
+        conversation.lastProductId || conversation.productId
+      )
       && CONVERSATION_PRODUCT_STATUSES.includes(record.status)
       && (
         !normalizeString(record.sellerId)
@@ -618,6 +669,7 @@ exports.main = async (event = {}) => {
   }
 
   try {
+    await maintenance.assertAvailable(db, businessError);
     if (action === 'listConversations') {
       return await listConversations(data, openId);
     }
@@ -629,6 +681,9 @@ exports.main = async (event = {}) => {
     }
     return await listMessages(data, openId);
   } catch (error) {
+    if (error && error.businessCode) {
+      return failure(error.businessCode, error.message);
+    }
     console.error('[messageQuery] request failed', {
       action,
       code: error && (error.errCode || error.code || '')

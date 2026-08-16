@@ -1,4 +1,5 @@
 const cloud = require('wx-server-sdk');
+const maintenance = require('./maintenance');
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV
@@ -13,6 +14,7 @@ const users = db.collection('users');
 
 const APPOINTMENT_ID_PATTERN = /^a_[a-f0-9]{64}$/;
 const CONVERSATION_ID_PATTERN = /^c_[a-f0-9]{64}$/;
+const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const MAX_PAGE_SIZE = 30;
 const DEFAULT_PAGE_SIZE = 10;
 const ACTIVE_STATUSES = ['pending', 'accepted'];
@@ -33,6 +35,7 @@ const ERROR_CODES = {
   CONVERSATION_NOT_FOUND: 'CONVERSATION_NOT_FOUND',
   APPOINTMENT_NOT_FOUND: 'APPOINTMENT_NOT_FOUND',
   FORBIDDEN: 'FORBIDDEN',
+  SERVICE_MAINTENANCE: 'SERVICE_MAINTENANCE',
   DATABASE_ERROR: 'DATABASE_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
 };
@@ -53,6 +56,12 @@ function failure(code, message) {
     message,
     data: null
   };
+}
+
+function businessError(code, message) {
+  const error = new Error(message);
+  error.businessCode = code;
+  throw error;
 }
 
 function normalizeString(value) {
@@ -129,6 +138,21 @@ function getParticipantSlot(conversation, openId) {
     return 'B';
   }
   return '';
+}
+
+async function resolveConversation(conversationId) {
+  const requested = await getDocumentOrNull(conversations.doc(conversationId));
+  if (!requested) {
+    return null;
+  }
+  const mergedInto = normalizeString(requested.mergedInto);
+  if (requested.status === 'merged' && CONVERSATION_ID_PATTERN.test(mergedInto)) {
+    const canonical = await getDocumentOrNull(conversations.doc(mergedInto));
+    return canonical
+      ? { conversationId: mergedInto, conversation: canonical }
+      : null;
+  }
+  return { conversationId, conversation: requested };
 }
 
 function isAppointmentParticipant(appointment, openId) {
@@ -376,24 +400,28 @@ async function detail(data, openId) {
 }
 
 async function getActiveByConversation(data, openId) {
-  const conversationId = normalizeString(data.conversationId);
-  if (!CONVERSATION_ID_PATTERN.test(conversationId)) {
-    return failure(ERROR_CODES.INVALID_PARAMS, '缺少有效会话 ID');
+  const requestedConversationId = normalizeString(data.conversationId);
+  const productId = normalizeString(data.productId);
+  if (
+    !CONVERSATION_ID_PATTERN.test(requestedConversationId)
+    || !PRODUCT_ID_PATTERN.test(productId)
+  ) {
+    return failure(ERROR_CODES.INVALID_PARAMS, '缺少有效会话或商品 ID');
   }
-  const conversation = await getDocumentOrNull(
-    conversations.doc(conversationId)
-  );
-  if (!conversation) {
+  const resolved = await resolveConversation(requestedConversationId);
+  if (!resolved) {
     return failure(
       ERROR_CODES.CONVERSATION_NOT_FOUND,
       '会话不存在或已失效'
     );
   }
+  const { conversationId, conversation } = resolved;
   if (!getParticipantSlot(conversation, openId)) {
     return failure(ERROR_CODES.FORBIDDEN, '无权查看该会话预约');
   }
   const result = await appointments.where({
     conversationId,
+    productId,
     status: command.in(ACTIVE_STATUSES),
     isDeleted: false
   }).orderBy('updatedAt', 'desc').limit(1).get();
@@ -444,6 +472,7 @@ exports.main = async (event = {}) => {
   }
 
   try {
+    await maintenance.assertAvailable(db, businessError);
     if (action === 'detail') {
       return await detail(data, openId);
     }
@@ -452,6 +481,9 @@ exports.main = async (event = {}) => {
     }
     return await listMine(data, openId);
   } catch (error) {
+    if (error && error.businessCode) {
+      return failure(error.businessCode, error.message);
+    }
     console.error('[appointmentQuery] request failed', {
       action,
       code: error && (error.errCode || error.code || '')

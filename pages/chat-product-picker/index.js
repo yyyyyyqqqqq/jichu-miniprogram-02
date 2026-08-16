@@ -67,7 +67,8 @@ Page({
 
   async initializePage() {
     const allowed = await AuthGuard.requireLogin({
-      target: AUTH_TARGETS.MESSAGES
+      target: AUTH_TARGETS.CHAT_PRODUCT_PICKER,
+      conversationId: this.conversationId
     });
     if (!this.isPageActive || !allowed) {
       return;

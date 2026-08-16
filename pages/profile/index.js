@@ -63,8 +63,7 @@ Page({
       authStatus: state.status,
       user: state.user,
       isLoggedIn: state.status === 'authenticated'
-        && Boolean(state.user)
-        && state.user.profileCompleted === true,
+        && Boolean(state.user),
       isRestoring: state.restoring,
       errorMessage: state.error ? state.error.message : '',
       ...schoolPresentation
@@ -102,7 +101,7 @@ Page({
       return;
     }
     NavigationService.safeNavigateTo(
-      `${ROUTES.LOGIN}?target=${AUTH_TARGETS.PROFILE}&mode=edit`
+      ROUTES.PROFILE_EDIT
     );
   },
 
@@ -152,7 +151,7 @@ Page({
 
   async goAppointments() {
     const allowed = await AuthGuard.requireLogin({
-      target: AUTH_TARGETS.PROFILE
+      target: AUTH_TARGETS.APPOINTMENTS
     });
     if (allowed) {
       NavigationService.safeNavigateTo(ROUTES.APPOINTMENTS);
@@ -170,7 +169,7 @@ Page({
   logout() {
     wx.showModal({
       title: '退出当前登录？',
-      content: '退出后首页将保持匿名且不再加载校园商品，重新登录后可恢复当前学校市场。',
+      content: '退出后将回到未登录状态且不再加载校园商品，重新登录后可恢复当前学校市场。',
       confirmText: '退出登录',
       confirmColor: '#d95745',
       success(result) {

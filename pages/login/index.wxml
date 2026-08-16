@@ -1,33 +1,39 @@
 <view class="page-shell--plain login-page">
   <view class="login-hero">
     <view class="login-logo">即</view>
-    <view class="page-title">{{isEditing ? '编辑个人资料' : '登录即出'}}</view>
+    <view class="page-title">{{isProfileStep ? '完善微信资料' : '登录即出'}}</view>
     <view class="page-subtitle">
-      {{isEditing ? '更新你在校园交易中的展示资料' : '使用真实微信身份，完善你主动提供的资料'}}
+      {{isProfileStep ? '确认本次登录使用的头像和昵称' : '使用微信身份登录后，可进入校园闲置交易服务'}}
     </view>
   </view>
 
   <view class="surface-card login-card">
-    <view wx:if="{{!showProfileForm && user}}" class="logged-in-panel">
-      <image
-        wx:if="{{user.avatarUrl}}"
-        class="logged-avatar logged-avatar--image"
-        src="{{user.avatarUrl}}"
-        mode="aspectFill"
-      />
-      <view wx:else class="logged-avatar">{{user.avatarText}}</view>
-      <view class="logged-copy">
-        <text class="logged-title">当前已登录</text>
-        <text class="logged-name">{{user.nickname}}</text>
+    <block wx:if="{{!isProfileStep}}">
+      <view class="identity-note">
+        <view class="identity-note__title">可信微信身份</view>
+        <view class="identity-note__text">
+          登录只确认当前微信身份。身份建立后，将由你主动确认头像和昵称。
+        </view>
       </view>
-    </view>
 
-    <view wx:else class="profile-form">
-      <view class="field-label">头像</view>
+      <view wx:if="{{isRestoring}}" class="login-status-note">正在确认登录状态…</view>
+
+      <button
+        class="wechat-login-button"
+        loading="{{isSubmitting || isLoggingIn}}"
+        disabled="{{isSubmitting || isLoggingIn || isRestoring || isReturning}}"
+        bindtap="onLoginTap"
+      >
+        微信登录
+      </button>
+    </block>
+
+    <block wx:else>
+      <view class="field-label">微信头像</view>
       <button
         class="avatar-picker"
         open-type="chooseAvatar"
-        disabled="{{isSubmitting || isReturning}}"
+        disabled="{{isSubmitting || isUpdatingProfile || isReturning}}"
         bindchooseavatar="onChooseAvatar"
       >
         <image
@@ -41,76 +47,42 @@
           <text>选择头像</text>
         </view>
       </button>
-      <text class="field-hint">由你主动选择，仅用于商品、主页和聊天展示</text>
+      <text class="field-hint">使用微信官方头像选择能力，也可以确认历史头像</text>
 
-      <view class="field-label field-label--spaced">昵称</view>
+      <view class="field-label field-label--spaced">微信昵称</view>
       <input
         class="profile-input"
         type="nickname"
         maxlength="20"
         value="{{nickname}}"
         placeholder="请输入 1～20 个字符"
-        disabled="{{isSubmitting || isReturning}}"
+        disabled="{{isSubmitting || isUpdatingProfile || isReturning}}"
         bindinput="onNicknameInput"
       />
 
-      <view class="field-label field-label--spaced">
-        校园信息
-      </view>
-      <view class="school-readonly">
-        <text class="school-readonly__name">{{schoolDisplayName}}</text>
-        <text wx:if="{{hasBoundSchool}}" class="school-readonly__status">已绑定</text>
-        <text
-          wx:elif="{{canSelectSchool}}"
-          class="school-readonly__action"
-          bindtap="onSelectSchoolTap"
-        >
-          去选择学校
-        </text>
-      </view>
-      <text class="school-field-hint">
-        学校由权威校园列表确定，绑定后可在“我的”页面受控修改。
-      </text>
-
-      <view class="identity-note">
-        微信身份和学校归属由云端安全确认，昵称和头像不会被自动获取或伪造。
-      </view>
-    </view>
+      <button
+        class="wechat-login-button"
+        loading="{{isSubmitting || isUpdatingProfile}}"
+        disabled="{{isSubmitting || isUpdatingProfile || isReturning}}"
+        bindtap="onConfirmProfileTap"
+      >
+        {{isReturning ? '正在进入' : '确认并继续'}}
+      </button>
+    </block>
 
     <view wx:if="{{errorMessage}}" class="login-error">
       <text>{{errorMessage}}</text>
       <text
-        wx:if="{{authStatus === 'error'}}"
+        wx:if="{{authStatus === 'error' && !isProfileStep}}"
         class="retry-link"
         bindtap="onRetryRestore"
-      >
-        重新校验
-      </text>
+      >重新校验</text>
     </view>
 
-    <button
-      wx:if="{{showProfileForm}}"
-      class="wechat-login-button {{isEditing ? 'wechat-login-button--profile-save' : ''}}"
-      loading="{{isSubmitting || isLoggingIn || isUpdatingProfile}}"
-      disabled="{{isSubmitting || isLoggingIn || isUpdatingProfile || isReturning}}"
-      bindtap="onLoginTap"
-    >
-      {{isSubmitting || isLoggingIn || isUpdatingProfile ? '正在保存' : (isEditing ? '保存资料' : '确认并登录')}}
-    </button>
-
-    <button
-      wx:else
-      class="wechat-login-button"
-      disabled="{{isReturning}}"
-      bindtap="continueAfterLogin"
-    >
-      {{isReturning ? '正在返回' : '继续'}}
-    </button>
-
-    <button class="back-button" bindtap="onBackTap">暂不操作，返回浏览</button>
+    <button class="back-button" bindtap="onBackTap">暂不登录，返回</button>
   </view>
 
   <view class="privacy-note">
-    头像、昵称和已绑定学校仅用于校园二手交易中的展示与沟通。本页不申请手机号、通讯录或位置权限。
+    身份只由微信上下文确认；头像昵称仅作公开展示，不会修改学校、换校冷却或历史关系。
   </view>
 </view>

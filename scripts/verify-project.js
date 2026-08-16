@@ -497,7 +497,8 @@ record('authUser obtains identity securely and returns a safe envelope', () => {
   assert(!/event\.(?:openid|openId|OPENID)/.test(source), 'authUser trusts a client identity field');
   assert(/users\.doc\(userId\)\.set/.test(source), 'authUser does not use an idempotent user document id');
   assert(
-    /['"]login['"]/.test(source)
+    /['"]loginIdentity['"]/.test(source)
+    && /['"]login['"]/.test(source)
     && /['"]current['"]/.test(source)
     && /['"]updateProfile['"]/.test(source),
     'authUser actions are incomplete'
@@ -525,10 +526,15 @@ record('authUser obtains identity securely and returns a safe envelope', () => {
   assert(!/user-001|DEFAULT_USER|mock user|test user/i.test(source), 'authUser contains a fixed virtual user');
   assert(/profileCompleted:\s*Boolean/.test(source), 'authUser does not derive profile completion from submitted profile');
   assert(/isOwnedAvatar\(avatarUrl,\s*userId\)/.test(source), 'authUser does not constrain avatars to the current user path');
-  assert(/type="nickname"/.test(loginTemplate), 'login page does not use the nickname input capability');
-  assert(/open-type="chooseAvatar"/.test(loginTemplate), 'login page does not use the avatar selection capability');
-  assert(/bindchooseavatar="onChooseAvatar"/.test(loginTemplate), 'login page does not handle the selected avatar');
-  assert(/AvatarService\.uploadAvatar/.test(loginSource), 'login page does not upload the selected avatar');
+  const profileEditSource = readText(path.join(root, 'pages/profile-edit/index.js'));
+  const profileEditTemplate = readText(path.join(root, 'pages/profile-edit/index.wxml'));
+  assert(/type="nickname"/.test(loginTemplate), 'login confirmation does not use the nickname input capability');
+  assert(/open-type="chooseAvatar"/.test(loginTemplate), 'login confirmation does not use the avatar selection capability');
+  assert(!/getUserProfile|getUserInfo/.test(loginTemplate), 'login uses a deprecated profile acquisition API');
+  assert(/type="nickname"/.test(profileEditTemplate), 'profile edit page does not use the nickname input capability');
+  assert(/open-type="chooseAvatar"/.test(profileEditTemplate), 'profile edit page does not use the avatar selection capability');
+  assert(/bindchooseavatar="onChooseAvatar"/.test(profileEditTemplate), 'profile edit page does not handle the selected avatar');
+  assert(/AvatarService\.uploadAvatar/.test(profileEditSource), 'profile edit page does not upload the selected avatar');
   assert(/finally[\s\S]*isSubmitting:\s*false/.test(loginSource), 'login failure can leave the submit loading state active');
   assert(!/微信用户|user-001|DEFAULT_USER/i.test(loginSource + loginTemplate), 'login page contains fixed virtual profile data');
   assert(/avatars/.test(avatarSource) && /wx\.getImageInfo/.test(avatarSource), 'avatar upload does not validate image content');
@@ -675,7 +681,8 @@ record('messaging uses guarded services, deterministic ids and safe response fie
 
   assert(/cloud\.getWXContext\s*\(\s*\)/.test(actionSource), 'messageAction does not use cloud identity');
   assert(/cloud\.getWXContext\s*\(\s*\)/.test(querySource), 'messageQuery does not use cloud identity');
-  assert(/createConversationId\(\s*productId,\s*participantAOpenid,\s*participantBOpenid\s*\)/.test(actionSource), 'conversation id is not deterministic');
+  assert(/createParticipantPair\(\s*currentUserId,\s*sellerUserId\s*\)/.test(actionSource), 'conversation id is not deterministic by unordered public user pair');
+  assert(/participantPairKey/.test(actionSource) && /lastProductId/.test(actionSource), 'pair identity or current product context is missing');
   assert(/createMessageId\(\s*conversationId,\s*openId,\s*clientMessageId\s*\)/.test(actionSource), 'message id is not deterministic');
   assert(/db\.runTransaction/.test(actionSource), 'message writes are not transactional');
   assert(/transaction\.collection\(['"]messages['"]\)\.doc\(messageId\)/.test(actionSource), 'message transaction does not use deterministic document operations');
@@ -1077,11 +1084,12 @@ record('AuthService and AuthStore expose the required boundaries', () => {
   const AuthStore = require(path.join(root, 'store/auth-store'));
   const storeSource = readText(path.join(root, 'store/auth-store.js'));
 
-  ['login', 'updateProfile', 'getCurrentUser', 'isLoggedIn', 'clearLocalSession'].forEach((name) => {
+  ['loginIdentity', 'login', 'updateProfile', 'getCurrentUser', 'isLoggedIn', 'clearLocalSession'].forEach((name) => {
     assert(typeof AuthService[name] === 'function', `AuthService.${name} is missing`);
   });
   [
     'bootstrap',
+    'loginIdentity',
     'login',
     'updateProfile',
     'logout',
@@ -1099,8 +1107,9 @@ record('AuthService and AuthStore expose the required boundaries', () => {
     assert(statusValues.includes(status), `AuthStore status ${status} is missing`);
   });
   assert(
-    /function isLoggedIn[\s\S]*profileCompleted\s*===\s*true/.test(storeSource),
-    'incomplete virtual profile is treated as a completed login'
+    /function isLoggedIn\(\)[\s\S]{0,180}AUTH_STATUS\.AUTHENTICATED[\s\S]{0,100}Boolean\(state\.user\)/.test(storeSource)
+      && !/function isLoggedIn\(\)[\s\S]{0,220}profileCompleted/.test(storeSource),
+    'authenticated identity is still coupled to profile completion'
   );
 });
 
@@ -1407,7 +1416,7 @@ record('login and profile pages implement auth state UI', () => {
   const profileSource = readText(path.join(root, 'pages/profile/index.js'));
   const profileTemplate = readText(path.join(root, 'pages/profile/index.wxml'));
 
-  assert(/AuthStore\.login/.test(loginSource), 'login page does not call AuthStore.login');
+  assert(/AuthStore\.loginIdentity/.test(loginSource), 'login page does not call AuthStore.loginIdentity');
   assert(/isLoggingIn/.test(loginSource) && /disabled=/.test(loginTemplate), 'login duplicate-click protection is missing');
   assert(/navigateAfterLogin/.test(loginSource), 'login page does not return to a safe target');
   assert(/AuthStore\.subscribe/.test(profileSource), 'profile page does not subscribe to auth state');
@@ -4826,7 +4835,7 @@ async function verifyUserQueryFunctionFlow() {
       data: { publicUserId }
     });
     assert(profile.success === true, 'public profile query failed');
-    assert(profile.data.profile.nickname === '即出用户', 'public profile default nickname is missing');
+    assert(profile.data.profile.nickname === '校园用户', 'public profile default nickname is missing');
     assert(profile.data.profile.activeProductCount === 2, 'public active product count is incorrect');
     assert(profile.data.scope.schoolId === schoolAId, 'public profile does not return the authoritative viewer scope');
     ['openid', 'role', 'status', 'lastLoginAt'].forEach((field) => {
@@ -5906,7 +5915,16 @@ async function verifyMessagingFunctionFlow() {
     users: new Map(),
     products: new Map(),
     conversations: new Map(),
-    messages: new Map()
+    messages: new Map(),
+    systemConfig: new Map([[
+      'conversation_appointment_maintenance',
+      {
+        _id: 'conversation_appointment_maintenance',
+        schemaVersion: 1,
+        enabled: false,
+        migrationRunId: ''
+      }
+    ]])
   };
   let currentOpenId = 'verification-buyer-openid';
   const appId = 'verification-appid';
@@ -6205,6 +6223,18 @@ async function verifyMessagingFunctionFlow() {
     assert(queryLoginRequired.code === 'LOGIN_REQUIRED', 'unauthenticated conversation query is allowed');
 
     currentOpenId = buyerOpenId;
+    stores.systemConfig.get('conversation_appointment_maintenance').enabled = true;
+    const maintenanceBlocked = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: { productId: 'product-message-1' }
+    });
+    assert(
+      maintenanceBlocked.success === false
+      && maintenanceBlocked.code === 'SERVICE_MAINTENANCE'
+      && maintenanceBlocked.data === null,
+      'message writes are not blocked by authoritative maintenance mode'
+    );
+    stores.systemConfig.get('conversation_appointment_maintenance').enabled = false;
     const missing = await messageAction.main({
       action: 'createOrGetConversation',
       data: { productId: 'product-missing' }
@@ -6298,7 +6328,11 @@ async function verifyMessagingFunctionFlow() {
         === concurrentResults[1].data.conversationId,
       'concurrent conversation creation does not converge on one id'
     );
-    assert(stores.conversations.size === 2, 'concurrent creation produced duplicate conversations');
+    assert(
+      stores.conversations.size === 1
+      && concurrentResults[0].data.conversationId === conversationId,
+      'product context or concurrent creation produced a second pair conversation'
+    );
 
     const legacySeller = await messageAction.main({
       action: 'createOrGetConversation',
@@ -6444,7 +6478,7 @@ async function verifyMessagingFunctionFlow() {
       otherProducts.success === true
       && otherProducts.data.list.every(
           (product) => product.ownerPublicUserId === sellerUserId
-          && product.productId !== 'product-message-1'
+          && product.productId !== 'product-message-legacy'
           && product.productId !== 'product-inconsistent-owner'
           && !['deleted', 'offline'].includes(product.status)
       )
@@ -6575,6 +6609,7 @@ async function verifyMessagingFunctionFlow() {
       'voice message accepts another user media directory'
     );
     const crossConversationVoiceId = 'msg_rich_voice_cross_conversation';
+    const otherConversationId = `c_${'e'.repeat(64)}`;
     const crossConversationVoice = await messageAction.main({
       action: 'sendMessage',
       data: {
@@ -6582,7 +6617,7 @@ async function verifyMessagingFunctionFlow() {
         clientMessageId: crossConversationVoiceId,
         type: 'voice',
         media: {
-          fileId: `cloud://verification-env/chat-media/voice/${concurrentResults[0].data.conversationId}/${buyerUserId}/20260726/${crossConversationVoiceId}.mp3`,
+          fileId: `cloud://verification-env/chat-media/voice/${otherConversationId}/${buyerUserId}/20260726/${crossConversationVoiceId}.mp3`,
           durationMs: 2000,
           size: 1000,
           format: 'mp3'
@@ -6775,7 +6810,7 @@ async function verifyMessagingFunctionFlow() {
         conversationId,
         clientMessageId: 'msg_rich_product_current',
         type: 'product',
-        productId: 'product-message-1'
+        productId: 'product-message-legacy'
       }
     });
     assert(
@@ -7011,23 +7046,11 @@ async function verifyMessagingFunctionFlow() {
     assert(
       firstConversationPage.success === true
       && firstConversationPage.data.list.length === 1
-      && firstConversationPage.data.hasMore === true
-      && firstConversationPage.data.nextCursor,
-      'conversation cursor first page is invalid'
-    );
-    const secondConversationPage = await messageQuery.main({
-      action: 'listConversations',
-      data: {
-        pageSize: 1,
-        cursor: firstConversationPage.data.nextCursor
-      }
-    });
-    assert(
-      secondConversationPage.success === true
-      && secondConversationPage.data.list.length === 1
-      && secondConversationPage.data.list[0].conversationId
-        !== firstConversationPage.data.list[0].conversationId,
-      'conversation cursor pagination duplicated an item'
+      && firstConversationPage.data.hasMore === false
+      && firstConversationPage.data.list[0].conversationId === conversationId
+      && firstConversationPage.data.list[0].product.productId
+        === 'product-message-2',
+      'pair conversation was duplicated instead of switching product context'
     );
 
     const safeConversationResult = await messageQuery.main({
@@ -7068,7 +7091,7 @@ async function verifyMessagingFunctionFlow() {
       'messaging response leaked an internal identity'
     );
 
-    stores.products.get('product-message-1').status = 'sold';
+    stores.products.get('product-message-2').status = 'sold';
     const soldConversationSend = await messageAction.main({
       action: 'sendTextMessage',
       data: {
@@ -7078,7 +7101,7 @@ async function verifyMessagingFunctionFlow() {
       }
     });
     assert(soldConversationSend.success === true, 'existing sold-product conversation cannot continue');
-    stores.products.get('product-message-1').status = 'deleted';
+    stores.products.get('product-message-2').status = 'deleted';
     const deletedConversationSend = await messageAction.main({
       action: 'sendTextMessage',
       data: {
@@ -7241,6 +7264,41 @@ async function verifyAuthUserFunctionFlow() {
       && beforeLogin.code === 'USER_NOT_FOUND',
       'unregistered identity received a virtual user'
     );
+
+    const identityLogin = await authUser.main({
+      action: 'loginIdentity',
+      OPENID: 'forged-root-openid',
+      data: {
+        openid: 'forged-data-openid',
+        userId: 'u_forged',
+        schoolId: `s_${'b'.repeat(32)}`,
+        profileCompleted: true,
+        nickname: '伪造昵称',
+        avatarUrl: 'cloud://forged/avatar.png'
+      }
+    });
+    assert(
+      identityLogin.success === true
+      && identityLogin.data.user.nickname === ''
+      && identityLogin.data.user.avatarUrl === ''
+      && identityLogin.data.user.profileCompleted === false
+      && identityLogin.data.user.schoolRequired === true,
+      'identity-only login did not create a safe incomplete-profile user'
+    );
+    const identityUserId = identityLogin.data.user.publicUserId;
+    assert(
+      users.get(identityUserId).openid === activeIdentity.OPENID
+      && !users.get(identityUserId).schoolId,
+      'identity-only login trusted forged client identity or school data'
+    );
+    const repeatedIdentityLogin = await authUser.main({ action: 'loginIdentity' });
+    assert(
+      repeatedIdentityLogin.success === true
+      && repeatedIdentityLogin.data.user.publicUserId === identityUserId
+      && users.size === 1,
+      'identity-only login is not idempotent'
+    );
+    users.clear();
 
     const invalidNickname = await authUser.main({
       action: 'login',

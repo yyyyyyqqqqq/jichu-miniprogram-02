@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const cloud = require('wx-server-sdk');
+const maintenance = require('./maintenance');
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV
@@ -55,6 +56,7 @@ const ERROR_CODES = {
   INVALID_STATUS_TRANSITION: 'INVALID_STATUS_TRANSITION',
   ACTION_NOT_ALLOWED: 'ACTION_NOT_ALLOWED',
   IDEMPOTENCY_CONFLICT: 'IDEMPOTENCY_CONFLICT',
+  SERVICE_MAINTENANCE: 'SERVICE_MAINTENANCE',
   DATABASE_ERROR: 'DATABASE_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
 };
@@ -161,6 +163,25 @@ function getParticipantSlot(conversation, openId) {
     return 'B';
   }
   return '';
+}
+
+async function resolveConversation(collection, conversationId) {
+  const requested = await getDocumentOrNull(collection.doc(conversationId));
+  if (!requested) {
+    return null;
+  }
+  const mergedInto = normalizeString(requested.mergedInto);
+  if (
+    normalizeString(requested.status) === 'merged'
+    && CONVERSATION_ID_PATTERN.test(mergedInto)
+    && mergedInto !== conversationId
+  ) {
+    const canonical = await getDocumentOrNull(collection.doc(mergedInto));
+    return canonical
+      ? { conversation: canonical, conversationId: mergedInto }
+      : null;
+  }
+  return { conversation: requested, conversationId };
 }
 
 function getPublicUserId(conversation, openId) {
@@ -327,7 +348,8 @@ async function writeSystemMessage(
   conversation,
   appointmentId,
   eventType,
-  actorOpenid
+  actorOpenid,
+  productId
 ) {
   const content = EVENT_CONTENT[eventType];
   const messageId = createSystemMessageId(appointmentId, eventType);
@@ -352,7 +374,8 @@ async function writeSystemMessage(
       type: 'system',
       eventType,
       appointmentId,
-      productId: normalizeString(conversation.productId),
+      productId: normalizeString(productId),
+      contextProductId: normalizeString(productId),
       content,
       clientMessageId,
       createdAt: db.serverDate()
@@ -398,26 +421,51 @@ async function findActiveAppointment(productId, buyerOpenid, sellerOpenid) {
     : null;
 }
 
+async function findAppointmentByCreateKey(initiatorOpenid, idempotencyKey) {
+  const result = await appointments.where({
+    initiatorOpenid,
+    createIdempotencyKey: idempotencyKey
+  }).limit(1).get();
+  return Array.isArray(result.data) && result.data.length > 0
+    ? result.data[0]
+    : null;
+}
+
 async function createAppointment(data, identity) {
-  const conversationId = normalizeString(data.conversationId);
-  if (!CONVERSATION_ID_PATTERN.test(conversationId)) {
-    businessError(ERROR_CODES.INVALID_PARAMS, '缺少有效会话 ID');
+  const requestedConversationId = normalizeString(data.conversationId);
+  const productId = normalizeString(data.productId);
+  if (
+    !CONVERSATION_ID_PATTERN.test(requestedConversationId)
+    || !PRODUCT_ID_PATTERN.test(productId)
+  ) {
+    businessError(ERROR_CODES.INVALID_PARAMS, '缺少有效会话或商品 ID');
   }
   const idempotencyKey = validateIdempotencyKey(data.idempotencyKey);
   const scheduledAt = validateScheduledAt(data.scheduledAt);
   const location = validateLocation(data.location);
   const note = validateNote(data.note);
-  const appointmentId = createAppointmentId(
-    conversationId,
+  const resolvedConversation = await resolveConversation(
+    conversations,
+    requestedConversationId
+  );
+  if (!resolvedConversation) {
+    businessError(
+      ERROR_CODES.CONVERSATION_NOT_FOUND,
+      '会话不存在或已失效'
+    );
+  }
+  const conversationId = resolvedConversation.conversationId;
+  const conversation = resolvedConversation.conversation;
+  const existing = await findAppointmentByCreateKey(
     identity.openId,
     idempotencyKey
   );
-
-  const existing = await getDocumentOrNull(appointments.doc(appointmentId));
   if (existing) {
     if (
       existing.initiatorOpenid !== identity.openId
       || existing.createIdempotencyKey !== idempotencyKey
+      || existing.conversationId !== conversationId
+      || existing.productId !== productId
     ) {
       businessError(
         ERROR_CODES.IDEMPOTENCY_CONFLICT,
@@ -425,25 +473,19 @@ async function createAppointment(data, identity) {
       );
     }
     return success({
-      appointmentId,
+      appointmentId: String(existing._id || ''),
       status: existing.status,
       reused: true
     });
   }
-
-  const conversation = await getDocumentOrNull(
-    conversations.doc(conversationId)
+  const appointmentId = createAppointmentId(
+    conversationId,
+    identity.openId,
+    idempotencyKey
   );
-  if (!conversation) {
-    businessError(
-      ERROR_CODES.CONVERSATION_NOT_FOUND,
-      '会话不存在或已失效'
-    );
-  }
   if (!getParticipantSlot(conversation, identity.openId)) {
     businessError(ERROR_CODES.FORBIDDEN, '无权在该会话发起预约');
   }
-  const productId = normalizeString(conversation.productId);
   const product = productId
     ? await getDocumentOrNull(products.doc(productId))
     : null;
@@ -491,9 +533,12 @@ async function createAppointment(data, identity) {
       };
     }
 
-    const currentConversation = await getDocumentOrNull(
-      transaction.collection('conversations').doc(conversationId)
+    const currentConversationResult = await resolveConversation(
+      transaction.collection('conversations'),
+      conversationId
     );
+    const currentConversation = currentConversationResult
+      && currentConversationResult.conversation;
     const currentProduct = await getDocumentOrNull(
       transaction.collection('products').doc(productId)
     );
@@ -513,7 +558,8 @@ async function createAppointment(data, identity) {
       currentSellerOpenid
     );
     if (
-      currentConversation.productId !== productId
+      !currentConversationResult
+      || currentConversationResult.conversationId !== conversationId
       || currentSellerOpenid !== roles.sellerOpenid
     ) {
       businessError(ERROR_CODES.FORBIDDEN, '会话与商品不匹配');
@@ -566,7 +612,8 @@ async function createAppointment(data, identity) {
       currentConversation,
       appointmentId,
       'appointment_created',
-      identity.openId
+      identity.openId,
+      productId
     );
     return {
       appointmentId,
@@ -861,7 +908,8 @@ async function transitionAppointment(action, data, openId) {
       conversation,
       appointmentId,
       definition.eventType,
-      openId
+      openId,
+      appointment.productId
     );
     return {
       appointmentId,
@@ -915,7 +963,8 @@ async function closeOtherAppointment(appointmentId, productId, sellerOpenid) {
       conversation,
       appointmentId,
       'appointment_auto_cancelled',
-      sellerOpenid
+      sellerOpenid,
+      appointment.productId
     );
     return { closed: true, reused: false };
   });
@@ -1071,7 +1120,8 @@ async function completeAppointment(data, openId) {
       conversation,
       appointmentId,
       'appointment_completed',
-      openId
+      openId,
+      appointment.productId
     );
     return {
       appointmentId,
@@ -1171,6 +1221,7 @@ exports.main = async (event = {}) => {
   }
 
   try {
+    await maintenance.assertWritable(db, businessError);
     if (action === 'create') {
       return await createAppointment(data, { openId, appId });
     }

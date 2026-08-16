@@ -7,6 +7,7 @@ const {
   APPOINTMENT_LIMITS
 } = require('../constants/appointment');
 const { formatPrice, formatPublishedTime } = require('../utils/format');
+const { buildUserPresentation } = require('../utils/user-presentation');
 
 const APPOINTMENT_ID_PATTERN = /^a_[a-f0-9]{64}$/;
 const CONVERSATION_ID_PATTERN = /^c_[a-f0-9]{64}$/;
@@ -168,14 +169,14 @@ function normalizeProduct(value) {
 function normalizeUser(value) {
   const record = value && typeof value === 'object' ? value : {};
   const publicUserId = normalizeString(record.publicUserId);
-  const nickname = normalizeString(record.nickname) || '即出用户';
+  const presentation = buildUserPresentation(record);
   return {
     publicUserId: PUBLIC_USER_ID_PATTERN.test(publicUserId)
       ? publicUserId
       : '',
-    nickname,
-    avatarUrl: normalizeString(record.avatarUrl),
-    avatarText: nickname.slice(0, 1) || '即',
+    nickname: presentation.nickname,
+    avatarUrl: presentation.avatarUrl,
+    avatarText: presentation.avatarText,
     campus: normalizeString(record.campus) || '校园信息待完善'
   };
 }
@@ -280,9 +281,13 @@ function callAction(action, data) {
 
 async function createAppointment(options = {}) {
   const conversationId = normalizeString(options.conversationId);
+  const productId = normalizeString(options.productId);
   const idempotencyKey = normalizeString(options.idempotencyKey);
   const note = normalizeString(options.note);
-  if (!CONVERSATION_ID_PATTERN.test(conversationId)) {
+  if (
+    !CONVERSATION_ID_PATTERN.test(conversationId)
+    || !PRODUCT_ID_PATTERN.test(productId)
+  ) {
     throw createError('INVALID_PARAMS');
   }
   if (!IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey)) {
@@ -296,6 +301,7 @@ async function createAppointment(options = {}) {
   }
   const data = await callAction('create', {
     conversationId,
+    productId,
     scheduledAt: validateScheduledAt(options.scheduledAt),
     location: validateLocation(options.location),
     note,
@@ -321,13 +327,18 @@ async function getAppointment(appointmentId) {
   return normalizeAppointment(data.appointment);
 }
 
-async function getActiveByConversation(conversationId) {
+async function getActiveByConversation(conversationId, productId) {
   const id = normalizeString(conversationId);
-  if (!CONVERSATION_ID_PATTERN.test(id)) {
+  const contextProductId = normalizeString(productId);
+  if (
+    !CONVERSATION_ID_PATTERN.test(id)
+    || !PRODUCT_ID_PATTERN.test(contextProductId)
+  ) {
     throw createError('INVALID_PARAMS');
   }
   const data = await callQuery('getActiveByConversation', {
-    conversationId: id
+    conversationId: id,
+    productId: contextProductId
   });
   return data.appointment ? normalizeAppointment(data.appointment) : null;
 }

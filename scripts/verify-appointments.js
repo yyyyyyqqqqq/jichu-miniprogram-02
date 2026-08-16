@@ -15,7 +15,16 @@ function createVerificationDatabase() {
     products: new Map(),
     conversations: new Map(),
     messages: new Map(),
-    appointments: new Map()
+    appointments: new Map(),
+    systemConfig: new Map([[
+      'conversation_appointment_maintenance',
+      {
+        _id: 'conversation_appointment_maintenance',
+        schemaVersion: 1,
+        enabled: false,
+        migrationRunId: ''
+      }
+    ]])
   };
   let serverTick = 0;
 
@@ -291,6 +300,8 @@ async function verifyAppointmentFlow(root) {
     stores.conversations.set(id, {
       _id: id,
       productId,
+      lastProductId: productId,
+      status: 'active',
       participantAOpenid: participants[0],
       participantBOpenid: participants[1],
       participantAUserId: userId(participants[0]),
@@ -421,6 +432,7 @@ async function verifyAppointmentFlow(root) {
       action: 'create',
       data: {
         conversationId: conversation,
+        productId: stores.conversations.get(conversation).productId,
         scheduledAt: futureTime,
         location,
         note: '到达后聊天联系',
@@ -461,6 +473,17 @@ async function verifyAppointmentFlow(root) {
     );
 
     currentOpenId = buyerOpenId;
+    stores.systemConfig.get('conversation_appointment_maintenance').enabled = true;
+    const maintenanceBlocked = await appointmentAction.main(
+      createEvent(mainConversationId, 'create_maintenance_blocked')
+    );
+    assert(
+      maintenanceBlocked.success === false
+      && maintenanceBlocked.code === 'SERVICE_MAINTENANCE'
+      && maintenanceBlocked.data === null,
+      'appointment writes are not blocked by authoritative maintenance mode'
+    );
+    stores.systemConfig.get('conversation_appointment_maintenance').enabled = false;
     const pastTime = await appointmentAction.main(
       createEvent(mainConversationId, 'create_past_time', {
         scheduledAt: new Date(Date.now() - 1000).toISOString()

@@ -1,5 +1,7 @@
 const AuthService = require('../services/auth-service');
 const { CLOUD_CONFIG } = require('../config/cloud');
+const { AUTH_TARGETS } = require('../constants/routes');
+const { buildUserPresentation } = require('../utils/user-presentation');
 
 const AUTH_STATUS = {
   IDLE: 'idle',
@@ -8,6 +10,17 @@ const AUTH_STATUS = {
   AUTHENTICATED: 'authenticated',
   ERROR: 'error'
 };
+
+const LOGIN_STAGE = {
+  NONE: 'none',
+  IDENTITY_PENDING: 'identityPending',
+  PROFILE_CONFIRM_REQUIRED: 'profileConfirmRequired',
+  SCHOOL_SELECTION_REQUIRED: 'schoolSelectionRequired',
+  READY: 'ready'
+};
+
+const VALID_LOGIN_TARGETS = new Set(Object.values(AUTH_TARGETS));
+const SAFE_CONTEXT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,96}$/;
 
 const state = {
   status: AUTH_STATUS.IDLE,
@@ -19,7 +32,9 @@ const state = {
   updatingProfile: false,
   selectingSchool: false,
   updatingSchool: false,
-  explicitLogout: false
+  explicitLogout: false,
+  loginStage: LOGIN_STAGE.NONE,
+  loginContext: null
 };
 
 const listeners = new Set();
@@ -37,7 +52,47 @@ function getState() {
   return {
     ...state,
     user: cloneUser(state.user),
-    error: state.error ? { ...state.error } : null
+    error: state.error ? { ...state.error } : null,
+    loginContext: state.loginContext ? { ...state.loginContext } : null
+  };
+}
+
+function normalizeLoginContext(value = {}) {
+  const source = value && typeof value === 'object' ? value : {};
+  const target = VALID_LOGIN_TARGETS.has(source.target)
+    ? source.target
+    : AUTH_TARGETS.PROFILE;
+  const context = { target };
+  ['productId', 'conversationId', 'appointmentId', 'publicUserId'].forEach((key) => {
+    const normalized = source[key] === null || source[key] === undefined
+      ? ''
+      : String(source[key]).trim();
+    if (SAFE_CONTEXT_ID_PATTERN.test(normalized)) {
+      context[key] = normalized;
+    }
+  });
+  return context;
+}
+
+function normalizeLoginTransaction(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  if (![
+    LOGIN_STAGE.PROFILE_CONFIRM_REQUIRED,
+    LOGIN_STAGE.SCHOOL_SELECTION_REQUIRED,
+    LOGIN_STAGE.READY
+  ].includes(value.stage)) {
+    return null;
+  }
+  const userId = typeof value.userId === 'string' ? value.userId.trim() : '';
+  if (!/^u_[a-f0-9]{32}$/.test(userId)) {
+    return null;
+  }
+  return {
+    stage: value.stage,
+    userId,
+    context: normalizeLoginContext(value.context)
   };
 }
 
@@ -79,6 +134,10 @@ function toCachedUser(value) {
     ? value.nickname.trim()
     : '';
   const nickname = rawNickname === '微信用户' ? '' : rawNickname;
+  const presentation = buildUserPresentation({
+    nickname,
+    avatarUrl: value.avatarUrl
+  });
   const schoolVersion = Number(value.schoolVersion);
   const schoolChangeRemainingMs = Number(value.schoolChangeRemainingMs);
 
@@ -89,8 +148,9 @@ function toCachedUser(value) {
   return {
     id,
     nickname,
-    avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl : '',
-    avatarText: nickname.slice(0, 1) || '即',
+    displayNickname: presentation.nickname,
+    avatarUrl: presentation.avatarUrl,
+    avatarText: presentation.avatarText,
     campus: typeof value.campus === 'string' ? value.campus : '',
     bio: '',
     role: 'user',
@@ -208,6 +268,65 @@ function clearExplicitLogout() {
   }
 }
 
+function readLoginTransaction() {
+  if (typeof wx === 'undefined' || typeof wx.getStorageSync !== 'function') {
+    return null;
+  }
+  try {
+    const transaction = normalizeLoginTransaction(
+      wx.getStorageSync(CLOUD_CONFIG.loginTransactionKey)
+    );
+    if (!transaction) {
+      wx.removeStorageSync(CLOUD_CONFIG.loginTransactionKey);
+    }
+    return transaction;
+  } catch (error) {
+    wx.removeStorageSync(CLOUD_CONFIG.loginTransactionKey);
+    return null;
+  }
+}
+
+function writeLoginTransaction(stage, user, context) {
+  if (
+    typeof wx === 'undefined'
+    || typeof wx.setStorageSync !== 'function'
+    || !user
+    || !/^u_[a-f0-9]{32}$/.test(String(user.id || ''))
+  ) {
+    return;
+  }
+  wx.setStorageSync(CLOUD_CONFIG.loginTransactionKey, {
+    stage,
+    userId: user.id,
+    context: normalizeLoginContext(context)
+  });
+}
+
+function clearLoginTransaction() {
+  if (typeof wx !== 'undefined' && typeof wx.removeStorageSync === 'function') {
+    wx.removeStorageSync(CLOUD_CONFIG.loginTransactionKey);
+  }
+}
+
+function setLoginStage(stage, user, context) {
+  const normalizedContext = normalizeLoginContext(context || state.loginContext);
+  if (stage === LOGIN_STAGE.NONE) {
+    clearLoginTransaction();
+    setState({
+      loginStage: LOGIN_STAGE.NONE,
+      loginContext: null
+    });
+    return;
+  }
+  if (stage !== LOGIN_STAGE.IDENTITY_PENDING) {
+    writeLoginTransaction(stage, user || state.user, normalizedContext);
+  }
+  setState({
+    loginStage: stage,
+    loginContext: normalizedContext
+  });
+}
+
 function normalizeError(error) {
   return {
     code: error && error.code ? error.code : 'UNKNOWN_ERROR',
@@ -233,6 +352,7 @@ function bootstrap(options = {}) {
   if (readExplicitLogout()) {
     operationVersion += 1;
     clearCachedUser();
+    clearLoginTransaction();
     setState({
       status: AUTH_STATUS.ANONYMOUS,
       user: null,
@@ -243,7 +363,9 @@ function bootstrap(options = {}) {
       updatingProfile: false,
       selectingSchool: false,
       updatingSchool: false,
-      explicitLogout: true
+      explicitLogout: true,
+      loginStage: LOGIN_STAGE.NONE,
+      loginContext: null
     });
     return Promise.resolve(getState());
   }
@@ -257,6 +379,7 @@ function bootstrap(options = {}) {
     && state.user
     && state.explicitLogout !== true
   );
+  const persistedTransaction = readLoginTransaction();
   const cachedUser = preservesTrustedSession
     ? cloneUser(state.user)
     : readCachedUser();
@@ -270,7 +393,13 @@ function bootstrap(options = {}) {
     user: cachedUser,
     error: null,
     initialized: preservesTrustedSession ? true : false,
-    restoring: true
+    restoring: true,
+    loginStage: preservesTrustedSession
+      ? state.loginStage
+      : (persistedTransaction ? persistedTransaction.stage : LOGIN_STAGE.NONE),
+    loginContext: preservesTrustedSession
+      ? state.loginContext
+      : (persistedTransaction ? persistedTransaction.context : null)
   });
 
   const operation = (async () => {
@@ -281,18 +410,44 @@ function bootstrap(options = {}) {
       }
 
       if (user) {
+        const transaction = persistedTransaction || (
+          state.loginStage !== LOGIN_STAGE.NONE
+            ? {
+              stage: state.loginStage,
+              userId: state.user && state.user.id,
+              context: state.loginContext
+            }
+            : null
+        );
+        const keepsTransaction = Boolean(
+          transaction
+          && transaction.userId === user.id
+          && transaction.stage !== LOGIN_STAGE.IDENTITY_PENDING
+        );
+        if (!keepsTransaction) {
+          clearLoginTransaction();
+        }
         writeCachedUser(user);
         setState({
           status: AUTH_STATUS.AUTHENTICATED,
           user,
-          error: null
+          error: null,
+          loginStage: keepsTransaction
+            ? transaction.stage
+            : LOGIN_STAGE.NONE,
+          loginContext: keepsTransaction
+            ? normalizeLoginContext(transaction.context)
+            : null
         });
       } else {
         clearCachedUser();
+        clearLoginTransaction();
         setState({
           status: AUTH_STATUS.ANONYMOUS,
           user: null,
-          error: null
+          error: null,
+          loginStage: LOGIN_STAGE.NONE,
+          loginContext: null
         });
       }
     } catch (error) {
@@ -300,6 +455,7 @@ function bootstrap(options = {}) {
         const normalizedError = normalizeError(error);
         if (normalizedError.code === 'USER_DISABLED') {
           clearCachedUser();
+          clearLoginTransaction();
         }
         setState({
           status: normalizedError.code === 'USER_DISABLED'
@@ -308,7 +464,13 @@ function bootstrap(options = {}) {
               ? AUTH_STATUS.AUTHENTICATED
               : AUTH_STATUS.ERROR),
           user: normalizedError.code === 'USER_DISABLED' ? null : cachedUser,
-          error: normalizedError
+          error: normalizedError,
+          loginStage: normalizedError.code === 'USER_DISABLED'
+            ? LOGIN_STAGE.NONE
+            : state.loginStage,
+          loginContext: normalizedError.code === 'USER_DISABLED'
+            ? null
+            : state.loginContext
         });
       }
     } finally {
@@ -460,11 +622,82 @@ function loginCurrentIdentity() {
   return operation;
 }
 
-function updateProfile(profile) {
+function loginIdentity(context = {}) {
+  if (loginPromise) {
+    return loginPromise;
+  }
+
+  const loginContext = normalizeLoginContext(context);
+  const version = operationVersion + 1;
+  operationVersion = version;
+  setState({
+    error: null,
+    restoring: false,
+    loggingIn: true,
+    loginStage: LOGIN_STAGE.IDENTITY_PENDING,
+    loginContext
+  });
+
+  const operation = (async () => {
+    try {
+      const user = await AuthService.loginIdentity();
+      if (version !== operationVersion) {
+        return getState();
+      }
+      clearExplicitLogout();
+      writeCachedUser(user);
+      writeLoginTransaction(
+        LOGIN_STAGE.PROFILE_CONFIRM_REQUIRED,
+        user,
+        loginContext
+      );
+      setState({
+        status: AUTH_STATUS.AUTHENTICATED,
+        user,
+        error: null,
+        initialized: true,
+        explicitLogout: false,
+        loginStage: LOGIN_STAGE.PROFILE_CONFIRM_REQUIRED,
+        loginContext
+      });
+      return getState();
+    } catch (error) {
+      if (version === operationVersion) {
+        clearCachedUser();
+        clearLoginTransaction();
+        setState({
+          status: AUTH_STATUS.ERROR,
+          user: null,
+          error: normalizeError(error),
+          initialized: true,
+          explicitLogout: readExplicitLogout(),
+          loginStage: LOGIN_STAGE.NONE,
+          loginContext: null
+        });
+      }
+      throw error;
+    } finally {
+      if (version === operationVersion) {
+        setState({ loggingIn: false });
+      }
+    }
+  })();
+
+  loginPromise = operation;
+  operation.finally(() => {
+    if (loginPromise === operation) {
+      loginPromise = null;
+    }
+  }).catch(() => {});
+  return operation;
+}
+
+function updateProfile(profile, options = {}) {
   if (profilePromise) {
     return profilePromise;
   }
 
+  const confirmsLogin = options.confirmsLogin === true;
   const version = operationVersion + 1;
   operationVersion = version;
   setState({
@@ -479,11 +712,24 @@ function updateProfile(profile) {
         return getState();
       }
       writeCachedUser(user);
+      const nextLoginStage = confirmsLogin
+        ? (
+          user.schoolRequired === false
+          && user.schoolUnavailable !== true
+          && Boolean(user.schoolId)
+            ? LOGIN_STAGE.READY
+            : LOGIN_STAGE.SCHOOL_SELECTION_REQUIRED
+        )
+        : state.loginStage;
+      if (confirmsLogin) {
+        writeLoginTransaction(nextLoginStage, user, state.loginContext);
+      }
       setState({
         status: AUTH_STATUS.AUTHENTICATED,
         user,
         error: null,
-        initialized: true
+        initialized: true,
+        loginStage: nextLoginStage
       });
       return getState();
     } catch (error) {
@@ -519,6 +765,13 @@ function updateProfile(profile) {
   return operation;
 }
 
+function confirmLoginProfile(profile) {
+  if (state.loginStage !== LOGIN_STAGE.PROFILE_CONFIRM_REQUIRED) {
+    return Promise.reject(new Error('当前登录流程不需要确认资料'));
+  }
+  return updateProfile(profile, { confirmsLogin: true });
+}
+
 function refreshCurrentUser() {
   return bootstrap({ force: true });
 }
@@ -542,11 +795,19 @@ function selectSchool(schoolId) {
         return getState();
       }
       writeCachedUser(user);
+      const completesLoginSchoolStep = state.loginStage
+        === LOGIN_STAGE.SCHOOL_SELECTION_REQUIRED;
+      if (completesLoginSchoolStep) {
+        writeLoginTransaction(LOGIN_STAGE.READY, user, state.loginContext);
+      }
       setState({
         status: AUTH_STATUS.AUTHENTICATED,
         user,
         error: null,
-        initialized: true
+        initialized: true,
+        loginStage: completesLoginSchoolStep
+          ? LOGIN_STAGE.READY
+          : state.loginStage
       });
       return getState();
     } catch (error) {
@@ -633,6 +894,7 @@ function clearSession() {
   profilePromise = null;
   schoolPromise = null;
   clearCachedUser();
+  clearLoginTransaction();
   setState({
     status: AUTH_STATUS.ANONYMOUS,
     user: null,
@@ -643,7 +905,9 @@ function clearSession() {
     updatingProfile: false,
     selectingSchool: false,
     updatingSchool: false,
-    explicitLogout: readExplicitLogout()
+    explicitLogout: readExplicitLogout(),
+    loginStage: LOGIN_STAGE.NONE,
+    loginContext: null
   });
 }
 
@@ -657,14 +921,33 @@ function hasExplicitLogout() {
   return state.explicitLogout === true || readExplicitLogout();
 }
 
+function isProfileConfirmationRequired() {
+  return state.loginStage === LOGIN_STAGE.PROFILE_CONFIRM_REQUIRED;
+}
+
+function isExplicitLoginInProgress() {
+  return state.loginStage !== LOGIN_STAGE.NONE;
+}
+
+function getLoginContext() {
+  return state.loginContext ? { ...state.loginContext } : null;
+}
+
+function completeExplicitLogin() {
+  if (state.loginStage !== LOGIN_STAGE.READY) {
+    return false;
+  }
+  setLoginStage(LOGIN_STAGE.NONE);
+  return true;
+}
+
 function getCurrentUser() {
   return cloneUser(state.user);
 }
 
 function isLoggedIn() {
   return state.status === AUTH_STATUS.AUTHENTICATED
-    && Boolean(state.user)
-    && state.user.profileCompleted === true;
+    && Boolean(state.user);
 }
 
 function isSchoolReady() {
@@ -676,10 +959,13 @@ function isSchoolReady() {
 
 module.exports = {
   AUTH_STATUS,
+  LOGIN_STAGE,
   bootstrap,
+  loginIdentity,
   login,
   loginCurrentIdentity,
   updateProfile,
+  confirmLoginProfile,
   selectSchool,
   updateSchool,
   logout,
@@ -690,5 +976,9 @@ module.exports = {
   getCurrentUser,
   isLoggedIn,
   isSchoolReady,
+  isProfileConfirmationRequired,
+  isExplicitLoginInProgress,
+  getLoginContext,
+  completeExplicitLogin,
   subscribe
 };

@@ -29,65 +29,23 @@
   padding: 34rpx 30rpx;
 }
 
-.logged-in-panel {
-  display: flex;
-  align-items: center;
-  margin-bottom: 32rpx;
+.identity-note {
   padding: 24rpx;
-  border-radius: 20rpx;
+  border-radius: 18rpx;
   background: #edf8f3;
 }
 
-.logged-avatar {
-  width: 82rpx;
-  height: 82rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  border-radius: 26rpx;
-  background: #16a36a;
-  color: #ffffff;
-  font-size: 34rpx;
-  font-weight: 700;
-}
-
-.logged-avatar--image {
-  display: block;
-}
-
-.logged-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  margin-left: 20rpx;
-}
-
-.logged-title {
-  color: #6b7670;
-  font-size: 22rpx;
-}
-
-.logged-name {
-  overflow: hidden;
-  margin-top: 8rpx;
+.identity-note__title {
   color: #26352d;
-  font-size: 30rpx;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.login-purpose-title {
-  color: #2a3931;
-  font-size: 30rpx;
+  font-size: 28rpx;
   font-weight: 700;
 }
 
-.profile-form {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
+.identity-note__text {
+  margin-top: 12rpx;
+  color: #5f786b;
+  font-size: 23rpx;
+  line-height: 1.7;
 }
 
 .field-label {
@@ -140,8 +98,8 @@
 .field-hint {
   margin-top: 12rpx;
   color: #8b9590;
-  font-size: 20rpx;
-  line-height: 1.55;
+  font-size: 21rpx;
+  line-height: 1.65;
 }
 
 .profile-input {
@@ -155,102 +113,18 @@
   font-size: 26rpx;
 }
 
-.school-readonly {
-  min-width: 0;
-  height: 82rpx;
-  display: flex;
-  align-items: center;
-  margin-top: 14rpx;
-  padding: 0 22rpx;
-  border: 1rpx solid #dfe8e3;
-  border-radius: 18rpx;
-  background: #f3f7f5;
-  box-sizing: border-box;
-}
-
-.school-readonly__name {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  color: #26352d;
-  font-size: 26rpx;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.school-readonly__status,
-.school-readonly__action {
-  flex: none;
-  margin-left: 18rpx;
-  font-size: 21rpx;
-}
-
-.school-readonly__status {
-  padding: 7rpx 13rpx;
-  border-radius: 999rpx;
-  background: #e5f5ed;
-  color: #13865a;
-}
-
-.school-readonly__action {
-  color: #13865a;
-  font-weight: 650;
-}
-
-.school-field-hint {
-  margin-top: 12rpx;
-  color: #8b9590;
-  font-size: 20rpx;
-  line-height: 1.55;
-}
-
-.identity-note {
-  margin-top: 30rpx;
-  padding: 20rpx 22rpx;
-  border-radius: 16rpx;
-  background: #edf8f3;
-  color: #5f786b;
-  font-size: 22rpx;
-  line-height: 1.6;
-}
-
-.purpose-list {
-  margin-top: 26rpx;
-}
-
-.purpose-item {
-  display: flex;
-  align-items: flex-start;
-  margin-top: 22rpx;
-  color: #66726c;
-  font-size: 24rpx;
-  line-height: 1.65;
-}
-
-.purpose-item:first-child {
-  margin-top: 0;
-}
-
-.purpose-mark {
-  width: 42rpx;
-  height: 42rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  margin: 1rpx 16rpx 0 0;
-  border-radius: 14rpx;
-  background: #e5f5ed;
-  color: #13865a;
-  font-size: 20rpx;
-  font-weight: 700;
+.login-status-note {
+  margin-top: 24rpx;
+  color: #69766f;
+  font-size: 23rpx;
+  text-align: center;
 }
 
 .login-error {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 28rpx;
+  margin-top: 24rpx;
   padding: 18rpx 20rpx;
   border-radius: 16rpx;
   background: #fff1ee;
@@ -261,54 +135,42 @@
 
 .retry-link {
   flex: none;
-  margin-left: 20rpx;
-  color: #16a36a;
-  font-weight: 650;
+  margin-left: 18rpx;
+  color: #13865a;
+  font-weight: 700;
 }
 
 .wechat-login-button {
-  height: 86rpx;
+  width: 100%;
+  height: 92rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 34rpx;
-  padding-top: 0;
-  padding-bottom: 0;
-  border-radius: 22rpx;
+  margin-top: 32rpx;
+  border-radius: 24rpx;
   background: #16a36a;
   color: #ffffff;
   font-size: 28rpx;
   font-weight: 700;
-  line-height: normal;
-}
-
-.wechat-login-button--profile-save {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding-top: 0;
-  padding-bottom: 0;
-  box-sizing: border-box;
-  line-height: normal;
+  line-height: 1.2;
 }
 
 .wechat-login-button[disabled] {
-  background: #a8d7c2;
-  color: rgba(255, 255, 255, 0.88);
+  background: #a8d6c2;
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .back-button {
-  height: 70rpx;
-  margin-top: 16rpx;
+  margin-top: 18rpx;
   background: transparent;
-  color: #78837d;
+  color: #68746e;
   font-size: 24rpx;
-  line-height: 70rpx;
+  line-height: 2.2;
 }
 
 .privacy-note {
-  margin: 28rpx 18rpx 0;
-  color: #929b96;
+  padding: 28rpx 38rpx 0;
+  color: #89928d;
   font-size: 21rpx;
   line-height: 1.7;
   text-align: center;

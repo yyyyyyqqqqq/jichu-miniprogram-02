@@ -59,7 +59,6 @@ const ERROR_CODES = {
   AUTH_REQUIRED: 'AUTH_REQUIRED',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
   USER_INACTIVE: 'USER_INACTIVE',
-  PROFILE_INCOMPLETE: 'PROFILE_INCOMPLETE',
   SCHOOL_REQUIRED: 'SCHOOL_REQUIRED',
   SCHOOL_INVALID: 'SCHOOL_INVALID',
   SCHOOL_UNAVAILABLE: 'SCHOOL_UNAVAILABLE',
@@ -148,17 +147,6 @@ async function findOne(collection, condition) {
   return Array.isArray(result.data) ? result.data[0] || null : null;
 }
 
-function isProfileComplete(user) {
-  const nickname = normalizeText(user && user.nickname);
-  return Boolean(
-    user
-    && user.profileCompleted === true
-    && nickname
-    && nickname !== '微信用户'
-    && normalizeText(user.avatarUrl)
-  );
-}
-
 async function resolveMarketSchoolContext(identity, dependencies = {}) {
   if (!identity || !identity.openId || !identity.appId || !identity.userId) {
     businessError(ERROR_CODES.AUTH_REQUIRED, '请先登录并选择学校');
@@ -182,9 +170,6 @@ async function resolveMarketSchoolContext(identity, dependencies = {}) {
       ERROR_CODES.SCHOOL_CONTEXT_MISMATCH,
       '无法确认当前用户的校园市场身份'
     );
-  }
-  if (!isProfileComplete(user)) {
-    businessError(ERROR_CODES.PROFILE_INCOMPLETE, '请先完善个人资料');
   }
   const storedSchoolId = normalizeText(user.schoolId);
   if (!storedSchoolId) {
@@ -242,7 +227,6 @@ async function resolveDetailAccess(product, identity, dependencies = {}) {
     user
     && user.status === 'active'
     && user.openid === identity.openId
-    && isProfileComplete(user)
     && SCHOOL_ID_PATTERN.test(userSchoolId)
   );
   if (!accountReady || !SCHOOL_ID_PATTERN.test(productSchoolId)) {

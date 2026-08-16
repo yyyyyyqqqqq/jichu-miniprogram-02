@@ -66,7 +66,6 @@ const ERROR_CODES = {
   AUTH_CONTEXT_MISSING: 'AUTH_CONTEXT_MISSING',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
   USER_DISABLED: 'USER_DISABLED',
-  PROFILE_INCOMPLETE: 'PROFILE_INCOMPLETE',
   SCHOOL_SELECTION_REQUIRED: 'SCHOOL_SELECTION_REQUIRED',
   SCHOOL_UNAVAILABLE: 'SCHOOL_UNAVAILABLE',
   DATABASE_ERROR: 'DATABASE_ERROR',
@@ -109,16 +108,6 @@ function normalizeDescription(value) {
 function normalizeSchoolId(value) {
   const schoolId = normalizeText(value);
   return SCHOOL_ID_PATTERN.test(schoolId) ? schoolId : '';
-}
-
-function isProfileComplete(user) {
-  return Boolean(
-    user
-    && user.profileCompleted === true
-    && normalizeText(user.nickname)
-    && normalizeText(user.nickname) !== '微信用户'
-    && normalizeText(user.avatarUrl)
-  );
 }
 
 function isValidPrice(value) {
@@ -441,10 +430,6 @@ exports.main = async (event = {}) => {
     if (user.status !== 'active') {
       return failure(ERROR_CODES.USER_DISABLED, '当前账户暂不可发布商品');
     }
-    if (!isProfileComplete(user)) {
-      return failure(ERROR_CODES.PROFILE_INCOMPLETE, '请先完善个人资料');
-    }
-
     const productId = createProductId(userId, requestId);
     const existing = await findProduct(productId);
     if (existing) {

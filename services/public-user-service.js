@@ -1,6 +1,7 @@
 const { CLOUD_CONFIG } = require('../config/cloud');
 const CloudService = require('./cloud-service');
 const ProductService = require('./product-service');
+const { buildUserPresentation } = require('../utils/user-presentation');
 
 const PUBLIC_USER_ID_PATTERN = /^u_[a-f0-9]{32}$/;
 const DEFAULT_PAGE_SIZE = 6;
@@ -164,14 +165,12 @@ async function getPublicProfile(publicUserId) {
   ) {
     throw createError('INVALID_RESPONSE');
   }
-  const nickname = typeof profile.nickname === 'string' && profile.nickname.trim()
-    ? profile.nickname.trim()
-    : '即出用户';
+  const presentation = buildUserPresentation(profile);
   return {
     publicUserId: id,
-    nickname,
-    avatarUrl: typeof profile.avatarUrl === 'string' ? profile.avatarUrl : '',
-    avatarText: nickname.slice(0, 1) || '即',
+    nickname: presentation.nickname,
+    avatarUrl: presentation.avatarUrl,
+    avatarText: presentation.avatarText,
     campus: typeof profile.campus === 'string' && profile.campus.trim()
       ? profile.campus.trim()
       : '校园信息待完善',

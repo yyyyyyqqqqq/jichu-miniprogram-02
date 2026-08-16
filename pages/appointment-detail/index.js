@@ -71,7 +71,8 @@ Page({
 
   async loadAppointment(options = {}) {
     const allowed = await AuthGuard.requireLogin({
-      target: AUTH_TARGETS.MESSAGES
+      target: AUTH_TARGETS.APPOINTMENT_DETAIL,
+      appointmentId: this.appointmentId
     });
     if (!allowed || !this.isPageActive) {
       return;

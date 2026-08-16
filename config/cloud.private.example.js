@@ -1,3 +1,4 @@
 module.exports = {
-  environmentId: 'YOUR_CLOUDBASE_ENV_ID'
+  environmentName: 'staging',
+  environmentId: 'YOUR_STAGING_ENV_ID'
 };

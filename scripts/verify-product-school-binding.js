@@ -204,16 +204,32 @@ async function verifyCreateBinding(projectRoot, collector) {
       OPENID: openId
     };
     users.set(userId, Object.assign({}, validUser, {
+      nickname: '',
+      avatarUrl: '',
       profileCompleted: false
     }));
+    const productIdsBeforeIncompletePublish = new Set(products.keys());
     const incomplete = await createProduct.main({
       requestId: 'phase17_profile_incomplete_001',
       product: validProduct
     });
-    collector.check(
-      incomplete.success === false && incomplete.code === 'PROFILE_INCOMPLETE',
-      'createProduct accepts an incomplete profile'
+    const incompleteProductId = Array.from(products.keys()).find(
+      (id) => !productIdsBeforeIncompletePublish.has(id)
     );
+    const incompleteProduct = incompleteProductId
+      ? products.get(incompleteProductId)
+      : null;
+    collector.check(
+      incomplete.success === true
+        && incompleteProduct
+        && incompleteProduct.sellerName === ''
+        && incompleteProduct.sellerAvatar === ''
+        && incompleteProduct.schoolId === schoolId,
+      'createProduct rejects a school-ready identity with incomplete display profile'
+    );
+    if (incompleteProductId) {
+      products.delete(incompleteProductId);
+    }
 
     users.set(userId, Object.assign({}, validUser, {
       schoolId: '',
@@ -903,9 +919,8 @@ function verifyStaticBoundaries(projectRoot, collector) {
     'createProduct does not use trusted identity, user, and school records'
   );
   collector.check(
-    /profileCompleted\s*===\s*true/.test(createSource)
-      && /PROFILE_INCOMPLETE/.test(createSource),
-    'createProduct does not enforce the existing profile completion boundary'
+    !/profileCompleted|PROFILE_INCOMPLETE/.test(createSource),
+    'createProduct still enforces the removed profile completion boundary'
   );
   collector.check(
     /platformStatus\s*!==\s*['"]active['"]/.test(createSource)

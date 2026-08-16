@@ -648,9 +648,9 @@ function verifyProfileSchoolLinkage(root, verifier) {
   const profileSource = read('pages/profile/index.js');
   const profileTemplate = read('pages/profile/index.wxml');
   const profileStyle = read('pages/profile/index.wxss');
-  const editSource = read('pages/login/index.js');
-  const editTemplate = read('pages/login/index.wxml');
-  const editStyle = read('pages/login/index.wxss');
+  const editSource = read('pages/profile-edit/index.js');
+  const editTemplate = read('pages/profile-edit/index.wxml');
+  const editStyle = read('pages/profile-edit/index.wxss');
   const authServiceSource = read('services/auth-service.js');
   const authFunctionSource = read('cloudfunctions/authUser/index.js');
   const AuthService = require(path.join(root, 'services', 'auth-service.js'));
@@ -686,10 +686,8 @@ function verifyProfileSchoolLinkage(root, verifier) {
     'long school names preserve profile card layout'
   );
   check(
-    /class="school-readonly"/.test(editTemplate)
-    && /\{\{schoolDisplayName\}\}/.test(editTemplate)
-    && /已绑定/.test(editTemplate),
-    'profile editor renders a read-only bound school area'
+    !/school-readonly|schoolDisplayName|已绑定/.test(editTemplate),
+    'profile editor is decoupled from school binding UI'
   );
   check(
     !/bindinput="onCampusInput"/.test(editTemplate)
@@ -698,19 +696,19 @@ function verifyProfileSchoolLinkage(root, verifier) {
     'profile editor no longer exposes a campus input'
   );
   check(
-    /学校由权威校园列表确定，绑定后可在“我的”页面受控修改。/.test(editTemplate),
-    'profile editor explains the school binding rule'
+    /本页不修改微信身份、学校归属、换校冷却或历史交易关系/.test(editTemplate),
+    'profile editor explains that school state is independent'
   );
   check(
-    /尚未选择学校/.test(editSource)
-    && /onSelectSchoolTap/.test(editSource)
-    && /AuthGuard\.requireLogin/.test(editSource),
-    'missing school state provides a guarded selection entry'
+    /AuthGuard\.requireIdentity/.test(editSource)
+    && !/onSelectSchoolTap|selectSchool/.test(editSource),
+    'profile editor requires identity without owning school selection'
   );
   check(
-    /\.school-readonly__name[\s\S]*text-overflow:\s*ellipsis/.test(editStyle)
-    && /\.school-readonly__status[\s\S]*flex:\s*none/.test(editStyle),
-    'read-only school layout handles long names'
+    /\.profile-input[\s\S]*box-sizing|box-sizing:\s*border-box/.test(
+      read('app.wxss') + editStyle
+    ),
+    'profile editor input remains inside the card box model'
   );
   check(
     Object.keys(safeProfile).sort().join(',') === 'avatarUrl,nickname',

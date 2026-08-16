@@ -106,13 +106,23 @@ async function verifyAuthMarket() {
     'AUTH_REQUIRED',
     'anonymous list was not actively rejected'
   );
-  await expectBusinessCode(
-    () => queryFunction.__test.listProducts({}, { openId, appId, userId }, {
+  const incompleteProfileResult = await queryFunction.__test.listProducts(
+    {},
+    { openId, appId, userId },
+    {
       ...strictDependencies,
-      usersCollection: createCollection([{ ...validUser, profileCompleted: false }])
-    }),
-    'PROFILE_INCOMPLETE',
-    'incomplete profile was not rejected'
+      usersCollection: createCollection([{
+        ...validUser,
+        nickname: '',
+        avatarUrl: '',
+        profileCompleted: false
+      }])
+    }
+  );
+  check(
+    incompleteProfileResult.success === true
+      && incompleteProfileResult.data.marketMode === 'schoolScoped',
+    'school-ready identity with incomplete display profile cannot access the market'
   );
   await expectBusinessCode(
     () => queryFunction.__test.listProducts({}, { openId, appId, userId }, {
@@ -138,7 +148,7 @@ async function verifyAuthMarket() {
   const authGuard = fs.readFileSync(path.join(ROOT, 'services/auth-guard.js'), 'utf8');
   const home = fs.readFileSync(path.join(ROOT, 'pages/home/index.js'), 'utf8');
   check(/state\.status !== 'authenticated'[\s\S]{0,100}return false/.test(authGuard), 'client allows anonymous market access');
-  check(/profileCompleted !== true[\s\S]{0,80}return false/.test(authGuard), 'client allows incomplete profile market access');
+  check(!/profileCompleted/.test(authGuard), 'client market access is still coupled to profile completion');
   check(/登录后查看你的校园二手市场/.test(home), 'anonymous market guide copy is missing');
   check(/if \(!allowed\)[\s\S]{0,240}showMarketGuide/.test(home), 'home does not stop before list loading');
 }

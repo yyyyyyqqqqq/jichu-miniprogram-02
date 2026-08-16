@@ -1,6 +1,7 @@
 const { CLOUD_CONFIG } = require('../config/cloud');
 const CloudService = require('./cloud-service');
 const { formatPublishedTime, formatPrice } = require('../utils/format');
+const { buildUserPresentation } = require('../utils/user-presentation');
 
 const DEFAULT_CONVERSATION_PAGE_SIZE = 10;
 const DEFAULT_MESSAGE_PAGE_SIZE = 20;
@@ -175,15 +176,15 @@ function normalizeProductCursor(value) {
 
 function normalizePublicUser(value) {
   const record = value && typeof value === 'object' ? value : {};
-  const nickname = normalizeString(record.nickname) || '即出用户';
+  const presentation = buildUserPresentation(record);
   const publicUserId = normalizeString(record.publicUserId);
   const schoolName = normalizeString(record.schoolName);
   const campus = normalizeString(record.campus);
   return {
     publicUserId: PUBLIC_USER_ID_PATTERN.test(publicUserId) ? publicUserId : '',
-    nickname,
-    avatarUrl: normalizeString(record.avatarUrl),
-    avatarText: nickname.slice(0, 1) || '即',
+    nickname: presentation.nickname,
+    avatarUrl: presentation.avatarUrl,
+    avatarText: presentation.avatarText,
     schoolName,
     campus,
     schoolDisplayName: schoolName || campus || '校园信息待完善'
@@ -384,6 +385,11 @@ function normalizeMessage(record) {
     senderPublicUserId,
     isMine: record.isMine === true,
     type,
+    contextProductId: PRODUCT_ID_PATTERN.test(
+      normalizeString(record.contextProductId)
+    )
+      ? normalizeString(record.contextProductId)
+      : '',
     createdAt,
     createdAtText: formatMessageTime(createdAt),
     sendStatus: 'sent',

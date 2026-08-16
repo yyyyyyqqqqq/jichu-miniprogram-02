@@ -65,7 +65,7 @@ Page({
   async onShow() {
     this.isPageVisible = true;
     const allowed = await AuthGuard.requireLogin({
-      target: AUTH_TARGETS.PROFILE
+      target: AUTH_TARGETS.APPOINTMENTS
     });
     if (allowed && this.isPageActive) {
       this.loadAppointments({ reset: true });

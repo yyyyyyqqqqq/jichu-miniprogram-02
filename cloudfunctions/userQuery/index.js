@@ -21,7 +21,6 @@ const ERROR_CODES = {
   INVALID_ACTION: 'INVALID_ACTION',
   INVALID_PARAMS: 'INVALID_PARAMS',
   UNAUTHORIZED: 'UNAUTHORIZED',
-  PROFILE_INCOMPLETE: 'PROFILE_INCOMPLETE',
   SCHOOL_REQUIRED: 'SCHOOL_REQUIRED',
   SCHOOL_UNAVAILABLE: 'SCHOOL_UNAVAILABLE',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
@@ -197,11 +196,6 @@ async function resolveViewerContext(context) {
       error: failure(ERROR_CODES.UNAUTHORIZED, '登录状态已失效，请重新登录')
     };
   }
-  if (user.profileCompleted !== true) {
-    return {
-      error: failure(ERROR_CODES.PROFILE_INCOMPLETE, '请先完善个人资料')
-    };
-  }
   const schoolId = normalizeSchoolId(user.schoolId);
   if (!schoolId) {
     return {
@@ -252,7 +246,7 @@ async function publicProfile(data, viewer) {
   return success({
     profile: {
       publicUserId,
-      nickname: normalizeText(user.nickname, '即出用户'),
+      nickname: normalizeText(user.nickname, '校园用户'),
       avatarUrl: normalizeText(user.avatarUrl),
       campus: normalizeText(user.campus, '校园信息待完善'),
       bio: normalizeText(user.bio, '这个用户还没有填写简介'),

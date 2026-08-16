@@ -5,6 +5,7 @@ const ROUTES = {
   PUBLISH: '/pages/publish/index',
   MESSAGES: '/pages/messages/index',
   PROFILE: '/pages/profile/index',
+  PROFILE_EDIT: '/pages/profile-edit/index',
   LOGIN: '/pages/login/index',
   SCHOOL_SELECT: '/pages/school-select/index',
   FAVORITES: '/pages/favorites/index',
@@ -26,7 +27,13 @@ const AUTH_TARGETS = {
   FAVORITES: 'favorites',
   MY_PRODUCTS: 'my-products',
   PRODUCT_DETAIL: 'product-detail',
-  PRODUCT_EDIT: 'product-edit'
+  PRODUCT_EDIT: 'product-edit',
+  CHAT: 'chat',
+  CHAT_PRODUCT_PICKER: 'chat-product-picker',
+  USER_PROFILE: 'user-profile',
+  APPOINTMENT_CREATE: 'appointment-create',
+  APPOINTMENT_DETAIL: 'appointment-detail',
+  APPOINTMENTS: 'appointments'
 };
 
 const AUTH_TARGET_CONFIG = {
@@ -60,6 +67,30 @@ const AUTH_TARGET_CONFIG = {
   },
   [AUTH_TARGETS.PRODUCT_EDIT]: {
     route: ROUTES.PRODUCT_EDIT,
+    method: 'redirectTo'
+  },
+  [AUTH_TARGETS.CHAT]: {
+    route: ROUTES.CHAT,
+    method: 'redirectTo'
+  },
+  [AUTH_TARGETS.CHAT_PRODUCT_PICKER]: {
+    route: ROUTES.CHAT_PRODUCT_PICKER,
+    method: 'redirectTo'
+  },
+  [AUTH_TARGETS.USER_PROFILE]: {
+    route: ROUTES.USER_PROFILE,
+    method: 'redirectTo'
+  },
+  [AUTH_TARGETS.APPOINTMENT_CREATE]: {
+    route: ROUTES.APPOINTMENT_CREATE,
+    method: 'redirectTo'
+  },
+  [AUTH_TARGETS.APPOINTMENT_DETAIL]: {
+    route: ROUTES.APPOINTMENT_DETAIL,
+    method: 'redirectTo'
+  },
+  [AUTH_TARGETS.APPOINTMENTS]: {
+    route: ROUTES.APPOINTMENTS,
     method: 'redirectTo'
   }
 };

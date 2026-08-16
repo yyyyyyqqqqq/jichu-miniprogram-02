@@ -125,8 +125,8 @@ async function verifyProductLocationFlow(root) {
     root,
     'pages/appointment-detail/index.wxss'
   );
-  const loginTemplate = read(root, 'pages/login/index.wxml');
-  const loginStyle = read(root, 'pages/login/index.wxss');
+  const profileEditTemplate = read(root, 'pages/profile-edit/index.wxml');
+  const profileEditStyle = read(root, 'pages/profile-edit/index.wxss');
 
   assert(
     appConfig.requiredPrivateInfos.includes('chooseLocation')
@@ -228,9 +228,9 @@ async function verifyProductLocationFlow(root) {
     'appointment button centering fix was reverted'
   );
   assert(
-    /wechat-login-button--profile-save/.test(loginTemplate)
-    && /wechat-login-button--profile-save[\s\S]*align-items:\s*center/.test(
-      loginStyle
+    /class="save-button"/.test(profileEditTemplate)
+    && /\.save-button[\s\S]*align-items:\s*center/.test(
+      profileEditStyle
     ),
     'profile save button centering fix was reverted'
   );

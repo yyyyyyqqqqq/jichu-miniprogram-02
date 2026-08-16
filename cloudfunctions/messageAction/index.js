@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const cloud = require('wx-server-sdk');
+const maintenance = require('./maintenance');
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV
@@ -12,6 +13,7 @@ const users = db.collection('users');
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const SCHOOL_ID_PATTERN = /^s_[0-9a-f]{32}$/;
 const CONVERSATION_ID_PATTERN = /^c_[a-f0-9]{64}$/;
+const PUBLIC_USER_ID_PATTERN = /^u_[a-f0-9]{32}$/;
 const CLIENT_MESSAGE_ID_PATTERN = /^[a-zA-Z0-9_-]{8,80}$/;
 const NEW_CONVERSATION_STATUSES = new Set(['available', 'reserved']);
 const MESSAGE_TYPES = new Set([
@@ -66,6 +68,7 @@ const ERROR_CODES = {
   INVALID_PRODUCT: 'INVALID_PRODUCT',
   PRODUCT_NOT_ACCESSIBLE: 'PRODUCT_NOT_ACCESSIBLE',
   MESSAGE_SEND_FAILED: 'MESSAGE_SEND_FAILED',
+  SERVICE_MAINTENANCE: 'SERVICE_MAINTENANCE',
   DATABASE_ERROR: 'DATABASE_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
 };
@@ -279,10 +282,23 @@ function createUserId(appId, openId) {
   return `u_${createDigest(`${appId}:${openId}`).slice(0, 32)}`;
 }
 
-function createConversationId(productId, participantAOpenid, participantBOpenid) {
-  return `c_${createDigest(
-    `${productId}:${participantAOpenid}:${participantBOpenid}`
-  )}`;
+function createParticipantPair(userIdA, userIdB) {
+  const sortedUserIds = [normalizeString(userIdA), normalizeString(userIdB)]
+    .sort();
+  if (
+    !PUBLIC_USER_ID_PATTERN.test(sortedUserIds[0])
+    || !PUBLIC_USER_ID_PATTERN.test(sortedUserIds[1])
+    || sortedUserIds[0] === sortedUserIds[1]
+  ) {
+    return null;
+  }
+  const digest = createDigest(sortedUserIds.join(':'));
+  return {
+    participantAUserId: sortedUserIds[0],
+    participantBUserId: sortedUserIds[1],
+    participantPairKey: `pp_${digest}`,
+    conversationId: `c_${digest}`
+  };
 }
 
 function canCreateSchoolRelation(user, openId, product) {
@@ -375,6 +391,43 @@ function getParticipantSlot(conversation, openId) {
   return '';
 }
 
+function conversationMatchesPair(conversation, pair, userOpenids) {
+  return Boolean(
+    conversation
+    && pair
+    && normalizeString(conversation.participantAUserId)
+      === pair.participantAUserId
+    && normalizeString(conversation.participantBUserId)
+      === pair.participantBUserId
+    && normalizeString(conversation.participantAOpenid)
+      === normalizeString(userOpenids[pair.participantAUserId])
+    && normalizeString(conversation.participantBOpenid)
+      === normalizeString(userOpenids[pair.participantBUserId])
+    && normalizeString(conversation.participantPairKey)
+      === pair.participantPairKey
+    && normalizeString(conversation.status || 'active') !== 'merged'
+  );
+}
+
+async function resolveConversation(collection, conversationId) {
+  const requested = await getDocumentOrNull(collection.doc(conversationId));
+  if (!requested) {
+    return null;
+  }
+  const mergedInto = normalizeConversationId(requested.mergedInto);
+  if (
+    normalizeString(requested.status) === 'merged'
+    && mergedInto
+    && mergedInto !== conversationId
+  ) {
+    const canonical = await getDocumentOrNull(collection.doc(mergedInto));
+    return canonical
+      ? { conversation: canonical, conversationId: mergedInto, requested }
+      : null;
+  }
+  return { conversation: requested, conversationId, requested };
+}
+
 function toIsoString(value) {
   if (!value) {
     return '';
@@ -400,6 +453,7 @@ function toSafeMessage(record, openId) {
     senderPublicUserId: String(record.senderPublicUserId || ''),
     isMine: record.senderOpenid === openId,
     type,
+    contextProductId: normalizeProductId(record.contextProductId),
     createdAt: toIsoString(record.createdAt)
   };
   if (type === 'text') {
@@ -538,45 +592,6 @@ async function createOrGetConversation(data, identity, trace) {
     );
   }
 
-  const sortedOpenids = [identity.openId, sellerOpenid].sort();
-  const participantAOpenid = sortedOpenids[0];
-  const participantBOpenid = sortedOpenids[1];
-  const conversationId = createConversationId(
-    productId,
-    participantAOpenid,
-    participantBOpenid
-  );
-
-  trace.step = 'conversation.read_existing';
-  const existing = await getDocumentOrNull(conversations.doc(conversationId));
-  if (existing) {
-    if (!getParticipantSlot(existing, identity.openId)) {
-      logProductLookupDiagnostic(
-        productId,
-        true,
-        ERROR_CODES.FORBIDDEN
-      );
-      return failure(ERROR_CODES.FORBIDDEN, '无权访问该会话');
-    }
-    logProductLookupDiagnostic(productId, true, ERROR_CODES.OK);
-    return success({
-      conversationId,
-      reused: true
-    });
-  }
-
-  if (!NEW_CONVERSATION_STATUSES.has(product.status)) {
-    logProductLookupDiagnostic(
-      productId,
-      true,
-      ERROR_CODES.PRODUCT_UNAVAILABLE
-    );
-    return failure(
-      ERROR_CODES.PRODUCT_UNAVAILABLE,
-      '当前商品暂不能发起新会话'
-    );
-  }
-
   const currentUserId = createUserId(identity.appId, identity.openId);
   trace.step = 'conversation.read_users';
   const currentUser = await getDocumentOrNull(users.doc(currentUserId));
@@ -593,27 +608,21 @@ async function createOrGetConversation(data, identity, trace) {
     );
     return failure(ERROR_CODES.USER_NOT_FOUND, '用户记录不存在或不可用');
   }
-  assertCanCreateSchoolRelation(currentUser, identity.openId, product);
-
-  const participantAUserId = participantAOpenid === identity.openId
-    ? currentUserId
-    : sellerUserId;
-  const participantBUserId = participantBOpenid === identity.openId
-    ? currentUserId
-    : sellerUserId;
+  const pair = createParticipantPair(currentUserId, sellerUserId);
+  if (!pair) {
+    return failure(ERROR_CODES.FORBIDDEN, '会话参与者资料不可用');
+  }
+  const userOpenids = {
+    [currentUserId]: identity.openId,
+    [sellerUserId]: sellerOpenid
+  };
+  const conversationId = pair.conversationId;
 
   trace.step = 'conversation.begin_transaction';
   const result = await runTransaction(async (transaction) => {
     const document = transaction.collection('conversations').doc(conversationId);
     trace.step = 'conversation.transaction_read';
     const duplicate = await getDocumentOrNull(document);
-    if (duplicate) {
-      return {
-        conversationId,
-        reused: true
-      };
-    }
-
     trace.step = 'conversation.transaction_read_product';
     const currentProduct = await getDocumentOrNull(
       transaction.collection('products').doc(productId)
@@ -622,7 +631,51 @@ async function createOrGetConversation(data, identity, trace) {
     const transactionUser = await getDocumentOrNull(
       transaction.collection('users').doc(currentUserId)
     );
-    if (!currentProduct || !NEW_CONVERSATION_STATUSES.has(currentProduct.status)) {
+    const transactionSeller = await getDocumentOrNull(
+      transaction.collection('users').doc(sellerUserId)
+    );
+    if (!currentProduct || currentProduct.status === 'deleted') {
+      businessError(
+        ERROR_CODES.PRODUCT_UNAVAILABLE,
+        '当前商品暂不能发起新会话'
+      );
+    }
+    const currentSellerOpenid = normalizeString(currentProduct.sellerOpenid)
+      || normalizeString(transactionSeller && transactionSeller.openid);
+    if (
+      !transactionSeller
+      || transactionSeller.status === 'disabled'
+      || normalizeString(currentProduct.sellerId) !== sellerUserId
+      || currentSellerOpenid !== sellerOpenid
+    ) {
+      businessError(
+        ERROR_CODES.PRODUCT_SELLER_UNAVAILABLE,
+        '商品卖家信息暂不可用'
+      );
+    }
+    const productSnapshot = toProductSnapshot(currentProduct, productId);
+    if (duplicate) {
+      if (!conversationMatchesPair(duplicate, pair, userOpenids)) {
+        businessError(ERROR_CODES.FORBIDDEN, '会话参与者校验失败');
+      }
+      trace.step = 'conversation.transaction_update_context';
+      await document.update({
+        data: {
+          productId,
+          productSnapshot,
+          lastProductId: productId,
+          lastProductSnapshot: productSnapshot,
+          contextUpdatedAt: db.serverDate(),
+          updatedAt: db.serverDate()
+        }
+      });
+      return {
+        conversationId,
+        reused: true
+      };
+    }
+
+    if (!NEW_CONVERSATION_STATUSES.has(currentProduct.status)) {
       businessError(
         ERROR_CODES.PRODUCT_UNAVAILABLE,
         '当前商品暂不能发起新会话'
@@ -637,12 +690,17 @@ async function createOrGetConversation(data, identity, trace) {
     trace.step = 'conversation.transaction_write';
     await document.set({
       data: {
-        participantAOpenid,
-        participantBOpenid,
-        participantAUserId,
-        participantBUserId,
+        participantAOpenid: userOpenids[pair.participantAUserId],
+        participantBOpenid: userOpenids[pair.participantBUserId],
+        participantAUserId: pair.participantAUserId,
+        participantBUserId: pair.participantBUserId,
+        participantPairKey: pair.participantPairKey,
+        status: 'active',
+        schemaVersion: 2,
         productId,
-        productSnapshot: toProductSnapshot(currentProduct, productId),
+        productSnapshot,
+        lastProductId: productId,
+        lastProductSnapshot: productSnapshot,
         lastMessage: '',
         lastMessageType: '',
         lastMessageAt: db.serverDate(),
@@ -650,6 +708,7 @@ async function createOrGetConversation(data, identity, trace) {
         participantAUnreadCount: 0,
         participantBUnreadCount: 0,
         createdAt: db.serverDate(),
+        contextUpdatedAt: db.serverDate(),
         updatedAt: db.serverDate()
       }
     });
@@ -684,17 +743,22 @@ async function sendMessage(data, openId, trace, forcedType = '') {
   );
   trace.step = 'send.begin_transaction';
   const result = await runTransaction(async (transaction) => {
-    const conversationDocument = transaction
-      .collection('conversations')
-      .doc(conversationId);
     trace.step = 'send.read_conversation';
-    const conversation = await getDocumentOrNull(conversationDocument);
-    if (!conversation) {
+    const resolvedConversation = await resolveConversation(
+      transaction.collection('conversations'),
+      conversationId
+    );
+    if (!resolvedConversation) {
       businessError(
         ERROR_CODES.CONVERSATION_NOT_FOUND,
         '会话不存在或已失效'
       );
     }
+    const canonicalConversationId = resolvedConversation.conversationId;
+    const conversation = resolvedConversation.conversation;
+    const conversationDocument = transaction
+      .collection('conversations')
+      .doc(canonicalConversationId);
 
     const slot = getParticipantSlot(conversation, openId);
     if (!slot) {
@@ -711,9 +775,18 @@ async function sendMessage(data, openId, trace, forcedType = '') {
       };
     }
 
+    const contextProductId = normalizeProductId(
+      conversation.lastProductId || conversation.productId
+    );
+    if (!contextProductId) {
+      businessError(
+        ERROR_CODES.PRODUCT_UNAVAILABLE,
+        '当前商品上下文不可用，仅可查看历史消息'
+      );
+    }
     const productDocument = transaction
       .collection('products')
-      .doc(conversation.productId);
+      .doc(contextProductId);
     trace.step = 'send.read_product';
     const conversationProduct = await getDocumentOrNull(productDocument);
     if (!conversationProduct || conversationProduct.status === 'deleted') {
@@ -752,11 +825,12 @@ async function sendMessage(data, openId, trace, forcedType = '') {
       ? conversation.participantAUserId
       : conversation.participantBUserId;
     const messageData = {
-      conversationId,
+      conversationId: canonicalConversationId,
       senderOpenid: openId,
       senderPublicUserId,
       type,
       clientMessageId,
+      contextProductId,
       createdAt: db.serverDate()
     };
 
@@ -777,7 +851,7 @@ async function sendMessage(data, openId, trace, forcedType = '') {
     } else if (type === 'location') {
       messageData.location = location;
     } else if (type === 'product') {
-      if (productId === conversation.productId) {
+      if (productId === contextProductId) {
         businessError(
           ERROR_CODES.INVALID_PRODUCT,
           '请选择当前会话商品以外的商品'
@@ -854,9 +928,12 @@ async function sendMessage(data, openId, trace, forcedType = '') {
     await messageDocument.set({ data: messageData });
 
     const updateData = {
-      productSnapshot: toProductSnapshot(
+      productId: contextProductId,
+      productSnapshot: toProductSnapshot(conversationProduct, contextProductId),
+      lastProductId: contextProductId,
+      lastProductSnapshot: toProductSnapshot(
         conversationProduct,
-        conversation.productId
+        contextProductId
       ),
       lastMessage: type === 'text'
         ? content.slice(0, LAST_MESSAGE_MAX_LENGTH)
@@ -908,15 +985,21 @@ async function markConversationRead(data, openId, trace) {
 
   trace.step = 'read.begin_transaction';
   const result = await runTransaction(async (transaction) => {
-    const document = transaction.collection('conversations').doc(conversationId);
     trace.step = 'read.read_conversation';
-    const conversation = await getDocumentOrNull(document);
-    if (!conversation) {
+    const resolvedConversation = await resolveConversation(
+      transaction.collection('conversations'),
+      conversationId
+    );
+    if (!resolvedConversation) {
       businessError(
         ERROR_CODES.CONVERSATION_NOT_FOUND,
         '会话不存在或已失效'
       );
     }
+    const conversation = resolvedConversation.conversation;
+    const canonicalConversationId = resolvedConversation.conversationId;
+    const document = transaction.collection('conversations')
+      .doc(canonicalConversationId);
     const slot = getParticipantSlot(conversation, openId);
     if (!slot) {
       businessError(ERROR_CODES.FORBIDDEN, '无权修改该会话');
@@ -936,7 +1019,7 @@ async function markConversationRead(data, openId, trace) {
       });
     }
     return {
-      conversationId,
+      conversationId: canonicalConversationId,
       unreadCount: 0,
       reused: currentUnread === 0
     };
@@ -991,6 +1074,8 @@ exports.main = async (event = {}) => {
     productFound: false
   };
   try {
+    trace.step = 'maintenance.check';
+    await maintenance.assertWritable(db, businessError);
     if (action === 'createOrGetConversation') {
       return await createOrGetConversation(data, {
         openId,
@@ -1035,5 +1120,5 @@ exports.__test = Object.freeze({
   canCreateSchoolRelation,
   assertCanCreateSchoolRelation,
   createUserId,
-  createConversationId
+  createParticipantPair
 });

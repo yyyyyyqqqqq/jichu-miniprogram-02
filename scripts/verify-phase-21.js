@@ -236,12 +236,22 @@ async function verifyViewerScopedUserQuery() {
       bProducts.data.list.every((item) => !Object.prototype.hasOwnProperty.call(item, 'sellerOpenid')),
       'seller profile leaks internal identity'
     );
-    users.set(viewerId, { ...users.get(viewerId), profileCompleted: false });
+    users.set(viewerId, {
+      ...users.get(viewerId),
+      nickname: '',
+      avatarUrl: '',
+      profileCompleted: false
+    });
     const incomplete = await userQuery.main({
       action: 'publicProducts',
       data: { publicUserId: sellerId }
     });
-    check(incomplete.code === 'PROFILE_INCOMPLETE', 'incomplete viewer is not rejected');
+    check(
+      incomplete.success === true
+        && incomplete.data.list.length === 3
+        && incomplete.data.list.every((item) => item.schoolId === schoolB),
+      'school-ready viewer with incomplete display profile lost scoped public products'
+    );
   } finally {
     Module._load = originalLoad;
     delete require.cache[require.resolve(functionPath)];
@@ -287,7 +297,10 @@ function verifyStaticBoundaries() {
   check(/resolveViewerContext\(cloud\.getWXContext\(\)\)/.test(userQuery), 'seller profile does not use server identity');
   check(!/data\.(?:schoolId|viewerSchoolId)/.test(userQuery), 'seller profile trusts client school');
   check(/assertCanCreateSchoolRelation/.test(messageAction), 'new conversation school guard was removed');
-  check(/trace\.step = 'conversation\.read_existing'[\s\S]*assertCanCreateSchoolRelation/.test(messageAction), 'existing conversation is not reused before new-relation guard');
+  check(
+    /if \(duplicate\)[\s\S]*?reused: true[\s\S]*?assertCanCreateSchoolRelation/.test(messageAction),
+    'canonical pair conversation is not reused before the first-relation school guard'
+  );
   const sendBlock = messageAction.slice(
     messageAction.indexOf('async function sendMessage'),
     messageAction.indexOf('async function sendTextMessage')

@@ -160,7 +160,6 @@ Page({
     return [
       state.status || '',
       user.id || '',
-      user.profileCompleted === true ? 'profileReady' : 'profileRequired',
       user.schoolId || '',
       user.schoolVersion || 0,
       user.schoolRequired === false ? 'schoolSelected' : 'schoolRequired',
@@ -186,10 +185,6 @@ Page({
       return;
     }
     if (authState.status === AuthStore.AUTH_STATUS.AUTHENTICATED) {
-      if (!authState.user || authState.user.profileCompleted !== true) {
-        this.showMarketGuide('profile');
-        return;
-      }
       if (authState.user.schoolUnavailable === true) {
         this.showMarketGuide('schoolUnavailable');
         return;
@@ -266,9 +261,6 @@ Page({
     if (state.status !== AuthStore.AUTH_STATUS.AUTHENTICATED || !user) {
       return 'login';
     }
-    if (user.profileCompleted !== true) {
-      return 'profile';
-    }
     if (user.schoolUnavailable === true) {
       return 'schoolUnavailable';
     }
@@ -281,11 +273,6 @@ Page({
         title: '登录后查看你的校园二手市场',
         description: '登录并选择学校后，只浏览本校发布的闲置商品',
         actionText: '去登录'
-      },
-      profile: {
-        title: '请先完善个人资料',
-        description: '完成头像和昵称后，再选择学校进入校园市场',
-        actionText: '完善资料'
       },
       schoolUnavailable: {
         title: '当前学校暂不可用',

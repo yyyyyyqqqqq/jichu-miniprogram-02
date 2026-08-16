@@ -1,5 +1,7 @@
 project.private.config.json
 config/cloud.private.js
+config/cloud.targets.private.js
+config/cloud.secrets.private.js
 .env
 .env.*
 !.env.example

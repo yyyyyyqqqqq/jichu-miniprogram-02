@@ -76,6 +76,15 @@ Page({
     this.isChangeMode = Boolean(options && options.mode === 'change');
     this.target = AuthGuard.normalizeTarget(options && options.target);
     this.productId = AuthGuard.normalizeProductId(options && options.id);
+    this.conversationId = AuthGuard.normalizeConversationId(
+      options && options.conversationId
+    );
+    this.appointmentId = AuthGuard.normalizeAppointmentId(
+      options && options.appointmentId
+    );
+    this.publicUserId = AuthGuard.normalizePublicUserId(
+      options && options.userId
+    );
     this.setData({
       mode: this.isChangeMode ? 'change' : 'select',
       isChangeMode: this.isChangeMode,
@@ -84,7 +93,10 @@ Page({
         ? '从开放学校中选择新的校园市场。'
         : '选择学校后，你将进入对应的校园二手市场。',
       target: this.target,
-      productId: this.productId
+      productId: this.productId,
+      conversationId: this.conversationId,
+      appointmentId: this.appointmentId,
+      publicUserId: this.publicUserId
     });
     this.unsubscribeAuth = AuthStore.subscribe((state) => {
       if (!this.isPageActive) {
@@ -165,17 +177,23 @@ Page({
         return false;
       }
       const user = AuthStore.getCurrentUser();
-      if (!AuthStore.isLoggedIn() || !user || !user.profileCompleted) {
+      if (!AuthStore.isLoggedIn() || !user) {
         await NavigationService.safeRedirectTo(AuthGuard.buildLoginUrl({
           target: this.target,
-          productId: this.productId
+          productId: this.productId,
+          conversationId: this.conversationId,
+          appointmentId: this.appointmentId,
+          publicUserId: this.publicUserId
         }));
         return false;
       }
       if (!this.isChangeMode && AuthStore.isSchoolReady()) {
         await AuthGuard.navigateAfterSchoolSelection({
           target: this.target,
-          productId: this.productId
+          productId: this.productId,
+          conversationId: this.conversationId,
+          appointmentId: this.appointmentId,
+          publicUserId: this.publicUserId
         });
         return false;
       }
@@ -422,7 +440,10 @@ Page({
         }
         const navigated = await AuthGuard.navigateAfterSchoolSelection({
           target: this.target,
-          productId: this.productId
+          productId: this.productId,
+          conversationId: this.conversationId,
+          appointmentId: this.appointmentId,
+          publicUserId: this.publicUserId
         });
         if (this.isPageActive && !navigated) {
           NavigationService.safeSwitchTab(ROUTES.HOME);
@@ -459,7 +480,7 @@ Page({
     }
     wx.showModal({
       title: '退出当前登录？',
-      content: '退出后可以继续匿名浏览，重新登录后仍需完成学校选择。',
+      content: '退出后需重新登录才能进入校园市场，重新登录后仍需完成学校选择。',
       confirmText: '退出登录',
       confirmColor: '#d95745',
       success: (result) => {

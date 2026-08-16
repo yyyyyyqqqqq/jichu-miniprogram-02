@@ -14,6 +14,7 @@ const {
 const {
   PRODUCT_PUBLISH_LIMITS
 } = require('../constants/product-publish');
+const { buildUserPresentation } = require('../utils/user-presentation');
 
 const DEFAULT_PAGE_SIZE = 6;
 const MAX_PAGE_SIZE = 20;
@@ -265,10 +266,10 @@ function normalizeSeller(record) {
   const rawSeller = record && typeof record.seller === 'object'
     ? record.seller
     : {};
-  const nickname = normalizeString(
-    record.sellerName || rawSeller.nickname,
-    '校园用户'
-  );
+  const presentation = buildUserPresentation({
+    nickname: record.sellerName || rawSeller.nickname,
+    avatarUrl: record.sellerAvatar || rawSeller.avatar || rawSeller.avatarUrl
+  });
 
   return {
     id: normalizeString(
@@ -277,12 +278,10 @@ function normalizeSeller(record) {
       || record.sellerId
       || rawSeller.id
     ),
-    nickname,
-    avatar: normalizeString(
-      record.sellerAvatar || rawSeller.avatar || rawSeller.avatarUrl
-    ),
+    nickname: presentation.nickname,
+    avatar: presentation.avatarUrl,
     verified: record.sellerVerified === true || rawSeller.verified === true,
-    initial: nickname.slice(0, 1) || '校'
+    initial: presentation.avatarText
   };
 }
 

@@ -886,11 +886,6 @@ async function verifyCoreAndServer(root, collector) {
       code: 'USER_INACTIVE'
     },
     {
-      user: { ...users[0], profileCompleted: false },
-      schools: schoolRecords,
-      code: 'PROFILE_INCOMPLETE'
-    },
-    {
       user: { ...users[0], schoolId: '' },
       schools: schoolRecords,
       code: 'SCHOOL_REQUIRED'
@@ -921,6 +916,20 @@ async function verifyCoreAndServer(root, collector) {
       code: 'SCHOOL_CONTEXT_MISMATCH'
     }
   ];
+  const incompleteProfileContext = await productQuery.__test.resolveMarketSchoolContext(
+    identityA,
+    {
+      usersCollection: createCollection(
+        [{ ...users[0], nickname: '', avatarUrl: '', profileCompleted: false }],
+        database.createQuery
+      ),
+      schoolsCollection: createCollection(schoolRecords, database.createQuery)
+    }
+  );
+  collector.check(
+    incompleteProfileContext.schoolId === schoolA,
+    'school-ready identity with incomplete display profile lost strict market access'
+  );
   for (const variant of contextVariants) {
     await expectCode(
       () => productQuery.__test.resolveMarketSchoolContext(identityA, {

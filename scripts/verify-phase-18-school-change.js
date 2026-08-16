@@ -250,12 +250,23 @@ async function verifyServerAndProductFlow(root, collector) {
     });
     check(disabled.code === 'USER_DISABLED', 'disabled current user is rejected');
 
-    users.set(userId, { ...baseUser, profileCompleted: false });
+    users.set(userId, {
+      ...baseUser,
+      nickname: '',
+      avatarUrl: '',
+      profileCompleted: false
+    });
     const incomplete = await authUser.main({
       action: 'updateSchool',
       data: { schoolId: schoolB }
     });
-    check(incomplete.code === 'PROFILE_INCOMPLETE', 'incomplete profile is rejected');
+    check(
+      incomplete.success === true
+        && incomplete.data.user.schoolId === schoolB
+        && incomplete.data.user.schoolVersion === 2
+        && incomplete.data.user.profileCompleted === false,
+      'school-ready identity with incomplete display profile cannot change school'
+    );
 
     users.set(userId, { ...baseUser, schoolId: '', schoolName: '' });
     const unbound = await authUser.main({

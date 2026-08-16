@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-第十二至第二十三阶段均已完成并以对应标签封版。第十五阶段导入 2952 所官方高校，上海工程技术大学、上海财经大学浙江学院为 `active`，其余 2950 所为 `pending`；第十八阶段完成同校 strict 市场切换，第十九至第二十一阶段完成跨校只读、换校冷却和历史关系适配。第二十二阶段已完成存量学校数据正式收口：当前 8/8 active 用户学校有效，29/29 公开商品 strict-ready；剩余 16 件无学校商品全部为非公开历史记录且无确定迁移证据，安全保持未归属。历史 4 个用户与 20 件公开商品迁移只读核对和幂等重跑均为零变更，未执行新的业务数据迁移。第二十三阶段完成 12 个生产云函数依赖、运行时、权限、索引与攻击面审计，将 11 个函数的直接 `ws` 依赖固定升级至 `8.21.3`，并建立零写入安全探针和只读性能基线：
+第十二至第二十四阶段均已完成。Phase 24 已完成登录身份与资料解耦、显式登录事务、独立 staging 真新用户验收、按无序用户对唯一聊天会话、历史数据迁移加固、production migration、目标索引、四个正式业务函数部署、自动 smoke，以及双账号和第三账号真机人工闭环。最终 production 只读核验确认唯一会话、消息、预约、权限、索引、函数和 maintenance 状态全部正常；本次提交由最终 annotated tag `phase-24-complete` 封版。
 
 - 微信原生小程序基础工程与统一公共样式
 - 首页组合搜索、分类筛选、综合/最新/价格排序、下拉刷新和稳定分页
@@ -22,7 +22,7 @@
 - 增强的 Node.js 完整性和业务边界验证脚本
 - 微信云开发真实环境初始化
 - `authUser` 云函数与幂等用户记录设计
-- 真实微信身份与用户主动资料分层、头像选择上传、昵称填写和资料更新
+- 真实微信身份与用户主动资料分层；每次显式登录均使用 `chooseAvatar`、`input type="nickname"` 完成资料确认
 - 确定性用户 ID 防止重复与并发首次登录产生多条用户记录
 - 非阻塞登录状态恢复、主动登录和客户端退出
 - 个人中心登录状态、错误重试和安全本地摘要
@@ -95,7 +95,7 @@
 - 写入口伪造身份、畸形参数与未知 action 生产探针 18/18 通过，探针前后 8 集合数量和受控投影一致
 - 18 个只读场景、90 个 warm 样本的生产性能基线，0 错误、0 超时；`productViews` 清理按明确阈值延后
 
-第十九阶段完整记录见 `docs/phase-19-cross-school-detail-access.md`；第二十阶段记录见 `docs/phase-20-school-change-cooldown.md`；第二十一阶段记录见 `docs/phase-21-historical-relation-school-adaptation.md`；第二十二阶段生产快照、残留分类、迁移幂等与安全收口记录见 `docs/phase-22-school-data-migration-finalization.md`；第二十三阶段生产安全、依赖与性能封板记录见 `docs/phase-23-production-security-performance-hardening.md`。Phase 23 已完成正式收口；这不代表已经通过微信官方审核或正式发布上线。Phase 24 尚未开始。
+第十九阶段完整记录见 `docs/phase-19-cross-school-detail-access.md`；第二十阶段记录见 `docs/phase-20-school-change-cooldown.md`；第二十一阶段记录见 `docs/phase-21-historical-relation-school-adaptation.md`；第二十二阶段生产快照、残留分类、迁移幂等与安全收口记录见 `docs/phase-22-school-data-migration-finalization.md`；第二十三阶段生产安全、依赖与性能封板记录见 `docs/phase-23-production-security-performance-hardening.md`。Phase 24 Round 1、Round 2、登录事务和唯一会话上线记录分别见 `docs/phase-24-ux-audit-and-critical-flow-fixes.md`、`docs/phase-24-auth-flow-refactor.md`、`docs/phase-24-login-profile-confirmation.md` 与 `docs/phase-24-pair-conversation.md`。
 
 ## 技术栈
 
@@ -187,7 +187,7 @@ cloudfunctions/productQuery
 cloudfunctions/createProduct
 ```
 
-云函数通过 `cloud.getWXContext()` 获取真实微信身份，客户端不会传递或接收身份标识。云端使用 AppID 与身份标识的 SHA-256 摘要生成确定性用户文档 ID，避免并发首次登录生成重复用户。昵称和头像不从微信静默获取：用户在登录页主动选择头像、填写昵称，可选填写校园信息；头像经类型、解码和 5MB 大小校验后上传到当前用户专属云存储目录。
+云函数通过 `cloud.getWXContext()` 获取真实微信身份，客户端不会传递或接收身份标识。云端使用 AppID 与身份标识的 SHA-256 摘要生成确定性用户文档 ID，避免并发首次登录生成重复用户。昵称和头像不从微信静默获取：身份建立后，用户通过官方 `chooseAvatar` 与 `input type="nickname"` 主动确认；临时头像经类型、解码和 5MB 大小校验后上传到当前用户专属云存储目录。选校是独立步骤，资料字段不参与可信身份或校园业务授权。
 
 首次登录前，请在云开发控制台创建 `users` 集合。建议关闭客户端直接读写，仅允许云函数访问。
 
@@ -269,7 +269,7 @@ available / reserved / sold
 Publish Page
 → ProductPublishService 上传云存储图片
 → createProduct 取得可信微信身份并查询 users
-→ createProduct 校验用户资料和 active + valid 学校
+→ createProduct 校验 active 用户和 active + valid 权威学校
 → 服务端写入发布时固定的 schoolId / schoolName
 → products 幂等写入
 → ProductService / productQuery 读取新商品
@@ -295,18 +295,19 @@ App 非阻塞启动
 ```text
 受限入口或登录页
 → AuthGuard 白名单目标
-→ 用户主动选择头像、填写昵称
-→ AuthStore.login → authUser/login 创建或复用真实用户
+→ AuthStore.loginIdentity → authUser/loginIdentity 创建或复用真实用户
+→ AuthStore 进入 profileConfirmRequired
+→ 用户主动选择/确认头像和昵称
 → AvatarService 上传当前用户专属头像
-→ AuthStore.updateProfile → authUser/updateProfile
-→ 返回安全用户模型并标记资料完成
+→ AuthStore.confirmLoginProfile → authUser/updateProfile
+→ 有有效学校：直接继续；无有效学校：进入 school-select
 → 返回原目标页面
 ```
 
 本地只缓存：
 
 ```text
-id / nickname / avatarUrl / campus / profileCompleted
+id / nickname / avatarUrl / profileCompleted / schoolId / schoolName / schoolVersion
 ```
 
 本地缓存仅用于恢复期间的展示优化，不作为可信权限依据。
@@ -333,6 +334,12 @@ docs/phase-8-favorites-public-profile.md
 
 ```text
 docs/phase-9-messaging-chat.md
+```
+
+Phase 24 按无序用户对唯一会话、商品上下文、历史迁移与回滚门禁见：
+
+```text
+docs/phase-24-pair-conversation.md
 ```
 
 真实微信登录与双账号人工验收步骤见：
@@ -385,7 +392,7 @@ docs/phase-16-user-school-selection.md
 - 同校市场大规模数据下的扫描量与延迟持续治理
 - 任何在线支付、担保支付或物流能力
 
-聊天当前支持绑定具体商品的一对一文本、语音、图片、位置、双方其他商品卡片及预约状态系统消息。位置是用户确认后发送的单次快照，不是持续实时共享；实时推送仍未实现。
+聊天代码和 production 数据模型均已切换为同一无序用户对唯一会话，商品只是当前/最近上下文；文本、语音、图片、位置、双方其他商品卡片及预约状态系统消息均保留。20 条历史重复会话已归档为 merged alias，消息和预约均指向 6 条确定性 active canonical；legacy alias 继续解析到 canonical。位置是用户确认后发送的单次快照，不是持续实时共享；实时推送仍未实现。
 
 ## 本地验证
 
@@ -399,11 +406,11 @@ node scripts/verify-project.js
 npm run verify
 ```
 
-验证覆盖 JSON、页面和组件四件套、真实身份唯一性与并发登录、统一云初始化、资料校验、头像安全、登录守卫、商品查询与生命周期、收藏、聊天、预约、媒体和位置边界，以及学校数据、首次选校、可信商品绑定、学校切换、强制登录、同校隔离、四排序 seek 游标、搜索/分类、跨校游标拒绝、迁移、回滚与恢复。当前综合验证为 `81 checks passed`；阶段 23 专项为 133 项，阶段 22 专项为 42 项，选校专项为 128 项，商品学校绑定为 51 项，阶段 18 同校市场为 91 项。完整 Phase 23 命令、生产安全/性能证据和零写入边界见 `docs/phase-23-production-security-performance-hardening.md`。
+验证覆盖 JSON、页面和组件四件套、真实身份唯一性与并发登录、统一云初始化、显式登录事务、资料校验、头像安全、登录守卫、商品查询与生命周期、收藏、聊天、预约、媒体和位置边界，以及学校数据、首次选校、可信商品绑定、学校切换、强制登录、同校隔离、四排序 seek 游标、搜索/分类、跨校游标拒绝、迁移、回滚、checkpoint、resume、hash 和 maintenance。最终封版前 Phase 18—24 主回归 544 项、pair conversation/migration 专项 52 项、综合验证 81 项及 190 个 JavaScript 文件语法检查全部通过。
 
 ## 后续阶段
 
-第十五阶段学校基础库、两所真实测试学校激活和只读查询线上闭环已经完成；当前 active 2、pending 2950。第十六阶段用户选校、第十七阶段商品可信学校绑定、第十八阶段同校 strict 市场、第十九阶段跨校只读与新关系闸门、第二十阶段换校冷却、第二十一阶段历史关系适配均已封版。第二十二阶段重新核对真实生产快照：公开商品 29/29 strict-ready，16 件无学校商品均为非公开且没有确定迁移证据；历史 4 个用户与 20 件商品迁移幂等、零重复写入，并修复无学校 offline 商品可能被重新上架的问题。最终配置仍为 `enabled=true / strictForAll=true / allowlist=[] / accessRequiresAuth=true`。第二十三阶段完成生产安全、依赖与性能专项，未修改业务数据、ACL、索引或运行时。Phase 24“上线前 UX、兼容性与真机全量巡检”尚未开始。
+Phase 24 已完成 production rollout 和最终验证。后续工作进入 Phase 25 RC、微信官方审核与正式发布准备；这些后续阶段不改变 `phase-24-complete` 对当前工程和 production 专项状态的封版结论。
 
 ## Git 仓库
 
