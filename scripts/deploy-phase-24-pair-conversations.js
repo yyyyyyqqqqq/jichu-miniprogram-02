@@ -18,6 +18,9 @@ const {
   OWNER_AUTHORIZATION,
   readMaintenance
 } = require('./migrate-phase-24-pair-conversations');
+const {
+  assertProductionMessageQueryCandidate
+} = require('./phase-25-minimum-safe-rollback-core');
 
 const ROOT = path.resolve(__dirname, '..');
 const FUNCTIONS = Object.freeze([
@@ -183,6 +186,14 @@ async function run(options) {
     allowInactiveRead: !options.deploy
   });
   const indexes = await inspectIndexes(preflight.environmentId);
+  const messageQuerySource = fs.readFileSync(
+    path.join(ROOT, 'cloudfunctions', 'messageQuery', 'index.js'),
+    'utf8'
+  );
+  const rollbackFloor = assertProductionMessageQueryCandidate(
+    messageQuerySource,
+    { lifecycleDataState: 'present' }
+  );
   const wouldCreateIndexes = Object.fromEntries(Object.entries(indexes).map(([name, items]) => [
     name,
     items.filter((item) => !item.exists).map((item) => item.definition.name)
@@ -203,6 +214,11 @@ async function run(options) {
       ],
       wouldCreateIndexes,
       wouldDeployFunctions: FUNCTIONS,
+      rollbackFloor: {
+        baselineId: rollbackFloor.baselineId,
+        sourceSha256: rollbackFloor.inspection.sourceSha256,
+        allowed: true
+      },
       writesBusinessData: false,
       changesAcl: false
     };
@@ -221,6 +237,11 @@ async function run(options) {
       environment: publicSummary(preflight),
       migrationRunId: maintenance.migrationRunId,
       deployedFunctions: FUNCTIONS,
+      rollbackFloor: {
+        baselineId: rollbackFloor.baselineId,
+        sourceSha256: rollbackFloor.inspection.sourceSha256,
+        allowed: true
+      },
       createdIndexes: {},
       migrationRequiredBeforeMaintenanceOff: true,
       writesBusinessData: false,
@@ -241,6 +262,11 @@ async function run(options) {
     migration,
     createdIndexes: wouldCreateIndexes,
     deployedFunctions: FUNCTIONS,
+    rollbackFloor: {
+      baselineId: rollbackFloor.baselineId,
+      sourceSha256: rollbackFloor.inspection.sourceSha256,
+      allowed: true
+    },
     writesBusinessData: false,
     changesAcl: false
   };

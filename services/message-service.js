@@ -10,6 +10,52 @@ const MESSAGE_MAX_LENGTH = 500;
 const CONVERSATION_ID_PATTERN = /^c_[a-f0-9]{64}$/;
 const MESSAGE_ID_PATTERN = /^m_[a-f0-9]{64}$/;
 const CLIENT_MESSAGE_ID_PATTERN = /^[a-zA-Z0-9_-]{8,80}$/;
+const SAFE_TRACE_ID_PATTERN = /^tr_[a-z0-9_-]{8,40}$/;
+const SAFE_DIAGNOSTIC_ACTIONS = new Set([
+  'sendTextMessage',
+  'sendMessage',
+  'hideConversation',
+  'getMessageDeliveryStatus'
+]);
+const SAFE_DIAGNOSTIC_CODES = new Set([
+  'OK',
+  'DATABASE_TRANSACTION_CONFLICT',
+  'DATABASE_ERROR',
+  'INTERNAL_ERROR',
+  'NETWORK_ERROR',
+  'CLOUD_TIMEOUT',
+  'UNKNOWN_SAFE_ERROR'
+]);
+const SAFE_COMMIT_OUTCOMES = new Set([
+  'committed',
+  'conflict',
+  'failed_non_conflict',
+  'outcome_unknown',
+  'rolled_back',
+  'unknown'
+]);
+const SAFE_RECONCILIATION_OUTCOMES = new Set([
+  'found',
+  'not_found',
+  'query_failed',
+  'not_applicable'
+]);
+const SAFE_ATTEMPT_STAGES = new Set([
+  'transaction_start',
+  'canonical_resolve',
+  'participant_validate',
+  'existing_message_check',
+  'source_validate',
+  'context_validate',
+  'context_product_read',
+  'payload_validate',
+  'shared_product_read',
+  'message_write',
+  'conversation_update_prepare',
+  'conversation_update_write',
+  'response_projection',
+  'commit'
+]);
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const PUBLIC_USER_ID_PATTERN = /^u_[a-f0-9]{32}$/;
 const APPOINTMENT_ID_PATTERN = /^a_[a-f0-9]{64}$/;
@@ -19,7 +65,9 @@ const MESSAGE_TYPES = new Set([
   'image',
   'location',
   'product',
-  'system'
+  'system',
+  'recalled',
+  'deleted'
 ]);
 const PRODUCT_MESSAGE_STATUSES = new Set([
   'available',
@@ -38,6 +86,14 @@ const APPOINTMENT_EVENT_TYPES = new Set([
   'appointment_cancelled',
   'appointment_completed',
   'appointment_auto_cancelled'
+]);
+const DELIVERY_RECONCILIATION_ERROR_CODES = new Set([
+  'DATABASE_ERROR',
+  'INTERNAL_ERROR',
+  'NETWORK_ERROR',
+  'CLOUD_TIMEOUT',
+  'CLOUD_CALL_FAILED',
+  'INVALID_RESPONSE'
 ]);
 
 const ERROR_MESSAGES = {
@@ -73,6 +129,14 @@ const ERROR_MESSAGES = {
   MEDIA_UPLOAD_FAILED: '媒体上传失败，请稍后重试',
   PERMISSION_DENIED: '需要相关权限才能继续',
   MESSAGE_SEND_FAILED: '发送失败，请重试',
+  MESSAGE_NOT_FOUND: '消息不存在或已失效',
+  MESSAGE_NOT_OWNED: '只能撤回自己发送的消息',
+  MESSAGE_NOT_RECALLABLE: '该消息不可撤回',
+  MESSAGE_RECALL_EXPIRED: '已超过 2 分钟撤回时限',
+  MESSAGE_ALREADY_RECALLED: '消息已经撤回',
+  MESSAGE_NOT_FORWARDABLE: '该消息不可转发',
+  INVALID_FORWARD_TARGET: '请选择其他有效会话',
+  MEDIA_FORWARD_FAILED: '媒体文件暂不可转发',
   DATABASE_ERROR: '消息数据暂不可用，请稍后重试',
   INTERNAL_ERROR: '消息服务暂不可用',
   INVALID_RESPONSE: '消息服务返回异常',
@@ -80,19 +144,145 @@ const ERROR_MESSAGES = {
 };
 
 class MessageError extends Error {
-  constructor(code, message) {
+  constructor(code, message, traceId = '', diagnostic) {
     super(message || ERROR_MESSAGES[code] || ERROR_MESSAGES.UNKNOWN_ERROR);
     this.name = 'MessageError';
     this.code = code || 'UNKNOWN_ERROR';
+    this.traceId = SAFE_TRACE_ID_PATTERN.test(normalizeString(traceId))
+      ? normalizeString(traceId)
+      : '';
+    this.diagnostic = normalizeAttemptDiagnostic(diagnostic);
   }
 }
 
-function createError(code, message) {
-  return new MessageError(code, ERROR_MESSAGES[code] || message);
+function createError(code, message, traceId = '', diagnostic) {
+  return new MessageError(
+    code,
+    ERROR_MESSAGES[code] || message,
+    traceId,
+    diagnostic
+  );
 }
 
 function normalizeString(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeTraceId(value) {
+  const traceId = normalizeString(value).toLowerCase();
+  return SAFE_TRACE_ID_PATTERN.test(traceId) ? traceId : '';
+}
+
+function isAttemptDiagnosticClientEnabled() {
+  return !CLOUD_CONFIG.environmentValidationError
+    && ['staging', 'development'].includes(
+      normalizeString(CLOUD_CONFIG.environmentName).toLowerCase()
+    );
+}
+
+function normalizeAttemptDiagnostic(value) {
+  if (
+    !isAttemptDiagnosticClientEnabled()
+    || !value
+    || typeof value !== 'object'
+    || Array.isArray(value)
+  ) {
+    return undefined;
+  }
+  const traceId = normalizeTraceId(value.traceId);
+  const action = normalizeString(value.action);
+  const sourceAttempts = Array.isArray(value.attempts) ? value.attempts : [];
+  if (
+    !traceId
+    || !SAFE_DIAGNOSTIC_ACTIONS.has(action)
+    || sourceAttempts.length > 3
+  ) {
+    return undefined;
+  }
+  const attempts = [];
+  for (const source of sourceAttempts) {
+    const attempt = Number(source && source.attempt);
+    const safeCode = normalizeString(source && source.safeCode);
+    const commitOutcome = normalizeString(source && source.commitOutcome);
+    if (
+      !Number.isInteger(attempt)
+      || attempt < 1
+      || attempt > 3
+      || !SAFE_DIAGNOSTIC_CODES.has(safeCode)
+      || !SAFE_COMMIT_OUTCOMES.has(commitOutcome)
+    ) {
+      return undefined;
+    }
+    const item = {
+      attempt,
+      safeCode,
+      retryable: source.retryable === true,
+      transactionCreated: source.transactionCreated === true,
+      commitStarted: source.commitStarted === true,
+      commitOutcome
+    };
+    if (typeof source.messageExistedBeforeAttempt === 'boolean') {
+      item.messageExistedBeforeAttempt = source.messageExistedBeforeAttempt;
+    }
+    if (typeof source.snapshotChanged === 'boolean') {
+      item.snapshotChanged = source.snapshotChanged;
+    }
+    const lastCompletedStage = normalizeString(source.lastCompletedStage);
+    const failedStage = normalizeString(source.failedStage);
+    if (lastCompletedStage) {
+      if (!SAFE_ATTEMPT_STAGES.has(lastCompletedStage)) {
+        return undefined;
+      }
+      item.lastCompletedStage = lastCompletedStage;
+    }
+    if (failedStage) {
+      if (!SAFE_ATTEMPT_STAGES.has(failedStage)) {
+        return undefined;
+      }
+      item.failedStage = failedStage;
+    }
+    attempts.push(item);
+  }
+  const reconciliation = value.reconciliation
+    && typeof value.reconciliation === 'object'
+    ? value.reconciliation
+    : {};
+  const outcome = normalizeString(reconciliation.outcome);
+  if (!SAFE_RECONCILIATION_OUTCOMES.has(outcome)) {
+    return undefined;
+  }
+  return {
+    traceId,
+    action,
+    attemptCount: attempts.length,
+    attempts,
+    reconciliation: {
+      attempted: reconciliation.attempted === true,
+      outcome
+    }
+  };
+}
+
+function withReconciliationOutcome(diagnostic, outcome) {
+  const normalized = normalizeAttemptDiagnostic(diagnostic);
+  if (!normalized || !SAFE_RECONCILIATION_OUTCOMES.has(outcome)) {
+    return undefined;
+  }
+  return {
+    ...normalized,
+    reconciliation: {
+      attempted: outcome !== 'not_applicable',
+      outcome
+    }
+  };
+}
+
+function formatAttemptDiagnostic(value) {
+  const diagnostic = normalizeAttemptDiagnostic(value);
+  if (!diagnostic) {
+    return '';
+  }
+  return JSON.stringify(diagnostic, null, 2);
 }
 
 function normalizePositiveInteger(value, fallback, maximum) {
@@ -348,6 +538,9 @@ function normalizeConversation(record) {
     lastMessageType: MESSAGE_TYPES.has(record.lastMessageType)
       ? record.lastMessageType
       : '',
+    lastMessageId: MESSAGE_ID_PATTERN.test(normalizeString(record.lastMessageId))
+      ? normalizeString(record.lastMessageId)
+      : '',
     lastMessageAt,
     lastMessageAtText: formatPublishedTime(lastMessageAt),
     unreadCount: normalizeCount(record.unreadCount),
@@ -393,9 +586,14 @@ function normalizeMessage(record) {
     createdAt,
     createdAtText: formatMessageTime(createdAt),
     sendStatus: 'sent',
-    clientMessageId: ''
+    clientMessageId: '',
+    forwarded: record.forwarded === true
   };
-  if (type === 'text' || type === 'system') {
+  if (type === 'recalled') {
+    message.recalled = true;
+    message.recalledAt = normalizeDate(record.recalledAt);
+    message.content = message.isMine ? '你撤回了一条消息' : '对方撤回了一条消息';
+  } else if (type === 'text' || type === 'system') {
     const content = typeof record.content === 'string'
       ? record.content.trim()
       : '';
@@ -445,7 +643,7 @@ function mapTransportError(error) {
     return error;
   }
   const classified = CloudService.classifyCallError(error);
-  return createError(classified.code, classified.message);
+  return createError(classified.code, classified.message, error && error.traceId);
 }
 
 function isDevelopmentEnvironment() {
@@ -505,7 +703,9 @@ async function callMessageFunction(
       ? 'cloud_init'
       : 'cloud_call';
     logCallFailure(stage, functionName, action, error);
-    throw mapTransportError(error);
+    const mapped = mapTransportError(error);
+    mapped.traceId = normalizeTraceId(data && data.traceId);
+    throw mapped;
   }
 
   const payload = response && response.result;
@@ -520,11 +720,24 @@ async function callMessageFunction(
     const code = payload.code === 'LOGIN_REQUIRED'
       ? 'AUTH_REQUIRED'
       : payload.code || 'UNKNOWN_ERROR';
-    throw createError(code, payload.message);
+    throw createError(
+      code,
+      payload.message,
+      payload.traceId,
+      payload.diagnostic
+    );
   }
-  return payload.data && typeof payload.data === 'object'
-    ? payload.data
+  const result = payload.data && typeof payload.data === 'object'
+    ? { ...payload.data }
     : {};
+  if (SAFE_TRACE_ID_PATTERN.test(normalizeString(payload.traceId))) {
+    result.traceId = normalizeString(payload.traceId);
+  }
+  const diagnostic = normalizeAttemptDiagnostic(payload.diagnostic);
+  if (diagnostic) {
+    result.diagnostic = diagnostic;
+  }
+  return result;
 }
 
 function callQuery(action, data) {
@@ -544,6 +757,65 @@ function callAction(action, data) {
     data,
     true
   );
+}
+
+async function reconcileMessageDelivery(
+  conversationId,
+  clientMessageId,
+  originalError
+) {
+  if (
+    !originalError
+    || !DELIVERY_RECONCILIATION_ERROR_CODES.has(originalError.code)
+  ) {
+    return null;
+  }
+  try {
+    const data = await callQuery('getMessageDeliveryStatus', {
+      conversationId,
+      clientMessageId,
+      traceId: normalizeTraceId(originalError.traceId)
+    });
+    if (data.found !== true || !data.message) {
+      originalError.diagnostic = withReconciliationOutcome(
+        originalError.diagnostic,
+        'not_found'
+      );
+      return null;
+    }
+    return {
+      message: normalizeMessage(data.message),
+      reused: true,
+      reconciled: true,
+      traceId: normalizeString(originalError.traceId),
+      diagnostic: withReconciliationOutcome(
+        originalError.diagnostic,
+        'found'
+      )
+    };
+  } catch (reconcileError) {
+    originalError.diagnostic = withReconciliationOutcome(
+      originalError.diagnostic,
+      'query_failed'
+    );
+    return null;
+  }
+}
+
+async function sendActionWithReconciliation(action, payload) {
+  try {
+    return await callAction(action, payload);
+  } catch (error) {
+    const reconciled = await reconcileMessageDelivery(
+      payload.conversationId,
+      payload.clientMessageId,
+      error
+    );
+    if (reconciled) {
+      return reconciled;
+    }
+    throw error;
+  }
 }
 
 async function createOrGetConversation(productId) {
@@ -677,14 +949,17 @@ async function sendTextMessage(options = {}) {
   if (!CLIENT_MESSAGE_ID_PATTERN.test(clientMessageId)) {
     throw createError('INVALID_ARGUMENT');
   }
-  const data = await callAction('sendTextMessage', {
+  const data = await sendActionWithReconciliation('sendTextMessage', {
     conversationId,
     content,
-    clientMessageId
+    clientMessageId,
+    traceId: normalizeTraceId(options.traceId) || createTraceId()
   });
   return {
     message: normalizeMessage(data.message),
-    reused: data.reused === true
+    reused: data.reused === true,
+    reconciled: data.reconciled === true,
+    traceId: normalizeTraceId(data.traceId)
   };
 }
 
@@ -703,7 +978,8 @@ async function sendTypedMessage(type, options = {}) {
   const payload = {
     conversationId,
     clientMessageId,
-    type
+    type,
+    traceId: normalizeTraceId(options.traceId) || createTraceId()
   };
   if (type === 'voice' || type === 'image') {
     const media = options.media && typeof options.media === 'object'
@@ -726,10 +1002,12 @@ async function sendTypedMessage(type, options = {}) {
     }
     payload.productId = productId;
   }
-  const data = await callAction('sendMessage', payload);
+  const data = await sendActionWithReconciliation('sendMessage', payload);
   return {
     message: normalizeMessage(data.message),
-    reused: data.reused === true
+    reused: data.reused === true,
+    reconciled: data.reconciled === true,
+    traceId: normalizeTraceId(data.traceId)
   };
 }
 
@@ -763,9 +1041,124 @@ async function markConversationRead(conversationId) {
   };
 }
 
+async function hideConversation(conversationId, activity = {}) {
+  const id = normalizeString(conversationId);
+  if (!CONVERSATION_ID_PATTERN.test(id)) {
+    throw createError('INVALID_ARGUMENT');
+  }
+  const expectedLastMessageId = normalizeString(activity.expectedLastMessageId);
+  const expectedLastMessageAt = normalizeDate(activity.expectedLastMessageAt);
+  if (
+    (expectedLastMessageId && !MESSAGE_ID_PATTERN.test(expectedLastMessageId))
+    || (activity.expectedLastMessageAt && !expectedLastMessageAt)
+  ) {
+    throw createError('INVALID_ARGUMENT');
+  }
+  const request = { conversationId: id };
+  request.traceId = normalizeTraceId(activity.traceId) || createTraceId();
+  if (expectedLastMessageAt) {
+    request.expectedLastMessageId = expectedLastMessageId;
+    request.expectedLastMessageAt = expectedLastMessageAt;
+  }
+  const data = await callAction('hideConversation', request);
+  return {
+    conversationId: normalizeString(data.conversationId) || id,
+    reused: data.reused === true,
+    superseded: data.superseded === true,
+    traceId: normalizeTraceId(data.traceId)
+  };
+}
+
+async function deleteMessageForMe(conversationId, messageId) {
+  const conversation = normalizeString(conversationId);
+  const message = normalizeString(messageId);
+  if (
+    !CONVERSATION_ID_PATTERN.test(conversation)
+    || !MESSAGE_ID_PATTERN.test(message)
+  ) {
+    throw createError('INVALID_ARGUMENT');
+  }
+  const data = await callAction('deleteMessageForMe', {
+    conversationId: conversation,
+    messageId: message
+  });
+  return {
+    conversationId: normalizeString(data.conversationId) || conversation,
+    messageId: normalizeString(data.messageId) || message,
+    reused: data.reused === true
+  };
+}
+
+async function recallMessage(conversationId, messageId) {
+  const conversation = normalizeString(conversationId);
+  const message = normalizeString(messageId);
+  if (
+    !CONVERSATION_ID_PATTERN.test(conversation)
+    || !MESSAGE_ID_PATTERN.test(message)
+  ) {
+    throw createError('INVALID_ARGUMENT');
+  }
+  const data = await callAction('recallMessage', {
+    conversationId: conversation,
+    messageId: message
+  });
+  return {
+    conversationId: normalizeString(data.conversationId) || conversation,
+    message: normalizeMessage(data.message),
+    reused: data.reused === true
+  };
+}
+
+async function forwardMessage(options = {}) {
+  const sourceConversationId = normalizeString(options.sourceConversationId);
+  const targetConversationId = normalizeString(options.targetConversationId);
+  const sourceMessageId = normalizeString(options.sourceMessageId);
+  const clientMessageId = normalizeString(options.clientMessageId)
+    || createClientMessageId();
+  if (
+    !CONVERSATION_ID_PATTERN.test(sourceConversationId)
+    || !CONVERSATION_ID_PATTERN.test(targetConversationId)
+    || !MESSAGE_ID_PATTERN.test(sourceMessageId)
+    || !CLIENT_MESSAGE_ID_PATTERN.test(clientMessageId)
+    || sourceConversationId === targetConversationId
+  ) {
+    throw createError('INVALID_ARGUMENT');
+  }
+  const data = await callAction('forwardMessage', {
+    sourceConversationId,
+    targetConversationId,
+    sourceMessageId,
+    clientMessageId
+  });
+  return {
+    message: normalizeMessage(data.message),
+    reused: data.reused === true
+  };
+}
+
+function canRecallMessage(message, now = Date.now()) {
+  if (
+    !message
+    || message.isMine !== true
+    || !['text', 'voice', 'image', 'location', 'product'].includes(message.type)
+    || message.sendStatus !== 'sent'
+  ) {
+    return false;
+  }
+  const createdAt = new Date(message.createdAt).getTime();
+  return Number.isFinite(createdAt)
+    && now >= createdAt
+    && now - createdAt <= 2 * 60 * 1000;
+}
+
 function createClientMessageId() {
   const random = Math.random().toString(36).slice(2, 12);
   return `msg_${Date.now().toString(36)}_${random}`;
+}
+
+function createTraceId() {
+  const random = Math.random().toString(36).slice(2, 14);
+  return `tr_${random.padEnd(8, '0')}`;
 }
 
 module.exports = {
@@ -774,6 +1167,10 @@ module.exports = {
   normalizeConversation,
   normalizeMessage,
   createClientMessageId,
+  createTraceId,
+  normalizeAttemptDiagnostic,
+  withReconciliationOutcome,
+  formatAttemptDiagnostic,
   createOrGetConversation,
   listConversations,
   getConversation,
@@ -784,5 +1181,10 @@ module.exports = {
   sendImageMessage,
   sendLocationMessage,
   sendProductMessage,
-  markConversationRead
+  markConversationRead,
+  hideConversation,
+  deleteMessageForMe,
+  recallMessage,
+  forwardMessage,
+  canRecallMessage
 };

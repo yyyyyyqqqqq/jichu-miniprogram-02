@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const cloud = require('wx-server-sdk');
 const maintenance = require('./maintenance');
 
@@ -13,13 +14,19 @@ const products = db.collection('products');
 const CONVERSATION_ID_PATTERN = /^c_[a-f0-9]{64}$/;
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const PUBLIC_USER_ID_PATTERN = /^u_[a-f0-9]{32}$/;
+const CLIENT_MESSAGE_ID_PATTERN = /^[a-zA-Z0-9_-]{8,80}$/;
+const SAFE_TRACE_ID_PATTERN = /^tr_[a-z0-9_-]{8,40}$/;
+const ATTEMPT_DIAGNOSTIC_ENV_NAME = 'JICHU_ENVIRONMENT_ROLE';
+const ATTEMPT_DIAGNOSTIC_ROLES = new Set(['staging', 'development']);
 const MESSAGE_TYPES = new Set([
   'text',
   'voice',
   'image',
   'location',
   'product',
-  'system'
+  'system',
+  'recalled',
+  'deleted'
 ]);
 const CONVERSATION_PRODUCT_STATUSES = [
   'available',
@@ -62,6 +69,37 @@ function failure(code, message) {
   };
 }
 
+function isAttemptDiagnosticEnabled() {
+  const role = normalizeString(process.env[ATTEMPT_DIAGNOSTIC_ENV_NAME])
+    .toLowerCase();
+  return ATTEMPT_DIAGNOSTIC_ROLES.has(role);
+}
+
+function appendReconciliationDiagnostic(response, traceId, outcome) {
+  const safeTraceId = normalizeString(traceId).toLowerCase();
+  if (
+    !isAttemptDiagnosticEnabled()
+    || !SAFE_TRACE_ID_PATTERN.test(safeTraceId)
+  ) {
+    return response;
+  }
+  return {
+    ...response,
+    diagnostic: {
+      traceId: safeTraceId,
+      action: 'getMessageDeliveryStatus',
+      attemptCount: 0,
+      attempts: [],
+      reconciliation: {
+        attempted: true,
+        outcome: ['found', 'not_found', 'query_failed'].includes(outcome)
+          ? outcome
+          : 'query_failed'
+      }
+    }
+  };
+}
+
 function businessError(code, message) {
   const error = new Error(message);
   error.businessCode = code;
@@ -75,6 +113,20 @@ function normalizeString(value) {
 function normalizeConversationId(value) {
   const conversationId = normalizeString(value);
   return CONVERSATION_ID_PATTERN.test(conversationId) ? conversationId : '';
+}
+
+function createMessageId(conversationId, senderOpenid, clientMessageId) {
+  return `m_${crypto
+    .createHash('sha256')
+    .update(`${conversationId}:${senderOpenid}:${clientMessageId}`)
+    .digest('hex')}`;
+}
+
+function safeHash(value) {
+  const normalized = normalizeString(value);
+  return normalized
+    ? crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 12)
+    : '';
 }
 
 function normalizePositiveInteger(value, fallback, maximum) {
@@ -173,6 +225,50 @@ function getParticipantSlot(conversation, openId) {
     return 'B';
   }
   return '';
+}
+
+function toTimestamp(value) {
+  const iso = toIsoString(value);
+  return iso ? new Date(iso).getTime() : NaN;
+}
+
+function isConversationHiddenFor(conversation, slot) {
+  const hiddenAt = toTimestamp(conversation[`participant${slot}HiddenAt`]);
+  const lastMessageAt = toTimestamp(conversation.lastMessageAt);
+  if (!Number.isFinite(hiddenAt) || !Number.isFinite(lastMessageAt)) {
+    return false;
+  }
+  const hiddenActivityAt = toTimestamp(
+    conversation[`participant${slot}HiddenActivityAt`]
+  );
+  if (Number.isFinite(hiddenActivityAt)) {
+    return normalizeString(
+      conversation[`participant${slot}HiddenActivityId`]
+    ) === normalizeString(conversation.lastMessageId)
+      && hiddenActivityAt === lastMessageAt;
+  }
+  return hiddenAt >= lastMessageAt;
+}
+
+function isMessageDeletedFor(record, slot) {
+  return Boolean(record && record[`deletedForParticipant${slot}At`]);
+}
+
+function isLatestMessageHiddenFor(conversation, slot) {
+  const hiddenId = normalizeString(
+    conversation[`participant${slot}HiddenLastMessageId`]
+  );
+  const lastMessageId = normalizeString(conversation.lastMessageId);
+  if (hiddenId && lastMessageId) {
+    return hiddenId === lastMessageId;
+  }
+  const hiddenAt = toTimestamp(
+    conversation[`participant${slot}HiddenLastMessageAt`]
+  );
+  const lastAt = toTimestamp(conversation.lastMessageAt);
+  return Number.isFinite(hiddenAt)
+    && Number.isFinite(lastAt)
+    && hiddenAt === lastAt;
 }
 
 function compareByTimeAndId(left, right, field) {
@@ -294,14 +390,25 @@ async function enrichConversation(conversation, openId) {
     product,
     conversation.lastProductSnapshot || conversation.productSnapshot
   );
+  let lastMessage = normalizeString(conversation.lastMessage);
+  let lastMessageType = MESSAGE_TYPES.has(conversation.lastMessageType)
+    ? conversation.lastMessageType
+    : '';
+  if (isLatestMessageHiddenFor(conversation, slot)) {
+    lastMessage = '你删除了一条消息';
+    lastMessageType = 'deleted';
+  } else if (lastMessageType === 'recalled') {
+    lastMessage = conversation.lastSenderOpenid === openId
+      ? '你撤回了一条消息'
+      : '对方撤回了一条消息';
+  }
   return {
     conversationId: String(conversation._id || ''),
     otherUser: safeUser(otherUser, otherUserId),
     product: safeProductValue,
-    lastMessage: normalizeString(conversation.lastMessage),
-    lastMessageType: MESSAGE_TYPES.has(conversation.lastMessageType)
-      ? conversation.lastMessageType
-      : '',
+    lastMessage,
+    lastMessageType,
+    lastMessageId: normalizeString(conversation.lastMessageId),
     lastMessageAt: toIsoString(conversation.lastMessageAt),
     unreadCount,
     canSend: Boolean(product && product.status !== 'deleted')
@@ -315,44 +422,74 @@ async function listConversations(data, openId) {
     MAX_PAGE_SIZE
   );
   const cursor = normalizeCursor(data.cursor, CONVERSATION_ID_PATTERN);
-  const [participantAList, participantBList] = await Promise.all([
-    fetchConversationBranch(
-      'participantAOpenid',
-      openId,
-      cursor,
-      pageSize
-    ),
-    fetchConversationBranch(
-      'participantBOpenid',
-      openId,
-      cursor,
-      pageSize
-    )
-  ]);
-  const unique = new Map();
-  [...participantAList, ...participantBList].forEach((record) => {
-    unique.set(String(record._id || ''), record);
-  });
-  const ordered = [...unique.values()]
-    .sort((left, right) => compareByTimeAndId(
-      left,
-      right,
-      'lastMessageAt'
+  let scanCursor = cursor;
+  let lastScanned = null;
+  let sourceHasMore = false;
+  const visible = [];
+  for (let round = 0; round < 8 && visible.length <= pageSize; round += 1) {
+    const [participantAList, participantBList] = await Promise.all([
+      fetchConversationBranch(
+        'participantAOpenid',
+        openId,
+        scanCursor,
+        MAX_PAGE_SIZE
+      ),
+      fetchConversationBranch(
+        'participantBOpenid',
+        openId,
+        scanCursor,
+        MAX_PAGE_SIZE
+      )
+    ]);
+    const unique = new Map();
+    [...participantAList, ...participantBList].forEach((record) => {
+      unique.set(String(record._id || ''), record);
+    });
+    const ordered = [...unique.values()].sort((left, right) => (
+      compareByTimeAndId(left, right, 'lastMessageAt')
     ));
-  const page = ordered.slice(0, pageSize);
+    if (ordered.length === 0) {
+      sourceHasMore = false;
+      break;
+    }
+    sourceHasMore = participantAList.length > MAX_PAGE_SIZE
+      || participantBList.length > MAX_PAGE_SIZE;
+    for (const record of ordered) {
+      lastScanned = record;
+      const slot = getParticipantSlot(record, openId);
+      if (slot && !isConversationHiddenFor(record, slot)) {
+        visible.push(record);
+        if (visible.length > pageSize) {
+          break;
+        }
+      }
+    }
+    if (visible.length > pageSize) {
+      sourceHasMore = true;
+      break;
+    }
+    if (!sourceHasMore) {
+      break;
+    }
+    scanCursor = lastScanned
+      ? normalizeCursor({
+          time: toIsoString(lastScanned.lastMessageAt),
+          id: String(lastScanned._id || '')
+        }, CONVERSATION_ID_PATTERN)
+      : scanCursor;
+  }
+  const page = visible.slice(0, pageSize);
   const list = await Promise.all(
     page.map((record) => enrichConversation(record, openId))
   );
   const last = page[page.length - 1];
   return success({
     list,
-    hasMore: ordered.length > pageSize
-      || participantAList.length > pageSize
-      || participantBList.length > pageSize,
-    nextCursor: last
+    hasMore: visible.length > pageSize || sourceHasMore,
+    nextCursor: (last || lastScanned)
       ? {
-          time: toIsoString(last.lastMessageAt),
-          id: String(last._id || '')
+          time: toIsoString((last || lastScanned).lastMessageAt),
+          id: String((last || lastScanned)._id || '')
         }
       : null
   });
@@ -406,6 +543,56 @@ async function getConversation(data, openId) {
   });
 }
 
+async function getMessageDeliveryStatus(data, openId) {
+  const conversationId = normalizeConversationId(data.conversationId);
+  const clientMessageId = normalizeString(data.clientMessageId);
+  if (
+    !conversationId
+    || !CLIENT_MESSAGE_ID_PATTERN.test(clientMessageId)
+  ) {
+    return failure(ERROR_CODES.INVALID_ARGUMENT, '消息对账参数不正确');
+  }
+  const conversationResult = await getConversationRecord(
+    conversationId,
+    openId
+  );
+  if (conversationResult.error) {
+    return conversationResult.error;
+  }
+  const messageId = createMessageId(conversationId, openId, clientMessageId);
+  const message = await getDocumentOrNull(
+    db.collection('messages').doc(messageId)
+  );
+  const traceId = normalizeString(data.traceId).toLowerCase();
+  if (SAFE_TRACE_ID_PATTERN.test(traceId)) {
+    console.info('[messageQuery] safe reconciliation', {
+      traceId,
+      stage: 'delivery_status',
+      conversationHash: safeHash(conversationResult.conversationId),
+      messageHash: safeHash(messageId),
+      found: Boolean(message)
+    });
+  }
+  if (!message) {
+    return appendReconciliationDiagnostic(
+      success({ found: false }),
+      traceId,
+      'not_found'
+    );
+  }
+  if (
+    normalizeString(message.senderOpenid) !== openId
+    || normalizeConversationId(message.conversationId)
+      !== conversationResult.conversationId
+  ) {
+    return failure(ERROR_CODES.FORBIDDEN, '无权核对该消息');
+  }
+  return appendReconciliationDiagnostic(success({
+    found: true,
+    message: toSafeMessage(message, openId)
+  }), traceId, 'found');
+}
+
 function toSafeMessage(record, openId) {
   const type = MESSAGE_TYPES.has(record.type) ? record.type : 'unsupported';
   const message = {
@@ -418,6 +605,20 @@ function toSafeMessage(record, openId) {
     ),
     createdAt: toIsoString(record.createdAt)
   };
+  if (record.recalled === true) {
+    return {
+      messageId: message.messageId,
+      senderPublicUserId: message.senderPublicUserId,
+      isMine: message.isMine,
+      type: 'recalled',
+      recalled: true,
+      createdAt: message.createdAt,
+      recalledAt: toIsoString(record.recalledAt)
+    };
+  }
+  if (record.forwarded === true) {
+    message.forwarded = true;
+  }
   if (type === 'text') {
     message.content = normalizeString(record.content);
   } else if (type === 'system') {
@@ -484,29 +685,62 @@ async function listMessages(data, openId) {
   );
   const cursor = normalizeCursor(data.cursor, /^m_[a-f0-9]{64}$/);
   const canonicalConversationId = conversationResult.conversationId;
-  const condition = buildCursorCondition(
-    'conversationId',
-    canonicalConversationId,
-    'createdAt',
-    cursor
-  );
-  const result = await db.collection('messages')
-    .where(condition)
-    .orderBy('createdAt', 'desc')
-    .orderBy('_id', 'desc')
-    .limit(pageSize + 1)
-    .get();
-  const records = Array.isArray(result.data)
-    ? result.data.slice(0, pageSize)
-    : [];
+  const slot = getParticipantSlot(conversationResult.conversation, openId);
+  let scanCursor = cursor;
+  let lastScanned = null;
+  let sourceHasMore = false;
+  const visible = [];
+  for (let round = 0; round < 8 && visible.length <= pageSize; round += 1) {
+    const condition = buildCursorCondition(
+      'conversationId',
+      canonicalConversationId,
+      'createdAt',
+      scanCursor
+    );
+    const result = await db.collection('messages')
+      .where(condition)
+      .orderBy('createdAt', 'desc')
+      .orderBy('_id', 'desc')
+      .limit(MAX_PAGE_SIZE + 1)
+      .get();
+    const batch = Array.isArray(result.data) ? result.data : [];
+    if (batch.length === 0) {
+      sourceHasMore = false;
+      break;
+    }
+    sourceHasMore = batch.length > MAX_PAGE_SIZE;
+    for (const record of batch.slice(0, MAX_PAGE_SIZE)) {
+      lastScanned = record;
+      if (!isMessageDeletedFor(record, slot)) {
+        visible.push(record);
+        if (visible.length > pageSize) {
+          break;
+        }
+      }
+    }
+    if (visible.length > pageSize) {
+      sourceHasMore = true;
+      break;
+    }
+    if (!sourceHasMore) {
+      break;
+    }
+    scanCursor = lastScanned
+      ? normalizeCursor({
+          time: toIsoString(lastScanned.createdAt),
+          id: String(lastScanned._id || '')
+        }, /^m_[a-f0-9]{64}$/)
+      : scanCursor;
+  }
+  const records = visible.slice(0, pageSize);
   const last = records[records.length - 1];
   return success({
     list: records.map((record) => toSafeMessage(record, openId)),
-    hasMore: Array.isArray(result.data) && result.data.length > pageSize,
-    nextCursor: last
+    hasMore: visible.length > pageSize || sourceHasMore,
+    nextCursor: (last || lastScanned)
       ? {
-          time: toIsoString(last.createdAt),
-          id: String(last._id || '')
+          time: toIsoString((last || lastScanned).createdAt),
+          id: String((last || lastScanned)._id || '')
         }
       : null
   });
@@ -655,6 +889,7 @@ exports.main = async (event = {}) => {
   const allowedActions = [
     'listConversations',
     'getConversation',
+    'getMessageDeliveryStatus',
     'listMessages',
     'listConversationProducts'
   ];
@@ -676,24 +911,47 @@ exports.main = async (event = {}) => {
     if (action === 'getConversation') {
       return await getConversation(data, openId);
     }
+    if (action === 'getMessageDeliveryStatus') {
+      return await getMessageDeliveryStatus(data, openId);
+    }
     if (action === 'listConversationProducts') {
       return await listConversationProducts(data, openId);
     }
     return await listMessages(data, openId);
   } catch (error) {
     if (error && error.businessCode) {
-      return failure(error.businessCode, error.message);
+      const response = failure(error.businessCode, error.message);
+      return action === 'getMessageDeliveryStatus'
+        ? appendReconciliationDiagnostic(
+            response,
+            data.traceId,
+            'query_failed'
+          )
+        : response;
     }
     console.error('[messageQuery] request failed', {
       action,
       code: error && (error.errCode || error.code || '')
     });
     const code = classifyFailure(error);
-    return failure(
+    const response = failure(
       code,
       code === ERROR_CODES.DATABASE_ERROR
         ? '消息数据暂不可用，请稍后重试'
         : '消息服务暂不可用，请稍后重试'
     );
+    return action === 'getMessageDeliveryStatus'
+      ? appendReconciliationDiagnostic(
+          response,
+          data.traceId,
+          'query_failed'
+        )
+      : response;
   }
 };
+
+exports.__test = Object.freeze({
+  isConversationHiddenFor,
+  isAttemptDiagnosticEnabled,
+  appendReconciliationDiagnostic
+});

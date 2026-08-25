@@ -96,6 +96,10 @@
     "phase-24-pair:maintenance": "node scripts/manage-phase-24-pair-maintenance.js",
     "phase-24-pair:staging-drill": "node scripts/prepare-phase-24-pair-migration-drill.js",
     "phase-24-pair:fault-drills": "node scripts/run-phase-114-staging-fault-drills.js",
+    "phase-25-message-lifecycle:verify": "node scripts/verify-phase-25-message-lifecycle.js && node scripts/verify-phase-25-hide-send-race.js && node scripts/verify-phase-25-attempt-diagnostics.js && node scripts/verify-phase-25-rollback-compatibility.js && node scripts/verify-project.js",
+    "phase-25-hide-send-race:deploy": "node scripts/deploy-phase-25-hide-send-race.js",
+    "phase-25-rollback-floor:guard": "node scripts/guard-phase-25-minimum-safe-rollback.js --lifecycle-data present",
+    "phase-25-rollback-floor:verify": "node scripts/verify-phase-25-rollback-compatibility.js",
     "verify": "node scripts/verify-project.js"
   },
   "dependencies": {

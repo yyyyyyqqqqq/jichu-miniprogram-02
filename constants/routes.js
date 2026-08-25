@@ -12,6 +12,7 @@ const ROUTES = {
   MY_PRODUCTS: '/pages/my-products/index',
   CHAT: '/pages/chat/index',
   CHAT_PRODUCT_PICKER: '/pages/chat-product-picker/index',
+  MESSAGE_FORWARD: '/pages/message-forward/index',
   USER_PROFILE: '/pages/user-profile/index',
   LOCATION_PICKER: '/pages/location-picker/index',
   APPOINTMENT_CREATE: '/pages/appointment-create/index',

@@ -1,0 +1,53 @@
+<view class="forward-page">
+  <view class="forward-tip">选择一个已有会话，消息会作为一条新消息发送</view>
+
+  <loading-state wx:if="{{viewState === 'loading'}}" text="正在加载会话" />
+
+  <empty-state
+    wx:elif="{{viewState === 'error'}}"
+    title="会话列表加载失败"
+    description="{{errorMessage}}"
+    action-text="重新加载"
+    bind:action="retryLoad"
+  />
+
+  <empty-state
+    wx:elif="{{viewState === 'empty'}}"
+    title="没有其他可转发的会话"
+    description="先与其他用户建立会话后再试"
+    show-action="{{false}}"
+  />
+
+  <view wx:else class="forward-list">
+    <button
+      wx:for="{{conversations}}"
+      wx:key="conversationId"
+      class="forward-card"
+      data-conversation-id="{{item.conversationId}}"
+      disabled="{{isForwarding}}"
+      loading="{{forwardingConversationId === item.conversationId}}"
+      bindtap="selectConversation"
+    >
+      <image
+        wx:if="{{item.otherUser.avatarUrl}}"
+        class="forward-card__avatar"
+        src="{{item.otherUser.avatarUrl}}"
+        mode="aspectFill"
+      />
+      <view wx:else class="forward-card__avatar forward-card__avatar--text">
+        {{item.otherUser.avatarText}}
+      </view>
+      <view class="forward-card__body">
+        <text class="forward-card__name">{{item.otherUser.nickname}}</text>
+        <text class="forward-card__product">{{item.product.title}}</text>
+        <text class="forward-card__summary">{{item.lastMessage}}</text>
+      </view>
+      <text class="forward-card__action">转发</text>
+    </button>
+
+    <loading-state wx:if="{{isLoadingMore}}" compact text="正在加载更多会话" />
+    <view wx:if="{{!isLoadingMore && conversations.length > 0 && !hasMore}}" class="list-end">
+      已显示全部会话
+    </view>
+  </view>
+</view>

@@ -8,6 +8,26 @@ const {
   AUTH_TARGETS
 } = require('../../constants/routes');
 
+function showCopyableAttemptDiagnostic(error) {
+  const content = MessageService.formatAttemptDiagnostic(
+    error && error.diagnostic
+  );
+  if (!content) {
+    return;
+  }
+  wx.showModal({
+    title: '删除诊断（测试环境）',
+    content,
+    confirmText: '复制',
+    cancelText: '关闭',
+    success(result) {
+      if (result.confirm) {
+        wx.setClipboardData({ data: content });
+      }
+    }
+  });
+}
+
 Page({
   data: {
     isLoggedIn: false,
@@ -212,9 +232,84 @@ Page({
     if (!conversationId) {
       return;
     }
+    if (
+      this.suppressedConversationId === conversationId
+      && Date.now() < this.suppressConversationTapUntil
+    ) {
+      return;
+    }
     NavigationService.safeNavigateTo(
       `${ROUTES.CHAT}?conversationId=${encodeURIComponent(conversationId)}`
     );
+  },
+
+  onConversationLongPress(event) {
+    const conversationId = event
+      && event.currentTarget
+      && event.currentTarget.dataset
+      ? event.currentTarget.dataset.conversationId
+      : '';
+    if (!conversationId) {
+      return;
+    }
+    const conversation = this.data.conversations.find(
+      (item) => item.conversationId === conversationId
+    );
+    if (!conversation) {
+      return;
+    }
+    this.suppressedConversationId = conversationId;
+    this.suppressConversationTapUntil = Date.now() + 800;
+    wx.showActionSheet({
+      itemList: ['从消息列表删除'],
+      success: (result) => {
+        if (result.tapIndex === 0) {
+          this.confirmHideConversation(conversation);
+        }
+      }
+    });
+  },
+
+  confirmHideConversation(conversation) {
+    const conversationId = conversation.conversationId;
+    wx.showModal({
+      title: '删除会话',
+      content: '仅从你的消息列表删除。对方仍可看到会话，新消息到达后会重新出现。',
+      confirmText: '删除',
+      confirmColor: '#d84b32',
+      success: async (result) => {
+        if (!result.confirm) {
+          return;
+        }
+        try {
+          const hidden = await MessageService.hideConversation(conversationId, {
+            expectedLastMessageId: conversation.lastMessageId,
+            expectedLastMessageAt: conversation.lastMessageAt
+          });
+          if (hidden.superseded) {
+            wx.showToast({ title: '收到新消息，未删除会话', icon: 'none' });
+            this.loadConversations({ reset: true });
+            return;
+          }
+          const conversations = this.data.conversations.filter(
+            (item) => item.conversationId !== conversationId
+          );
+          this.setData({
+            conversations,
+            viewState: conversations.length > 0 ? 'success' : 'empty'
+          });
+          wx.showToast({ title: '已从列表删除', icon: 'success' });
+        } catch (error) {
+          wx.showToast({
+            title: error && error.message
+              ? `${error.message}${error.traceId ? `（${error.traceId}）` : ''}`
+              : '删除失败，请重试',
+            icon: 'none'
+          });
+          showCopyableAttemptDiagnostic(error);
+        }
+      }
+    });
   },
 
   goHome() {

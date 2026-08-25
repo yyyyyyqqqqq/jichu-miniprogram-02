@@ -17,6 +17,26 @@ const VOICE_CANCEL_THRESHOLD_PX = 80;
 const RECORDING_MAX_DURATION_MS = 60000;
 const VOICE_PLAYBACK_READY_TIMEOUT_MS = 10000;
 
+function showCopyableAttemptDiagnostic(error) {
+  const content = MessageService.formatAttemptDiagnostic(
+    error && error.diagnostic
+  );
+  if (!content) {
+    return;
+  }
+  wx.showModal({
+    title: '发送诊断（测试环境）',
+    content,
+    confirmText: '复制',
+    cancelText: '关闭',
+    success(result) {
+      if (result.confirm) {
+        wx.setClipboardData({ data: content });
+      }
+    }
+  });
+}
+
 function isDevelopmentEnvironment() {
   if (
     typeof wx === 'undefined'
@@ -413,8 +433,24 @@ Page({
       if (!this.isPageActive || !this.isPageVisible) {
         return;
       }
+      const oldestReturnedAt = result.list.length > 0
+        ? new Date(result.list[0].createdAt).getTime()
+        : NaN;
+      const oldestReturnedId = result.list.length > 0
+        ? String(result.list[0].messageId || '')
+        : '';
+      const retainedHistory = result.hasMore && Number.isFinite(oldestReturnedAt)
+        ? this.serverMessages.filter((message) => {
+            const messageTime = new Date(message.createdAt).getTime();
+            return messageTime < oldestReturnedAt
+              || (
+                messageTime === oldestReturnedAt
+                && String(message.messageId || '') < oldestReturnedId
+              );
+          })
+        : [];
       const byId = new Map(
-        this.serverMessages.map((message) => [message.messageId, message])
+        retainedHistory.map((message) => [message.messageId, message])
       );
       result.list.forEach((message) => {
         byId.set(message.messageId, message);
@@ -1004,6 +1040,9 @@ Page({
   },
 
   async onVoiceMessageTap(event) {
+    if (this.shouldSuppressMessageTap(event)) {
+      return;
+    }
     const messageId = event && event.currentTarget
       && event.currentTarget.dataset
       ? event.currentTarget.dataset.messageId
@@ -1299,6 +1338,9 @@ Page({
   },
 
   onImageMessageTap(event) {
+    if (this.shouldSuppressMessageTap(event)) {
+      return;
+    }
     const messageId = event && event.currentTarget
       && event.currentTarget.dataset
       ? event.currentTarget.dataset.messageId
@@ -1396,6 +1438,9 @@ Page({
   },
 
   openLocationMessage(event) {
+    if (this.shouldSuppressMessageTap(event)) {
+      return;
+    }
     const messageId = event && event.currentTarget
       && event.currentTarget.dataset
       ? event.currentTarget.dataset.messageId
@@ -1456,6 +1501,9 @@ Page({
   },
 
   async openProductMessage(event) {
+    if (this.shouldSuppressMessageTap(event)) {
+      return;
+    }
     const productId = event && event.currentTarget
       && event.currentTarget.dataset
       ? event.currentTarget.dataset.productId
@@ -1550,6 +1598,9 @@ Page({
   },
 
   retryMessage(event) {
+    if (this.shouldSuppressMessageTap(event)) {
+      return;
+    }
     const clientMessageId = event
       && event.currentTarget
       && event.currentTarget.dataset
@@ -1652,7 +1703,8 @@ Page({
   dispatchPendingMessage(message) {
     const common = {
       conversationId: this.conversationId,
-      clientMessageId: message.clientMessageId
+      clientMessageId: message.clientMessageId,
+      traceId: message.traceId
     };
     if (message.type === 'text') {
       return MessageService.sendTextMessage({
@@ -1702,6 +1754,7 @@ Page({
     );
     const sending = {
       ...pending,
+      traceId: pending.traceId || MessageService.createTraceId(),
       sendStatus: 'sending'
     };
     if (existingIndex >= 0) {
@@ -1790,10 +1843,11 @@ Page({
       this.renderMessages(true);
       wx.showToast({
         title: error && error.message
-          ? error.message
+          ? `${error.message}${error.traceId ? `（${error.traceId}）` : ''}`
           : '发送失败，请重试',
         icon: 'none'
       });
+      showCopyableAttemptDiagnostic(error);
       return false;
     }
   },
@@ -1852,6 +1906,9 @@ Page({
   },
 
   openAppointmentMessage(event) {
+    if (this.shouldSuppressMessageTap(event)) {
+      return;
+    }
     const appointmentId = event
       && event.currentTarget
       && event.currentTarget.dataset
@@ -1862,6 +1919,135 @@ Page({
         `${ROUTES.APPOINTMENT_DETAIL}?appointmentId=${encodeURIComponent(appointmentId)}`
       );
     }
+  },
+
+  getMessageIdFromEvent(event) {
+    return event && event.currentTarget && event.currentTarget.dataset
+      ? event.currentTarget.dataset.messageId || ''
+      : '';
+  },
+
+  shouldSuppressMessageTap(event) {
+    const messageId = this.getMessageIdFromEvent(event);
+    return Boolean(
+      messageId
+      && messageId === this.suppressedMessageId
+      && Date.now() < this.suppressMessageTapUntil
+    );
+  },
+
+  onMessageLongPress(event) {
+    const messageId = this.getMessageIdFromEvent(event);
+    const message = this.data.messages.find(
+      (item) => item.messageId === messageId
+    );
+    if (!message || message.sendStatus !== 'sent') {
+      return;
+    }
+    this.suppressedMessageId = messageId;
+    this.suppressMessageTapUntil = Date.now() + 800;
+    const actions = [];
+    if (message.type === 'text') {
+      actions.push({ label: '复制', action: 'copy' });
+    }
+    if (['text', 'voice', 'image', 'location', 'product'].includes(message.type)) {
+      actions.push({ label: '转发', action: 'forward' });
+    }
+    if (MessageService.canRecallMessage(message)) {
+      actions.push({ label: '撤回', action: 'recall' });
+    }
+    actions.push({ label: '仅从我这里删除', action: 'delete' });
+    wx.showActionSheet({
+      itemList: actions.map((item) => item.label),
+      success: (result) => {
+        const selected = actions[result.tapIndex];
+        if (selected) {
+          this.handleMessageAction(selected.action, message);
+        }
+      }
+    });
+  },
+
+  handleMessageAction(action, message) {
+    if (action === 'copy') {
+      wx.setClipboardData({ data: message.content || '' });
+      return;
+    }
+    if (action === 'forward') {
+      NavigationService.safeNavigateTo(
+        `${ROUTES.MESSAGE_FORWARD}?sourceConversationId=${encodeURIComponent(this.conversationId)}&sourceMessageId=${encodeURIComponent(message.messageId)}`
+      );
+      return;
+    }
+    if (action === 'recall') {
+      this.confirmRecallMessage(message);
+      return;
+    }
+    this.confirmDeleteMessage(message);
+  },
+
+  confirmDeleteMessage(message) {
+    wx.showModal({
+      title: '删除消息',
+      content: '仅从你这里删除，对方仍可看到这条消息。',
+      confirmText: '删除',
+      confirmColor: '#d84b32',
+      success: async (result) => {
+        if (!result.confirm) {
+          return;
+        }
+        try {
+          await MessageService.deleteMessageForMe(
+            this.conversationId,
+            message.messageId
+          );
+          this.serverMessages = this.serverMessages.filter(
+            (item) => item.messageId !== message.messageId
+          );
+          this.pendingMessages = this.pendingMessages.filter(
+            (item) => item.messageId !== message.messageId
+          );
+          this.renderMessages(false);
+          wx.showToast({ title: '已删除', icon: 'success' });
+        } catch (error) {
+          wx.showToast({
+            title: error && error.message ? error.message : '删除失败，请重试',
+            icon: 'none'
+          });
+        }
+      }
+    });
+  },
+
+  confirmRecallMessage(message) {
+    wx.showModal({
+      title: '撤回消息',
+      content: '撤回后双方都会看到撤回提示。',
+      confirmText: '撤回',
+      success: async (result) => {
+        if (!result.confirm) {
+          return;
+        }
+        try {
+          const response = await MessageService.recallMessage(
+            this.conversationId,
+            message.messageId
+          );
+          const byId = new Map(
+            this.serverMessages.map((item) => [item.messageId, item])
+          );
+          byId.set(response.message.messageId, response.message);
+          this.serverMessages = [...byId.values()];
+          this.renderMessages(false);
+          wx.showToast({ title: '已撤回', icon: 'success' });
+        } catch (error) {
+          wx.showToast({
+            title: error && error.message ? error.message : '撤回失败，请重试',
+            icon: 'none'
+          });
+        }
+      }
+    });
   },
 
   retryConversation() {

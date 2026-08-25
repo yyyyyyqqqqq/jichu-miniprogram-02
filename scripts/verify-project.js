@@ -684,7 +684,10 @@ record('messaging uses guarded services, deterministic ids and safe response fie
   assert(/createParticipantPair\(\s*currentUserId,\s*sellerUserId\s*\)/.test(actionSource), 'conversation id is not deterministic by unordered public user pair');
   assert(/participantPairKey/.test(actionSource) && /lastProductId/.test(actionSource), 'pair identity or current product context is missing');
   assert(/createMessageId\(\s*conversationId,\s*openId,\s*clientMessageId\s*\)/.test(actionSource), 'message id is not deterministic');
-  assert(/db\.runTransaction/.test(actionSource), 'message writes are not transactional');
+  assert(
+    /(?:db\.runTransaction|database\.startTransaction)/.test(actionSource),
+    'message writes are not transactional'
+  );
   assert(/transaction\.collection\(['"]messages['"]\)\.doc\(messageId\)/.test(actionSource), 'message transaction does not use deterministic document operations');
   const sendStart = actionSource.indexOf('async function sendTextMessage');
   const markReadStart = actionSource.indexOf('async function markConversationRead');
@@ -5052,7 +5055,10 @@ async function verifyMessageServiceFlow() {
   const originalWx = global.wx;
   const requests = [];
   let responseFailureCode = '';
+  let failNextSendWithCode = '';
+  let deliveryStatusFound = false;
   const conversationId = `c_${'a'.repeat(64)}`;
+  const targetConversationId = `c_${'d'.repeat(64)}`;
   const messageId = `m_${'b'.repeat(64)}`;
   const publicUserId = `u_${'c'.repeat(32)}`;
   const now = '2026-07-19T10:00:00.000Z';
@@ -5106,6 +5112,11 @@ async function verifyMessageServiceFlow() {
           };
         } else if (action === 'getConversation') {
           data = { conversation: safeConversation };
+        } else if (action === 'getMessageDeliveryStatus') {
+          data = {
+            found: deliveryStatusFound,
+            message: deliveryStatusFound ? safeMessage : undefined
+          };
         } else if (action === 'listMessages') {
           data = {
             list: [safeMessage],
@@ -5160,17 +5171,48 @@ async function verifyMessageServiceFlow() {
             };
           }
           data = { message: richMessage, reused: false };
+        } else if (action === 'recallMessage') {
+          data = {
+            conversationId,
+            message: {
+              messageId,
+              senderPublicUserId: publicUserId,
+              isMine: true,
+              type: 'recalled',
+              recalled: true,
+              createdAt: now,
+              recalledAt: now
+            },
+            reused: false
+          };
+        } else if (action === 'forwardMessage') {
+          data = {
+            message: {
+              ...safeMessage,
+              messageId: `m_${'7'.repeat(64)}`,
+              forwarded: true
+            },
+            reused: false
+          };
         } else {
           data = { conversationId, unreadCount: 0 };
         }
+        const sendFailureCode = ['sendTextMessage', 'sendMessage'].includes(action)
+          ? failNextSendWithCode
+          : '';
+        if (sendFailureCode) {
+          failNextSendWithCode = '';
+        }
+        const effectiveFailureCode = sendFailureCode || responseFailureCode;
         options.success({
           result: {
-            success: !responseFailureCode,
-            code: responseFailureCode || 'OK',
-            message: responseFailureCode
+            success: !effectiveFailureCode,
+            code: effectiveFailureCode || 'OK',
+            message: effectiveFailureCode
               ? '业务状态不允许'
               : '',
-            data: responseFailureCode ? null : data
+            data: effectiveFailureCode ? null : data,
+            traceId: options.data.traceId || 'tr_verification01'
           }
         });
       }
@@ -5216,6 +5258,25 @@ async function verifyMessageServiceFlow() {
     assert(
       sendRequest.data.clientMessageId === clientMessageId,
       'MessageService dropped the message idempotency key'
+    );
+    failNextSendWithCode = 'DATABASE_ERROR';
+    deliveryStatusFound = true;
+    const reconciledSend = await MessageService.sendTextMessage({
+      conversationId,
+      content: '结果未知但已提交',
+      clientMessageId: 'msg_verification_reconcile_0001',
+      traceId: 'tr_reconcile01'
+    });
+    deliveryStatusFound = false;
+    const reconciliationRequests = requests.slice(-2);
+    assert(
+      reconciledSend.reconciled === true
+      && reconciledSend.reused === true
+      && reconciledSend.message.messageId === messageId
+      && reconciliationRequests[0].data.action === 'sendTextMessage'
+      && reconciliationRequests[1].data.action === 'getMessageDeliveryStatus'
+      && reconciliationRequests[1].name === 'messageQuery',
+      'result-unknown send did not perform one read-only deterministic reconciliation'
     );
 
     const selectableProducts = await MessageService.listConversationProducts(
@@ -5366,6 +5427,55 @@ async function verifyMessageServiceFlow() {
     assert(emptyError && emptyError.code === 'MESSAGE_EMPTY', 'MessageService accepts empty text');
     assert(requests.length === requestCount, 'MessageService sent an invalid empty message request');
     await MessageService.markConversationRead(conversationId);
+    await MessageService.hideConversation(conversationId);
+    await MessageService.deleteMessageForMe(conversationId, messageId);
+    const recalledMessage = await MessageService.recallMessage(
+      conversationId,
+      messageId
+    );
+    const forwardedMessage = await MessageService.forwardMessage({
+      sourceConversationId: conversationId,
+      sourceMessageId: messageId,
+      targetConversationId,
+      clientMessageId: 'msg_service_forward_0001'
+    });
+    assert(
+      recalledMessage.message.type === 'recalled'
+      && recalledMessage.message.content === '你撤回了一条消息'
+      && forwardedMessage.message.forwarded === true,
+      'MessageService did not normalize lifecycle action responses'
+    );
+    const lifecycleRequests = requests.filter((request) => [
+      'hideConversation',
+      'deleteMessageForMe',
+      'recallMessage',
+      'forwardMessage'
+    ].includes(request.data.action));
+    assert(
+      lifecycleRequests.length === 4
+      && lifecycleRequests.every(
+        (request) => !('senderOpenid' in request.data)
+          && !('content' in request.data)
+          && !('media' in request.data)
+      ),
+      'MessageService lifecycle calls send protected or source payload fields'
+    );
+    const maliciousRecalled = MessageService.normalizeMessage({
+      messageId: `m_${'6'.repeat(64)}`,
+      senderPublicUserId: publicUserId,
+      isMine: false,
+      type: 'recalled',
+      recalled: true,
+      content: '不应保留的原文',
+      media: { fileId: 'cloud://should-not-survive' },
+      createdAt: now,
+      recalledAt: now
+    });
+    assert(
+      maliciousRecalled.content === '对方撤回了一条消息'
+      && !maliciousRecalled.media,
+      'MessageService retained payload from a recalled projection'
+    );
 
     responseFailureCode = 'PRODUCT_UNAVAILABLE';
     let businessError;
@@ -5916,6 +6026,7 @@ async function verifyMessagingFunctionFlow() {
     products: new Map(),
     conversations: new Map(),
     messages: new Map(),
+    appointments: new Map(),
     systemConfig: new Map([[
       'conversation_appointment_maintenance',
       {
@@ -6107,6 +6218,15 @@ async function verifyMessagingFunctionFlow() {
         OPENID: currentOpenId,
         APPID: appId
       };
+    },
+    async downloadFile() {
+      return { fileContent: Buffer.from('phase-25-media-copy') };
+    },
+    async uploadFile({ cloudPath }) {
+      return { fileID: `cloud://verification-env/${cloudPath}` };
+    },
+    async deleteFile() {
+      return { fileList: [] };
     }
   };
 
@@ -6395,6 +6515,29 @@ async function verifyMessagingFunctionFlow() {
       && repeatedSend.data.reused === true
       && stores.messages.size === 1,
       'repeated clientMessageId duplicated a message'
+    );
+    const deliveryStatus = await messageQuery.main({
+      action: 'getMessageDeliveryStatus',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_verification_0001'
+      }
+    });
+    const missingDeliveryStatus = await messageQuery.main({
+      action: 'getMessageDeliveryStatus',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_verification_missing'
+      }
+    });
+    assert(
+      deliveryStatus.success === true
+      && deliveryStatus.data.found === true
+      && deliveryStatus.data.message.messageId
+        === firstSend.data.message.messageId
+      && missingDeliveryStatus.success === true
+      && missingDeliveryStatus.data.found === false,
+      'deterministic delivery reconciliation returned an unsafe or incorrect result'
     );
     const conflictingTextReplay = await messageAction.main({
       action: 'sendTextMessage',
@@ -7089,6 +7232,639 @@ async function verifyMessagingFunctionFlow() {
       && !safePayload.includes(sellerOpenId)
       && !/"senderOpenid"|"participantAOpenid"|"participantBOpenid"/.test(safePayload),
       'messaging response leaked an internal identity'
+    );
+
+    const lifecycleAliasId = `c_${'f'.repeat(64)}`;
+    stores.conversations.set(lifecycleAliasId, {
+      ...stores.conversations.get(conversationId),
+      _id: lifecycleAliasId,
+      status: 'merged',
+      mergedInto: conversationId
+    });
+
+    const lifecycleSource = await messageAction.main({
+      action: 'sendTextMessage',
+      data: {
+        conversationId,
+        content: '生命周期原文不能泄露',
+        clientMessageId: 'msg_phase25_recall_0001'
+      }
+    });
+    assert(lifecycleSource.success === true, 'phase 25 recall fixture send failed');
+    const lifecycleMessageId = lifecycleSource.data.message.messageId;
+    const recentCreatedAt = new Date(Date.now() - 30000);
+    stores.messages.set(lifecycleMessageId, {
+      ...stores.messages.get(lifecycleMessageId),
+      createdAt: recentCreatedAt
+    });
+    stores.conversations.set(conversationId, {
+      ...stores.conversations.get(conversationId),
+      lastMessageAt: recentCreatedAt,
+      lastMessageId: lifecycleMessageId
+    });
+    const sellerUnreadBeforeRecall = stores.conversations.get(conversationId)[
+      `participant${sellerSlot}UnreadCount`
+    ];
+    currentOpenId = sellerOpenId;
+    const otherRecall = await messageAction.main({
+      action: 'recallMessage',
+      data: { conversationId, messageId: lifecycleMessageId }
+    });
+    assert(
+      otherRecall.code === 'MESSAGE_NOT_OWNED',
+      'another participant can recall the sender message'
+    );
+    currentOpenId = buyerOpenId;
+    const recalled = await messageAction.main({
+      action: 'recallMessage',
+      data: {
+        conversationId: lifecycleAliasId,
+        messageId: lifecycleMessageId
+      }
+    });
+    const repeatedRecall = await messageAction.main({
+      action: 'recallMessage',
+      data: { conversationId, messageId: lifecycleMessageId }
+    });
+    const storedRecalled = stores.messages.get(lifecycleMessageId);
+    const conversationAfterRecall = stores.conversations.get(conversationId);
+    assert(
+      recalled.success === true
+      && recalled.data.message.type === 'recalled'
+      && repeatedRecall.success === true
+      && repeatedRecall.data.reused === true
+      && storedRecalled.content === '生命周期原文不能泄露'
+      && storedRecalled.recalled === true
+      && conversationAfterRecall[`participant${sellerSlot}UnreadCount`]
+        === Math.max(0, sellerUnreadBeforeRecall - 1),
+      'recall did not preserve payload, project safely, or decrement unread once'
+    );
+    const buyerRecallSummary = await messageQuery.main({
+      action: 'getConversation',
+      data: { conversationId }
+    });
+    currentOpenId = sellerOpenId;
+    const sellerRecallSummary = await messageQuery.main({
+      action: 'getConversation',
+      data: { conversationId: lifecycleAliasId }
+    });
+    const sellerRecalledHistory = await messageQuery.main({
+      action: 'listMessages',
+      data: { conversationId, pageSize: 30 }
+    });
+    const safeRecalled = sellerRecalledHistory.data.list.find(
+      (message) => message.messageId === lifecycleMessageId
+    );
+    assert(
+      safeRecalled
+      && safeRecalled.type === 'recalled'
+      && !Object.prototype.hasOwnProperty.call(safeRecalled, 'content')
+      && !JSON.stringify(safeRecalled).includes('生命周期原文不能泄露')
+      && buyerRecallSummary.data.conversation.lastMessage === '你撤回了一条消息'
+      && sellerRecallSummary.data.conversation.lastMessage === '对方撤回了一条消息',
+      'recalled query projection exposes payload or returns an unsafe summary'
+    );
+
+    const fixedNow = Date.now();
+    const originalDateNow = Date.now;
+    Date.now = () => fixedNow;
+    try {
+      currentOpenId = buyerOpenId;
+      const boundaryFixture = await messageAction.main({
+        action: 'sendTextMessage',
+        data: {
+          conversationId,
+          content: '恰好两分钟边界',
+          clientMessageId: 'msg_phase25_recall_boundary'
+        }
+      });
+      stores.messages.set(boundaryFixture.data.message.messageId, {
+        ...stores.messages.get(boundaryFixture.data.message.messageId),
+        createdAt: new Date(fixedNow - 120000)
+      });
+      const boundaryRecall = await messageAction.main({
+        action: 'recallMessage',
+        data: {
+          conversationId: lifecycleAliasId,
+          messageId: boundaryFixture.data.message.messageId
+        }
+      });
+      const expiredFixture = await messageAction.main({
+        action: 'sendTextMessage',
+        data: {
+          conversationId,
+          content: '超过两分钟',
+          clientMessageId: 'msg_phase25_recall_expired'
+        }
+      });
+      stores.messages.set(expiredFixture.data.message.messageId, {
+        ...stores.messages.get(expiredFixture.data.message.messageId),
+        createdAt: new Date(fixedNow - 120001)
+      });
+      const expiredRecall = await messageAction.main({
+        action: 'recallMessage',
+        data: {
+          conversationId,
+          messageId: expiredFixture.data.message.messageId
+        }
+      });
+      assert(
+        boundaryRecall.success === true
+        && expiredRecall.code === 'MESSAGE_RECALL_EXPIRED',
+        'recall two-minute boundary is not inclusive or expiry is not enforced'
+      );
+    } finally {
+      Date.now = originalDateNow;
+    }
+
+    const systemRecallMessageId = `m_${'4'.repeat(64)}`;
+    stores.messages.set(systemRecallMessageId, {
+      _id: systemRecallMessageId,
+      conversationId,
+      senderOpenid: buyerOpenId,
+      senderPublicUserId: buyerUserId,
+      type: 'system',
+      eventType: 'appointment_created',
+      appointmentId: `a_${'4'.repeat(64)}`,
+      content: '系统消息不可撤回',
+      createdAt: new Date()
+    });
+    currentOpenId = buyerOpenId;
+    const systemRecall = await messageAction.main({
+      action: 'recallMessage',
+      data: { conversationId, messageId: systemRecallMessageId }
+    });
+    const imageStored = stores.messages.get(imageSend.data.message.messageId);
+    stores.messages.set(imageSend.data.message.messageId, {
+      ...imageStored,
+      createdAt: new Date(Date.now() - 15000)
+    });
+    const recalledImage = await messageAction.main({
+      action: 'recallMessage',
+      data: { conversationId, messageId: imageSend.data.message.messageId }
+    });
+    const imageRecallHistory = await messageQuery.main({
+      action: 'listMessages',
+      data: { conversationId, pageSize: 30 }
+    });
+    const safeRecalledImage = imageRecallHistory.data.list.find(
+      (message) => message.messageId === imageSend.data.message.messageId
+    );
+    assert(
+      systemRecall.code === 'MESSAGE_NOT_RECALLABLE'
+      && recalledImage.success === true
+      && safeRecalledImage.type === 'recalled'
+      && !safeRecalledImage.media,
+      'system recall was allowed or recalled media metadata leaked'
+    );
+
+    currentOpenId = buyerOpenId;
+    const deleteFixture = await messageAction.main({
+      action: 'sendTextMessage',
+      data: {
+        conversationId,
+        content: '只对删除方隐藏',
+        clientMessageId: 'msg_phase25_delete_0001'
+      }
+    });
+    const deleteMessageId = deleteFixture.data.message.messageId;
+    const deletedForBuyer = await messageAction.main({
+      action: 'deleteMessageForMe',
+      data: { conversationId, messageId: deleteMessageId }
+    });
+    const repeatedDelete = await messageAction.main({
+      action: 'deleteMessageForMe',
+      data: { conversationId, messageId: deleteMessageId }
+    });
+    const buyerDeletedHistory = await messageQuery.main({
+      action: 'listMessages',
+      data: { conversationId, pageSize: 30 }
+    });
+    const buyerDeletedSummary = await messageQuery.main({
+      action: 'getConversation',
+      data: { conversationId }
+    });
+    currentOpenId = sellerOpenId;
+    const sellerVisibleHistory = await messageQuery.main({
+      action: 'listMessages',
+      data: { conversationId, pageSize: 30 }
+    });
+    const sellerVisibleSummary = await messageQuery.main({
+      action: 'getConversation',
+      data: { conversationId }
+    });
+    assert(
+      deletedForBuyer.success === true
+      && repeatedDelete.data.reused === true
+      && !buyerDeletedHistory.data.list.some(
+        (message) => message.messageId === deleteMessageId
+      )
+      && sellerVisibleHistory.data.list.some(
+        (message) => message.messageId === deleteMessageId
+      )
+      && buyerDeletedSummary.data.conversation.lastMessage === '你删除了一条消息'
+      && sellerVisibleSummary.data.conversation.lastMessage === '只对删除方隐藏',
+      'delete-for-me filtering or viewer-specific summary failed'
+    );
+    const sellerDeletedSame = await messageAction.main({
+      action: 'deleteMessageForMe',
+      data: { conversationId, messageId: deleteMessageId }
+    });
+    const sellerDeletedHistory = await messageQuery.main({
+      action: 'listMessages',
+      data: { conversationId, pageSize: 30 }
+    });
+    assert(
+      sellerDeletedSame.success === true
+      && !sellerDeletedHistory.data.list.some(
+        (message) => message.messageId === deleteMessageId
+      )
+      && stores.messages.has(deleteMessageId),
+      'two-sided delete-for-me physically removed or still exposed the message'
+    );
+
+    const systemDeleteMessageId = `m_${'3'.repeat(64)}`;
+    const systemAppointmentId = `a_${'3'.repeat(64)}`;
+    stores.appointments.set(systemAppointmentId, {
+      _id: systemAppointmentId,
+      conversationId,
+      status: 'pending'
+    });
+    stores.messages.set(systemDeleteMessageId, {
+      _id: systemDeleteMessageId,
+      conversationId,
+      senderOpenid: sellerOpenId,
+      senderPublicUserId: sellerUserId,
+      type: 'system',
+      eventType: 'appointment_created',
+      appointmentId: systemAppointmentId,
+      content: '预约系统消息',
+      createdAt: new Date()
+    });
+    currentOpenId = buyerOpenId;
+    const systemDelete = await messageAction.main({
+      action: 'deleteMessageForMe',
+      data: { conversationId, messageId: systemDeleteMessageId }
+    });
+    assert(
+      systemDelete.success === true
+      && stores.messages.has(systemDeleteMessageId)
+      && stores.appointments.has(systemAppointmentId),
+      'delete-for-me on a system message changed core message or appointment data'
+    );
+
+    const messageCountBeforeHide = stores.messages.size;
+    const appointmentCountBeforeHide = stores.appointments.size;
+    const hidden = await messageAction.main({
+      action: 'hideConversation',
+      data: { conversationId: lifecycleAliasId }
+    });
+    const repeatedHide = await messageAction.main({
+      action: 'hideConversation',
+      data: { conversationId: lifecycleAliasId }
+    });
+    const hiddenBuyerList = await messageQuery.main({
+      action: 'listConversations',
+      data: { pageSize: 10 }
+    });
+    const messageCountAfterHide = stores.messages.size;
+    const appointmentCountAfterHide = stores.appointments.size;
+    currentOpenId = sellerOpenId;
+    const visibleSellerList = await messageQuery.main({
+      action: 'listConversations',
+      data: { pageSize: 10 }
+    });
+    const resurfacingSend = await messageAction.main({
+      action: 'sendTextMessage',
+      data: {
+        conversationId,
+        content: '新消息让会话重新出现',
+        clientMessageId: 'msg_phase25_resurface_0001'
+      }
+    });
+    currentOpenId = buyerOpenId;
+    const resurfacedBuyerList = await messageQuery.main({
+      action: 'listConversations',
+      data: { pageSize: 10 }
+    });
+    assert(
+      hidden.success === true
+      && hidden.data.conversationId === conversationId
+      && repeatedHide.success === true
+      && repeatedHide.data.reused === true
+      && messageCountAfterHide === messageCountBeforeHide
+      && appointmentCountAfterHide === appointmentCountBeforeHide
+      && !hiddenBuyerList.data.list.some(
+        (item) => item.conversationId === conversationId
+      )
+      && visibleSellerList.data.list.some(
+        (item) => item.conversationId === conversationId
+      )
+      && resurfacingSend.success === true
+      && resurfacedBuyerList.data.list.some(
+        (item) => item.conversationId === conversationId
+          && item.unreadCount > 0
+      ),
+      'conversation hide scope, unread clearing, or resurface behavior failed'
+    );
+
+    const buyerDeleteSellerMessage = await messageAction.main({
+      action: 'deleteMessageForMe',
+      data: {
+        conversationId: lifecycleAliasId,
+        messageId: resurfacingSend.data.message.messageId
+      }
+    });
+    currentOpenId = sellerOpenId;
+    const sellerStillSeesOwnMessage = await messageQuery.main({
+      action: 'listMessages',
+      data: { conversationId, pageSize: 30 }
+    });
+    assert(
+      buyerDeleteSellerMessage.success === true
+      && sellerStillSeesOwnMessage.data.list.some(
+        (message) => message.messageId === resurfacingSend.data.message.messageId
+      ),
+      'delete-for-me cannot hide an incoming message without affecting its sender'
+    );
+    currentOpenId = attackerOpenId;
+    const lifecycleStateBeforeAttack = JSON.stringify({
+      conversation: stores.conversations.get(conversationId),
+      message: stores.messages.get(resurfacingSend.data.message.messageId)
+    });
+    const forbiddenLifecycle = await Promise.all([
+      messageAction.main({
+        action: 'hideConversation',
+        data: { conversationId }
+      }),
+      messageAction.main({
+        action: 'deleteMessageForMe',
+        data: {
+          conversationId,
+          messageId: resurfacingSend.data.message.messageId
+        }
+      }),
+      messageAction.main({
+        action: 'recallMessage',
+        data: {
+          conversationId,
+          messageId: resurfacingSend.data.message.messageId
+        }
+      })
+    ]);
+    assert(
+      forbiddenLifecycle.every((result) => result.code === 'FORBIDDEN')
+      && lifecycleStateBeforeAttack === JSON.stringify({
+        conversation: stores.conversations.get(conversationId),
+        message: stores.messages.get(resurfacingSend.data.message.messageId)
+      }),
+      'third account lifecycle actions were allowed or caused side effects'
+    );
+    currentOpenId = buyerOpenId;
+
+    const forwardSource = await messageAction.main({
+      action: 'sendTextMessage',
+      data: {
+        conversationId,
+        content: '可信转发内容',
+        clientMessageId: 'msg_phase25_forward_source'
+      }
+    });
+    const forwardImageClientId = 'msg_phase25_forward_image_src';
+    const forwardImageSource = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: forwardImageClientId,
+        type: 'image',
+        media: {
+          fileId: `cloud://verification-env/chat-media/image/${conversationId}/${buyerUserId}/20260816/${forwardImageClientId}.jpg`,
+          width: 900,
+          height: 600,
+          size: 160000
+        }
+      }
+    });
+    stores.messages.set(forwardImageSource.data.message.messageId, {
+      ...stores.messages.get(forwardImageSource.data.message.messageId),
+      media: {
+        ...stores.messages.get(forwardImageSource.data.message.messageId).media,
+        fileId: `cloud://verification-env/chat-media/image/${lifecycleAliasId}/${buyerUserId}/20260816/${forwardImageClientId}.jpg`
+      }
+    });
+    const forwardProductSource = await messageAction.main({
+      action: 'sendMessage',
+      data: {
+        conversationId,
+        clientMessageId: 'msg_phase25_forward_product_src',
+        type: 'product',
+        productId: 'product-own'
+      }
+    });
+    const forwardCreatedAt = new Date(Date.now() - 20000);
+    stores.messages.set(forwardSource.data.message.messageId, {
+      ...stores.messages.get(forwardSource.data.message.messageId),
+      createdAt: forwardCreatedAt
+    });
+    stores.conversations.set(conversationId, {
+      ...stores.conversations.get(conversationId),
+      lastMessageAt: forwardCreatedAt,
+      lastMessageId: forwardSource.data.message.messageId
+    });
+    const targetCreated = await messageAction.main({
+      action: 'createOrGetConversation',
+      data: { productId: 'product-third-party' }
+    });
+    assert(
+      targetCreated.success === true
+      && targetCreated.data.conversationId !== conversationId,
+      'phase 25 forward target conversation fixture failed'
+    );
+    const targetConversation = stores.conversations.get(
+      targetCreated.data.conversationId
+    );
+    const targetBuyerSlot = targetConversation.participantAOpenid === buyerOpenId
+      ? 'A'
+      : 'B';
+    const targetRecipientSlot = targetBuyerSlot === 'A' ? 'B' : 'A';
+    const targetUnreadBeforeForward = targetConversation[
+      `participant${targetRecipientSlot}UnreadCount`
+    ];
+    const forwardResult = await messageAction.main({
+      action: 'forwardMessage',
+      data: {
+        sourceConversationId: conversationId,
+        sourceMessageId: forwardSource.data.message.messageId,
+        targetConversationId: targetCreated.data.conversationId,
+        clientMessageId: 'msg_phase25_forward_target'
+      }
+    });
+    const forwardedStored = forwardResult.success
+      ? stores.messages.get(forwardResult.data.message.messageId)
+      : null;
+    const forwardedLocation = await messageAction.main({
+      action: 'forwardMessage',
+      data: {
+        sourceConversationId: lifecycleAliasId,
+        sourceMessageId: locationSend.data.message.messageId,
+        targetConversationId: targetCreated.data.conversationId,
+        clientMessageId: 'msg_phase25_forward_location'
+      }
+    });
+    const forwardedProduct = await messageAction.main({
+      action: 'forwardMessage',
+      data: {
+        sourceConversationId: conversationId,
+        sourceMessageId: forwardProductSource.data.message.messageId,
+        targetConversationId: targetCreated.data.conversationId,
+        clientMessageId: 'msg_phase25_forward_product'
+      }
+    });
+    const forwardedVoice = await messageAction.main({
+      action: 'forwardMessage',
+      data: {
+        sourceConversationId: conversationId,
+        sourceMessageId: voiceSend.data.message.messageId,
+        targetConversationId: targetCreated.data.conversationId,
+        clientMessageId: 'msg_phase25_forward_voice'
+      }
+    });
+    const forwardedImage = await messageAction.main({
+      action: 'forwardMessage',
+      data: {
+        sourceConversationId: conversationId,
+        sourceMessageId: forwardImageSource.data.message.messageId,
+        targetConversationId: targetCreated.data.conversationId,
+        clientMessageId: 'msg_phase25_forward_image'
+      }
+    });
+    const recalledForwardSource = await messageAction.main({
+      action: 'recallMessage',
+      data: {
+        conversationId,
+        messageId: forwardSource.data.message.messageId
+      }
+    });
+    const repeatedForward = await messageAction.main({
+      action: 'forwardMessage',
+      data: {
+        sourceConversationId: conversationId,
+        sourceMessageId: forwardSource.data.message.messageId,
+        targetConversationId: targetCreated.data.conversationId,
+        clientMessageId: 'msg_phase25_forward_target'
+      }
+    });
+    const recalledForward = await messageAction.main({
+      action: 'forwardMessage',
+      data: {
+        sourceConversationId: conversationId,
+        sourceMessageId: lifecycleMessageId,
+        targetConversationId: targetCreated.data.conversationId,
+        clientMessageId: 'msg_phase25_forward_recalled'
+      }
+    });
+    const systemForwardMessageId = `m_${'2'.repeat(64)}`;
+    stores.messages.set(systemForwardMessageId, {
+      _id: systemForwardMessageId,
+      conversationId,
+      senderOpenid: sellerOpenId,
+      senderPublicUserId: sellerUserId,
+      type: 'system',
+      eventType: 'appointment_created',
+      appointmentId: `a_${'2'.repeat(64)}`,
+      content: '不可转发系统消息',
+      createdAt: new Date()
+    });
+    const systemForward = await messageAction.main({
+      action: 'forwardMessage',
+      data: {
+        sourceConversationId: conversationId,
+        sourceMessageId: systemForwardMessageId,
+        targetConversationId: targetCreated.data.conversationId,
+        clientMessageId: 'msg_phase25_forward_system'
+      }
+    });
+    const targetAliasId = `c_${'1'.repeat(64)}`;
+    stores.conversations.set(targetAliasId, {
+      ...stores.conversations.get(targetCreated.data.conversationId),
+      _id: targetAliasId,
+      status: 'merged',
+      mergedInto: targetCreated.data.conversationId
+    });
+    const aliasTargetForward = await messageAction.main({
+      action: 'forwardMessage',
+      data: {
+        sourceConversationId: conversationId,
+        sourceMessageId: locationSend.data.message.messageId,
+        targetConversationId: targetAliasId,
+        clientMessageId: 'msg_phase25_forward_alias_target'
+      }
+    });
+    const nonParticipantTargetId = `c_${'5'.repeat(64)}`;
+    stores.conversations.set(nonParticipantTargetId, {
+      _id: nonParticipantTargetId,
+      participantAOpenid: sellerOpenId,
+      participantBOpenid: attackerOpenId,
+      participantAUserId: sellerUserId,
+      participantBUserId: attackerUserId,
+      status: 'active',
+      productId: 'product-third-party',
+      lastProductId: 'product-third-party',
+      lastMessageAt: new Date(),
+      participantAUnreadCount: 0,
+      participantBUnreadCount: 0
+    });
+    const invalidTargetForward = await messageAction.main({
+      action: 'forwardMessage',
+      data: {
+        sourceConversationId: conversationId,
+        sourceMessageId: locationSend.data.message.messageId,
+        targetConversationId: nonParticipantTargetId,
+        clientMessageId: 'msg_phase25_forward_invalid_target'
+      }
+    });
+    currentOpenId = attackerOpenId;
+    const thirdPartyForward = await messageAction.main({
+      action: 'forwardMessage',
+      data: {
+        sourceConversationId: conversationId,
+        sourceMessageId: locationSend.data.message.messageId,
+        targetConversationId: targetCreated.data.conversationId,
+        clientMessageId: 'msg_phase25_forward_third_party'
+      }
+    });
+    currentOpenId = buyerOpenId;
+    const targetAfterForward = stores.conversations.get(
+      targetCreated.data.conversationId
+    );
+    assert(
+      forwardResult.success === true
+      && forwardResult.data.message.messageId
+        !== forwardSource.data.message.messageId
+      && forwardResult.data.message.forwarded === true
+      && forwardedStored.content === '可信转发内容'
+      && forwardedStored.forwarded === true
+      && recalledForwardSource.success === true
+      && repeatedForward.success === true
+      && repeatedForward.data.reused === true
+      && forwardedLocation.success === true
+      && forwardedLocation.data.message.type === 'location'
+      && forwardedProduct.success === true
+      && forwardedProduct.data.message.type === 'product'
+      && forwardedVoice.success === true
+      && forwardedVoice.data.message.type === 'voice'
+      && forwardedImage.success === true
+      && forwardedImage.data.message.type === 'image'
+      && recalledForward.code === 'MESSAGE_NOT_FORWARDABLE'
+      && systemForward.code === 'MESSAGE_NOT_FORWARDABLE'
+      && aliasTargetForward.code === 'INVALID_FORWARD_TARGET'
+      && invalidTargetForward.code === 'FORBIDDEN'
+      && thirdPartyForward.code === 'FORBIDDEN'
+      && targetAfterForward[`participant${targetRecipientSlot}UnreadCount`]
+        === targetUnreadBeforeForward + 5
+      && targetAfterForward.lastMessage === '[图片]'
+      && targetAfterForward.lastMessageId === forwardedImage.data.message.messageId,
+      'forward did not create a new trusted/idempotent message or block recalled content'
     );
 
     stores.products.get('product-message-2').status = 'sold';

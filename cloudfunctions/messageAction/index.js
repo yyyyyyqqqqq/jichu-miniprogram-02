@@ -13,6 +13,7 @@ const users = db.collection('users');
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const SCHOOL_ID_PATTERN = /^s_[0-9a-f]{32}$/;
 const CONVERSATION_ID_PATTERN = /^c_[a-f0-9]{64}$/;
+const MESSAGE_ID_PATTERN = /^m_[a-f0-9]{64}$/;
 const PUBLIC_USER_ID_PATTERN = /^u_[a-f0-9]{32}$/;
 const CLIENT_MESSAGE_ID_PATTERN = /^[a-zA-Z0-9_-]{8,80}$/;
 const NEW_CONVERSATION_STATUSES = new Set(['available', 'reserved']);
@@ -23,6 +24,14 @@ const MESSAGE_TYPES = new Set([
   'location',
   'product'
 ]);
+const RECALLABLE_MESSAGE_TYPES = new Set([
+  'text',
+  'voice',
+  'image',
+  'location',
+  'product'
+]);
+const FORWARDABLE_MESSAGE_TYPES = new Set(RECALLABLE_MESSAGE_TYPES);
 const SELECTABLE_PRODUCT_STATUSES = new Set([
   'available',
   'reserved',
@@ -46,6 +55,52 @@ const LAST_MESSAGE_SUMMARIES = {
   location: '[位置]',
   product: '[商品]'
 };
+const RECALL_WINDOW_MS = 2 * 60 * 1000;
+const TRANSACTION_MAX_ATTEMPTS = 3;
+const SAFE_TRACE_ID_PATTERN = /^tr_[a-z0-9_-]{8,40}$/;
+const ATTEMPT_DIAGNOSTIC_ENV_NAME = 'JICHU_ENVIRONMENT_ROLE';
+const ATTEMPT_DIAGNOSTIC_ACTIONS = new Set([
+  'sendTextMessage',
+  'sendMessage',
+  'hideConversation'
+]);
+const ATTEMPT_DIAGNOSTIC_ROLES = new Set(['staging', 'development']);
+const SAFE_DIAGNOSTIC_CODES = new Set([
+  'OK',
+  'DATABASE_TRANSACTION_CONFLICT',
+  'DATABASE_ERROR',
+  'INTERNAL_ERROR',
+  'NETWORK_ERROR',
+  'CLOUD_TIMEOUT',
+  'UNKNOWN_SAFE_ERROR'
+]);
+const SAFE_ATTEMPT_STAGES = new Set([
+  'transaction_start',
+  'canonical_resolve',
+  'participant_validate',
+  'existing_message_check',
+  'source_validate',
+  'context_validate',
+  'context_product_read',
+  'payload_validate',
+  'shared_product_read',
+  'message_write',
+  'conversation_update_prepare',
+  'conversation_update_write',
+  'response_projection',
+  'commit'
+]);
+const SAFE_NUMERIC_ERROR_CODES = Object.freeze({
+  '-501001': 'INTERNAL_ERROR',
+  '-501002': 'CLOUD_TIMEOUT',
+  '-501003': 'INTERNAL_ERROR',
+  '-501004': 'INTERNAL_ERROR',
+  '-502001': 'DATABASE_ERROR',
+  '-502002': 'DATABASE_ERROR',
+  '-502003': 'DATABASE_ERROR',
+  '-502004': 'DATABASE_ERROR',
+  '-502005': 'DATABASE_ERROR'
+});
 
 const ERROR_CODES = {
   OK: 'OK',
@@ -68,6 +123,14 @@ const ERROR_CODES = {
   INVALID_PRODUCT: 'INVALID_PRODUCT',
   PRODUCT_NOT_ACCESSIBLE: 'PRODUCT_NOT_ACCESSIBLE',
   MESSAGE_SEND_FAILED: 'MESSAGE_SEND_FAILED',
+  MESSAGE_NOT_FOUND: 'MESSAGE_NOT_FOUND',
+  MESSAGE_NOT_OWNED: 'MESSAGE_NOT_OWNED',
+  MESSAGE_NOT_RECALLABLE: 'MESSAGE_NOT_RECALLABLE',
+  MESSAGE_RECALL_EXPIRED: 'MESSAGE_RECALL_EXPIRED',
+  MESSAGE_ALREADY_RECALLED: 'MESSAGE_ALREADY_RECALLED',
+  MESSAGE_NOT_FORWARDABLE: 'MESSAGE_NOT_FORWARDABLE',
+  INVALID_FORWARD_TARGET: 'INVALID_FORWARD_TARGET',
+  MEDIA_FORWARD_FAILED: 'MEDIA_FORWARD_FAILED',
   SERVICE_MAINTENANCE: 'SERVICE_MAINTENANCE',
   DATABASE_ERROR: 'DATABASE_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
@@ -111,6 +174,11 @@ function normalizeConversationId(value) {
   return CONVERSATION_ID_PATTERN.test(conversationId) ? conversationId : '';
 }
 
+function normalizeMessageId(value) {
+  const messageId = normalizeString(value);
+  return MESSAGE_ID_PATTERN.test(messageId) ? messageId : '';
+}
+
 function normalizeClientMessageId(value) {
   const clientMessageId = normalizeString(value);
   return CLIENT_MESSAGE_ID_PATTERN.test(clientMessageId)
@@ -121,6 +189,314 @@ function normalizeClientMessageId(value) {
 function normalizeCount(value) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
+}
+
+function createSafeTraceId(value) {
+  const supplied = normalizeString(value).toLowerCase();
+  if (SAFE_TRACE_ID_PATTERN.test(supplied)) {
+    return supplied;
+  }
+  return `tr_${crypto.randomBytes(6).toString('hex')}`;
+}
+
+function safeHash(value) {
+  const normalized = normalizeString(value);
+  return normalized ? createDigest(normalized).slice(0, 12) : '';
+}
+
+function getSafeErrorCode(error) {
+  const value = error && (
+    error.code
+    || error.errCode
+    || error.name
+    || (error.cause && (error.cause.code || error.cause.errCode))
+  );
+  return normalizeString(String(value || 'UNKNOWN')).slice(0, 80);
+}
+
+function isAttemptDiagnosticEnabled() {
+  const role = normalizeString(process.env[ATTEMPT_DIAGNOSTIC_ENV_NAME])
+    .toLowerCase();
+  return ATTEMPT_DIAGNOSTIC_ROLES.has(role);
+}
+
+function getWhitelistedDiagnosticCode(error) {
+  if (isRetryableTransactionConflict(error)) {
+    return 'DATABASE_TRANSACTION_CONFLICT';
+  }
+  const rawCodes = [
+    error && error.code,
+    error && error.errCode,
+    error && error.name,
+    error && error.cause && error.cause.code,
+    error && error.cause && error.cause.errCode
+  ].filter(Boolean).map((value) => String(value).trim().toUpperCase());
+  const rawText = rawCodes.join(' ');
+  const numericCode = rawCodes.find((code) => (
+    Object.prototype.hasOwnProperty.call(SAFE_NUMERIC_ERROR_CODES, code)
+  ));
+  if (numericCode) {
+    return SAFE_NUMERIC_ERROR_CODES[numericCode];
+  }
+  if (rawCodes.some((code) => SAFE_DIAGNOSTIC_CODES.has(code))) {
+    return rawCodes.find((code) => SAFE_DIAGNOSTIC_CODES.has(code));
+  }
+  if (rawText.includes('TIMEOUT') || rawText.includes('TIMED_OUT')) {
+    return 'CLOUD_TIMEOUT';
+  }
+  if (
+    rawText.includes('NETWORK')
+    || rawText.includes('ECONN')
+    || rawText.includes('SOCKET')
+  ) {
+    return 'NETWORK_ERROR';
+  }
+  if (rawText.includes('DATABASE') || rawText.includes('DB_')) {
+    return 'DATABASE_ERROR';
+  }
+  if (rawText.includes('INTERNAL')) {
+    return 'INTERNAL_ERROR';
+  }
+  return 'UNKNOWN_SAFE_ERROR';
+}
+
+function createAttemptDiagnosticCollector(traceId, action, enabled) {
+  const active = enabled === undefined
+    ? isAttemptDiagnosticEnabled()
+    : enabled === true;
+  const stageActive = active
+    && ['sendTextMessage', 'sendMessage'].includes(action);
+  const attempts = new Map();
+  let currentAttempt = 0;
+  const ensureAttempt = (attemptValue) => {
+    const attempt = Number.isInteger(attemptValue) && attemptValue > 0
+      ? attemptValue
+      : currentAttempt || 1;
+    currentAttempt = attempt;
+    if (!attempts.has(attempt)) {
+      const record = {
+        attempt,
+        safeCode: 'UNKNOWN_SAFE_ERROR',
+        retryable: false,
+        transactionCreated: false,
+        commitStarted: false,
+        commitOutcome: 'unknown'
+      };
+      if (stageActive) {
+        record.lastCompletedStage = '';
+        record.failedStage = 'transaction_start';
+      }
+      attempts.set(attempt, record);
+    }
+    return attempts.get(attempt);
+  };
+  const onEvent = (event, details = {}) => {
+    if (!active) {
+      return;
+    }
+    const record = ensureAttempt(details.attempt);
+    if (event === 'transaction_created') {
+      record.transactionCreated = true;
+      if (stageActive) {
+        record.lastCompletedStage = 'transaction_start';
+      }
+    } else if (event === 'commit_start') {
+      record.commitStarted = true;
+      if (stageActive) {
+        record.failedStage = 'commit';
+      }
+    } else if (event === 'commit_end') {
+      record.safeCode = 'OK';
+      record.retryable = false;
+      record.commitOutcome = 'committed';
+      if (stageActive) {
+        record.lastCompletedStage = 'commit';
+        record.failedStage = '';
+      }
+    } else if (event === 'transaction_error') {
+      record.safeCode = SAFE_DIAGNOSTIC_CODES.has(details.safeCode)
+        ? details.safeCode
+        : 'UNKNOWN_SAFE_ERROR';
+      record.retryable = details.retryable === true;
+      if (record.retryable) {
+        record.commitOutcome = 'conflict';
+      } else if (record.commitStarted) {
+        record.commitOutcome = 'outcome_unknown';
+      } else {
+        record.commitOutcome = 'failed_non_conflict';
+      }
+    } else if (event === 'attempt_end') {
+      record.safeCode = SAFE_DIAGNOSTIC_CODES.has(details.safeCode)
+        ? details.safeCode
+        : 'UNKNOWN_SAFE_ERROR';
+      record.retryable = details.retryable === true;
+      if (record.retryable) {
+        record.commitOutcome = 'conflict';
+      } else if (record.commitOutcome === 'unknown') {
+        record.commitOutcome = record.commitStarted
+          ? 'outcome_unknown'
+          : 'failed_non_conflict';
+      }
+    } else if (event === 'rollback_end' && !record.commitStarted) {
+      record.commitOutcome = 'rolled_back';
+    }
+  };
+  const setAttemptBoolean = (field, value) => {
+    if (
+      active
+      && ['messageExistedBeforeAttempt', 'snapshotChanged'].includes(field)
+    ) {
+      ensureAttempt(currentAttempt)[field] = value === true;
+    }
+  };
+  const beginStage = (stage) => {
+    if (stageActive && SAFE_ATTEMPT_STAGES.has(stage)) {
+      ensureAttempt(currentAttempt).failedStage = stage;
+    }
+  };
+  const completeStage = (stage) => {
+    if (stageActive && SAFE_ATTEMPT_STAGES.has(stage)) {
+      ensureAttempt(currentAttempt).lastCompletedStage = stage;
+    }
+  };
+  const toDiagnostic = (reconciliation = {}) => {
+    if (!active || !ATTEMPT_DIAGNOSTIC_ACTIONS.has(action)) {
+      return undefined;
+    }
+    const list = [...attempts.values()]
+      .sort((left, right) => left.attempt - right.attempt)
+      .map((item) => ({ ...item }));
+    return {
+      traceId,
+      action,
+      attemptCount: list.length,
+      attempts: list,
+      reconciliation: {
+        attempted: reconciliation.attempted === true,
+        outcome: ['found', 'not_found', 'query_failed', 'not_applicable']
+          .includes(reconciliation.outcome)
+          ? reconciliation.outcome
+          : 'not_applicable'
+      }
+    };
+  };
+  return Object.freeze({
+    enabled: active,
+    onEvent,
+    setAttemptBoolean,
+    beginStage,
+    completeStage,
+    toDiagnostic
+  });
+}
+
+function beginAttemptStage(trace, stage) {
+  if (trace && trace.attemptDiagnostic) {
+    trace.attemptDiagnostic.beginStage(stage);
+  }
+}
+
+function completeAttemptStage(trace, stage) {
+  if (trace && trace.attemptDiagnostic) {
+    trace.attemptDiagnostic.completeStage(stage);
+  }
+}
+
+function appendAttemptDiagnostic(response, trace) {
+  const diagnostic = trace
+    && trace.attemptDiagnostic
+    && trace.attemptDiagnostic.toDiagnostic();
+  return diagnostic ? { ...response, diagnostic } : response;
+}
+
+function logSafeTrace(trace, event, details = {}) {
+  if (
+    !trace
+    || !trace.traceId
+    || !['sendTextMessage', 'sendMessage', 'hideConversation'].includes(
+      trace.action
+    )
+  ) {
+    return;
+  }
+  console.info('[messageAction] safe trace', {
+    traceId: trace.traceId,
+    action: trace.action,
+    stage: event,
+    conversationHash: trace.conversationHash || '',
+    messageHash: trace.messageHash || '',
+    ...details
+  });
+}
+
+function toDate(value) {
+  if (!value) {
+    return null;
+  }
+  let candidate = value;
+  if (value && typeof value.toDate === 'function') {
+    candidate = value.toDate();
+  } else if (
+    value
+    && typeof value === 'object'
+    && Object.prototype.hasOwnProperty.call(value, '$date')
+  ) {
+    candidate = value.$date;
+  }
+  const date = candidate instanceof Date ? candidate : new Date(candidate);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toTimestamp(value) {
+  const date = toDate(value);
+  return date ? date.getTime() : NaN;
+}
+
+function isSameActivity(left, right) {
+  const leftTime = toTimestamp(left);
+  const rightTime = toTimestamp(right);
+  return Number.isFinite(leftTime)
+    && Number.isFinite(rightTime)
+    && leftTime === rightTime;
+}
+
+function getDeletedForField(slot) {
+  return `deletedForParticipant${slot}At`;
+}
+
+function isDeletedForParticipant(message, slot) {
+  return Boolean(slot && message && message[getDeletedForField(slot)]);
+}
+
+function getHiddenConversationField(slot) {
+  return `participant${slot}HiddenAt`;
+}
+
+function getHiddenActivityIdField(slot) {
+  return `participant${slot}HiddenActivityId`;
+}
+
+function getHiddenActivityAtField(slot) {
+  return `participant${slot}HiddenActivityAt`;
+}
+
+function getLastMessageDeletedIdField(slot) {
+  return `participant${slot}HiddenLastMessageId`;
+}
+
+function getLastMessageDeletedAtField(slot) {
+  return `participant${slot}HiddenLastMessageAt`;
+}
+
+function isConversationLatestMessage(conversation, message) {
+  const lastMessageId = normalizeMessageId(conversation && conversation.lastMessageId);
+  if (lastMessageId) {
+    return lastMessageId === normalizeMessageId(message && message._id);
+  }
+  return isSameActivity(
+    conversation && conversation.lastMessageAt,
+    message && message.createdAt
+  );
 }
 
 function normalizeInteger(value, minimum, maximum) {
@@ -367,18 +743,146 @@ async function getDocumentOrNull(document) {
   }
 }
 
-async function runTransaction(callback) {
-  const response = await db.runTransaction(
-    async (transaction) => callback(transaction)
-  );
-  if (
-    response
-    && typeof response === 'object'
-    && Object.prototype.hasOwnProperty.call(response, 'result')
-  ) {
-    return response.result;
+function isRetryableTransactionConflict(error) {
+  const codes = [
+    error && error.code,
+    error && error.errCode,
+    error && error.name,
+    error && error.cause && error.cause.code,
+    error && error.cause && error.cause.errCode
+  ].filter((value) => value !== undefined && value !== null)
+    .map((value) => String(value).trim().toUpperCase());
+  if (codes.includes('DATABASE_TRANSACTION_CONFLICT')) {
+    return true;
   }
-  return response;
+  const messages = [
+    error && error.message,
+    error && error.errMsg,
+    error && error.cause && error.cause.message,
+    error && error.cause && error.cause.errMsg
+  ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
+  return messages.some((message) => (
+    message === 'database transaction conflict'
+    || message.endsWith(': database transaction conflict')
+  ));
+}
+
+function getTransactionControl(transaction) {
+  const raw = transaction
+    && transaction._transaction
+    && typeof transaction._transaction.commit === 'function'
+    ? transaction._transaction
+    : null;
+  return {
+    commit: raw
+      ? raw.commit.bind(raw)
+      : transaction.commit.bind(transaction),
+    rollback: raw && typeof raw.rollback === 'function'
+      ? raw.rollback.bind(raw)
+      : transaction.rollback.bind(transaction),
+    preservesRawErrors: Boolean(raw)
+  };
+}
+
+async function runSingleTransaction(callback, database, options = {}) {
+  if (typeof database.startTransaction !== 'function') {
+    const response = await database.runTransaction(
+      async (transaction) => callback(transaction)
+    );
+    if (
+      response
+      && typeof response === 'object'
+      && Object.prototype.hasOwnProperty.call(response, 'result')
+    ) {
+      return response.result;
+    }
+    return response;
+  }
+  const transaction = await database.startTransaction();
+  const control = getTransactionControl(transaction);
+  if (typeof options.onEvent === 'function') {
+    options.onEvent('transaction_created', {
+      preservesRawErrors: control.preservesRawErrors
+    });
+  }
+  try {
+    const result = await callback(transaction);
+    if (typeof options.onEvent === 'function') {
+      options.onEvent('commit_start', {});
+    }
+    await control.commit();
+    if (typeof options.onEvent === 'function') {
+      options.onEvent('commit_end', { outcome: 'success' });
+    }
+    return result;
+  } catch (error) {
+    if (typeof options.onEvent === 'function') {
+      options.onEvent('transaction_error', {
+        safeCode: getWhitelistedDiagnosticCode(error),
+        retryable: isRetryableTransactionConflict(error)
+      });
+    }
+    try {
+      await control.rollback(error);
+      if (typeof options.onEvent === 'function') {
+        options.onEvent('rollback_end', {});
+      }
+    } catch (rollbackError) {
+      // Keep the original failure so conflict classification remains exact.
+    }
+    throw error;
+  }
+}
+
+async function runTransaction(callback, options = {}) {
+  const database = options.database || db;
+  const maximum = Number.isInteger(options.maxAttempts)
+    ? Math.min(Math.max(options.maxAttempts, 1), TRANSACTION_MAX_ATTEMPTS)
+    : TRANSACTION_MAX_ATTEMPTS;
+  for (let attempt = 1; attempt <= maximum; attempt += 1) {
+    const onEvent = typeof options.onEvent === 'function'
+      ? (event, details) => options.onEvent(event, {
+          attempt,
+          ...details
+        })
+      : null;
+    if (onEvent) {
+      onEvent('attempt_start', {});
+    }
+    try {
+      return await runSingleTransaction(callback, database, { onEvent });
+    } catch (error) {
+      const retryable = isRetryableTransactionConflict(error);
+      if (onEvent) {
+        onEvent('attempt_end', {
+          outcome: 'failed',
+          safeCode: getWhitelistedDiagnosticCode(error),
+          retryable
+        });
+      }
+      if (attempt >= maximum || !retryable) {
+        throw error;
+      }
+    }
+  }
+  throw new Error('Transaction failed');
+}
+
+function getConversationActivitySnapshot(conversation) {
+  return {
+    lastMessageId: normalizeString(conversation && conversation.lastMessageId),
+    lastMessageAt: toDate(conversation && conversation.lastMessageAt)
+  };
+}
+
+function conversationMatchesActivitySnapshot(conversation, snapshot) {
+  if (!snapshot || !snapshot.lastMessageAt) {
+    return false;
+  }
+  const current = getConversationActivitySnapshot(conversation);
+  return current.lastMessageId === snapshot.lastMessageId
+    && current.lastMessageAt
+    && current.lastMessageAt.getTime() === snapshot.lastMessageAt.getTime();
 }
 
 function getParticipantSlot(conversation, openId) {
@@ -456,6 +960,20 @@ function toSafeMessage(record, openId) {
     contextProductId: normalizeProductId(record.contextProductId),
     createdAt: toIsoString(record.createdAt)
   };
+  if (record.recalled === true) {
+    return {
+      messageId: message.messageId,
+      senderPublicUserId: message.senderPublicUserId,
+      isMine: message.isMine,
+      type: 'recalled',
+      recalled: true,
+      createdAt: message.createdAt,
+      recalledAt: toIsoString(record.recalledAt)
+    };
+  }
+  if (record.forwarded === true) {
+    message.forwarded = true;
+  }
   if (type === 'text') {
     message.content = normalizeString(record.content);
   } else if (type === 'voice' || type === 'image') {
@@ -665,6 +1183,9 @@ async function createOrGetConversation(data, identity, trace) {
           productSnapshot,
           lastProductId: productId,
           lastProductSnapshot: productSnapshot,
+          [getHiddenConversationField(
+            pair.participantAUserId === currentUserId ? 'A' : 'B'
+          )]: null,
           contextUpdatedAt: db.serverDate(),
           updatedAt: db.serverDate()
         }
@@ -704,6 +1225,7 @@ async function createOrGetConversation(data, identity, trace) {
         lastMessage: '',
         lastMessageType: '',
         lastMessageAt: db.serverDate(),
+        lastMessageId: '',
         lastSenderOpenid: '',
         participantAUnreadCount: 0,
         participantBUnreadCount: 0,
@@ -721,7 +1243,13 @@ async function createOrGetConversation(data, identity, trace) {
   return success(result);
 }
 
-async function sendMessage(data, openId, trace, forcedType = '') {
+async function sendMessage(
+  data,
+  openId,
+  trace,
+  forcedType = '',
+  options = {}
+) {
   trace.step = 'send.validate';
   const conversationId = normalizeConversationId(data.conversationId);
   const clientMessageId = normalizeClientMessageId(data.clientMessageId);
@@ -741,13 +1269,17 @@ async function sendMessage(data, openId, trace, forcedType = '') {
     openId,
     clientMessageId
   );
+  trace.conversationHash = safeHash(conversationId);
+  trace.messageHash = safeHash(messageId);
   trace.step = 'send.begin_transaction';
   const result = await runTransaction(async (transaction) => {
     trace.step = 'send.read_conversation';
+    beginAttemptStage(trace, 'canonical_resolve');
     const resolvedConversation = await resolveConversation(
       transaction.collection('conversations'),
       conversationId
     );
+    completeAttemptStage(trace, 'canonical_resolve');
     if (!resolvedConversation) {
       businessError(
         ERROR_CODES.CONVERSATION_NOT_FOUND,
@@ -756,25 +1288,91 @@ async function sendMessage(data, openId, trace, forcedType = '') {
     }
     const canonicalConversationId = resolvedConversation.conversationId;
     const conversation = resolvedConversation.conversation;
+    trace.conversationHash = safeHash(canonicalConversationId);
+    logSafeTrace(trace, 'activity_read', {
+      currentLastMessageHash: safeHash(conversation.lastMessageId),
+      currentLastMessageAt: toDate(conversation.lastMessageAt)
+        && toDate(conversation.lastMessageAt).toISOString()
+    });
     const conversationDocument = transaction
       .collection('conversations')
       .doc(canonicalConversationId);
 
+    beginAttemptStage(trace, 'participant_validate');
     const slot = getParticipantSlot(conversation, openId);
     if (!slot) {
       businessError(ERROR_CODES.FORBIDDEN, '无权向该会话发送消息');
     }
+    if (
+      options.requireCanonical === true
+      && canonicalConversationId !== conversationId
+    ) {
+      businessError(
+        ERROR_CODES.INVALID_FORWARD_TARGET,
+        '转发目标必须是有效的当前会话'
+      );
+    }
+    completeAttemptStage(trace, 'participant_validate');
 
+    beginAttemptStage(trace, 'existing_message_check');
     const messageDocument = transaction.collection('messages').doc(messageId);
     trace.step = 'send.read_message';
     const existingMessage = await getDocumentOrNull(messageDocument);
+    completeAttemptStage(trace, 'existing_message_check');
+    if (trace.attemptDiagnostic) {
+      trace.attemptDiagnostic.setAttemptBoolean(
+        'messageExistedBeforeAttempt',
+        Boolean(existingMessage)
+      );
+    }
     if (existingMessage) {
-      return {
+      logSafeTrace(trace, 'message_existing', {
+        messageHash: trace.messageHash,
+        existing: true
+      });
+      beginAttemptStage(trace, 'response_projection');
+      const response = {
         message: toSafeMessage(existingMessage, openId),
         reused: true
       };
+      completeAttemptStage(trace, 'response_projection');
+      return response;
     }
 
+    if (options.forwardSource) {
+      beginAttemptStage(trace, 'source_validate');
+      const source = options.forwardSource;
+      const resolvedSource = await resolveConversation(
+        transaction.collection('conversations'),
+        source.conversationId
+      );
+      if (
+        !resolvedSource
+        || resolvedSource.conversationId !== source.canonicalConversationId
+        || !getParticipantSlot(resolvedSource.conversation, openId)
+      ) {
+        businessError(ERROR_CODES.MESSAGE_NOT_FORWARDABLE, '原消息不可转发');
+      }
+      const currentSourceMessage = await getDocumentOrNull(
+        transaction.collection('messages').doc(source.messageId)
+      );
+      const sourceSlot = getParticipantSlot(resolvedSource.conversation, openId);
+      if (
+        !currentSourceMessage
+        || normalizeConversationId(currentSourceMessage.conversationId)
+          !== source.canonicalConversationId
+        || currentSourceMessage.recalled === true
+        || isDeletedForParticipant(currentSourceMessage, sourceSlot)
+        || !FORWARDABLE_MESSAGE_TYPES.has(
+          normalizeMessageType(currentSourceMessage.type)
+        )
+      ) {
+        businessError(ERROR_CODES.MESSAGE_NOT_FORWARDABLE, '原消息不可转发');
+      }
+      completeAttemptStage(trace, 'source_validate');
+    }
+
+    beginAttemptStage(trace, 'context_validate');
     const contextProductId = normalizeProductId(
       conversation.lastProductId || conversation.productId
     );
@@ -784,11 +1382,14 @@ async function sendMessage(data, openId, trace, forcedType = '') {
         '当前商品上下文不可用，仅可查看历史消息'
       );
     }
+    completeAttemptStage(trace, 'context_validate');
+    beginAttemptStage(trace, 'context_product_read');
     const productDocument = transaction
       .collection('products')
       .doc(contextProductId);
     trace.step = 'send.read_product';
     const conversationProduct = await getDocumentOrNull(productDocument);
+    completeAttemptStage(trace, 'context_product_read');
     if (!conversationProduct || conversationProduct.status === 'deleted') {
       businessError(
         ERROR_CODES.PRODUCT_UNAVAILABLE,
@@ -799,6 +1400,7 @@ async function sendMessage(data, openId, trace, forcedType = '') {
     // clientMessageId is a first-write-wins idempotency key. Payload-specific
     // validation intentionally happens after the existing-message lookup so a
     // retry cannot mutate the committed message or advance unread/summary state.
+    beginAttemptStage(trace, 'payload_validate');
     if (type === 'text' && !content) {
       businessError(ERROR_CODES.MESSAGE_EMPTY, '消息内容不能为空');
     }
@@ -851,16 +1453,18 @@ async function sendMessage(data, openId, trace, forcedType = '') {
     } else if (type === 'location') {
       messageData.location = location;
     } else if (type === 'product') {
-      if (productId === contextProductId) {
+      if (productId === contextProductId && !options.forwardSource) {
         businessError(
           ERROR_CODES.INVALID_PRODUCT,
           '请选择当前会话商品以外的商品'
         );
       }
       trace.step = 'send.read_shared_product';
+      beginAttemptStage(trace, 'shared_product_read');
       const selectedProduct = await getDocumentOrNull(
         transaction.collection('products').doc(productId)
       );
+      completeAttemptStage(trace, 'shared_product_read');
       if (
         !selectedProduct
         || !SELECTABLE_PRODUCT_STATUSES.has(
@@ -923,10 +1527,17 @@ async function sendMessage(data, openId, trace, forcedType = '') {
         ownerPublicUserId
       };
     }
+    if (options.forwardSource) {
+      messageData.forwarded = true;
+    }
+    completeAttemptStage(trace, 'payload_validate');
 
     trace.step = 'send.write_message';
+    beginAttemptStage(trace, 'message_write');
     await messageDocument.set({ data: messageData });
+    completeAttemptStage(trace, 'message_write');
 
+    beginAttemptStage(trace, 'conversation_update_prepare');
     const updateData = {
       productId: contextProductId,
       productSnapshot: toProductSnapshot(conversationProduct, contextProductId),
@@ -940,7 +1551,18 @@ async function sendMessage(data, openId, trace, forcedType = '') {
         : LAST_MESSAGE_SUMMARIES[type],
       lastMessageType: type,
       lastMessageAt: db.serverDate(),
+      lastMessageId: messageId,
       lastSenderOpenid: openId,
+      participantAHiddenAt: null,
+      participantBHiddenAt: null,
+      participantAHiddenLastMessageId: '',
+      participantBHiddenLastMessageId: '',
+      participantAHiddenLastMessageAt: null,
+      participantBHiddenLastMessageAt: null,
+      participantAHiddenActivityId: '',
+      participantBHiddenActivityId: '',
+      participantAHiddenActivityAt: null,
+      participantBHiddenActivityAt: null,
       updatedAt: db.serverDate()
     };
     if (slot === 'A') {
@@ -952,12 +1574,16 @@ async function sendMessage(data, openId, trace, forcedType = '') {
         conversation.participantAUnreadCount
       ) + 1;
     }
+    completeAttemptStage(trace, 'conversation_update_prepare');
+    beginAttemptStage(trace, 'conversation_update_write');
     trace.step = 'send.update_conversation';
     await conversationDocument.update({
       data: updateData
     });
+    completeAttemptStage(trace, 'conversation_update_write');
 
-    return {
+    beginAttemptStage(trace, 'response_projection');
+    const response = {
       message: toSafeMessage({
         _id: messageId,
         ...messageData,
@@ -965,6 +1591,19 @@ async function sendMessage(data, openId, trace, forcedType = '') {
       }, openId),
       reused: false
     };
+    completeAttemptStage(trace, 'response_projection');
+    return response;
+  }, {
+    onEvent(event, details) {
+      logSafeTrace(trace, event, details);
+      if (trace.attemptDiagnostic) {
+        trace.attemptDiagnostic.onEvent(event, details);
+      }
+    }
+  });
+  logSafeTrace(trace, 'response', {
+    outcome: 'success',
+    messageExisting: result.reused === true
   });
   return success(result);
 }
@@ -1027,7 +1666,535 @@ async function markConversationRead(data, openId, trace) {
   return success(result);
 }
 
+async function hideConversation(data, openId, trace) {
+  trace.step = 'hide.validate';
+  const conversationId = normalizeConversationId(data.conversationId);
+  if (!conversationId) {
+    return failure(ERROR_CODES.INVALID_ARGUMENT, '缺少有效会话 ID');
+  }
+  const hasExpectedActivity = Object.prototype.hasOwnProperty.call(
+    data,
+    'expectedLastMessageId'
+  ) || Object.prototype.hasOwnProperty.call(data, 'expectedLastMessageAt');
+  const expectedLastMessageId = normalizeString(data.expectedLastMessageId);
+  const expectedLastMessageAt = toDate(data.expectedLastMessageAt);
+  if (
+    hasExpectedActivity
+    && (
+      (expectedLastMessageId && !normalizeMessageId(expectedLastMessageId))
+      || !expectedLastMessageAt
+    )
+  ) {
+    return failure(ERROR_CODES.INVALID_ARGUMENT, '会话活动快照不正确');
+  }
+  let expectedActivity = hasExpectedActivity
+    ? {
+        lastMessageId: expectedLastMessageId,
+        lastMessageAt: expectedLastMessageAt
+      }
+    : null;
+  trace.conversationHash = safeHash(conversationId);
+  trace.expectedLastMessageHash = safeHash(expectedLastMessageId);
+  const result = await runTransaction(async (transaction) => {
+    trace.step = 'hide.read_conversation';
+    const resolved = await resolveConversation(
+      transaction.collection('conversations'),
+      conversationId
+    );
+    if (!resolved) {
+      businessError(ERROR_CODES.CONVERSATION_NOT_FOUND, '会话不存在或已失效');
+    }
+    const slot = getParticipantSlot(resolved.conversation, openId);
+    if (!slot) {
+      businessError(ERROR_CODES.FORBIDDEN, '无权删除该会话');
+    }
+    if (!expectedActivity) {
+      expectedActivity = getConversationActivitySnapshot(resolved.conversation);
+      trace.expectedLastMessageHash = safeHash(expectedActivity.lastMessageId);
+    }
+    const snapshotChanged = !conversationMatchesActivitySnapshot(
+      resolved.conversation,
+      expectedActivity
+    );
+    if (trace.attemptDiagnostic) {
+      trace.attemptDiagnostic.setAttemptBoolean(
+        'snapshotChanged',
+        snapshotChanged
+      );
+    }
+    logSafeTrace(trace, 'activity_read', {
+      expectedLastMessageHash: trace.expectedLastMessageHash,
+      currentLastMessageHash: safeHash(resolved.conversation.lastMessageId),
+      expectedLastMessageAt: expectedActivity.lastMessageAt.toISOString(),
+      currentLastMessageAt: toDate(resolved.conversation.lastMessageAt)
+        && toDate(resolved.conversation.lastMessageAt).toISOString(),
+      hiddenSnapshotChanged: snapshotChanged
+    });
+    if (snapshotChanged) {
+      return {
+        conversationId: resolved.conversationId,
+        reused: false,
+        superseded: true
+      };
+    }
+    const hiddenField = getHiddenConversationField(slot);
+    const hiddenActivityIdField = getHiddenActivityIdField(slot);
+    const hiddenActivityAtField = getHiddenActivityAtField(slot);
+    const unreadField = `participant${slot}UnreadCount`;
+    const lastReadField = `participant${slot}LastReadAt`;
+    const hiddenAt = resolved.conversation[hiddenField];
+    const alreadyHidden = Boolean(
+      hiddenAt
+      && toTimestamp(hiddenAt) >= toTimestamp(resolved.conversation.lastMessageAt)
+      && normalizeString(resolved.conversation[hiddenActivityIdField])
+        === expectedActivity.lastMessageId
+      && toTimestamp(resolved.conversation[hiddenActivityAtField])
+        === expectedActivity.lastMessageAt.getTime()
+      && normalizeCount(resolved.conversation[unreadField]) === 0
+    );
+    if (!alreadyHidden) {
+      trace.step = 'hide.update_conversation';
+      await transaction.collection('conversations')
+        .doc(resolved.conversationId)
+        .update({
+          data: {
+            [hiddenField]: db.serverDate(),
+            [hiddenActivityIdField]: expectedActivity.lastMessageId,
+            [hiddenActivityAtField]: expectedActivity.lastMessageAt,
+            [unreadField]: 0,
+            [lastReadField]: db.serverDate(),
+            updatedAt: db.serverDate()
+          }
+        });
+    }
+    return {
+      conversationId: resolved.conversationId,
+      reused: alreadyHidden,
+      superseded: false
+    };
+  }, {
+    onEvent(event, details) {
+      logSafeTrace(trace, event, details);
+      if (trace.attemptDiagnostic) {
+        trace.attemptDiagnostic.onEvent(event, details);
+      }
+    }
+  });
+  logSafeTrace(trace, 'response', {
+    outcome: 'success',
+    superseded: result.superseded === true
+  });
+  return success(result);
+}
+
+async function deleteMessageForMe(data, openId, trace) {
+  trace.step = 'delete_message.validate';
+  const conversationId = normalizeConversationId(data.conversationId);
+  const messageId = normalizeMessageId(data.messageId);
+  if (!conversationId || !messageId) {
+    return failure(ERROR_CODES.INVALID_ARGUMENT, '消息参数不正确');
+  }
+  const result = await runTransaction(async (transaction) => {
+    const resolved = await resolveConversation(
+      transaction.collection('conversations'),
+      conversationId
+    );
+    if (!resolved) {
+      businessError(ERROR_CODES.CONVERSATION_NOT_FOUND, '会话不存在或已失效');
+    }
+    const slot = getParticipantSlot(resolved.conversation, openId);
+    if (!slot) {
+      businessError(ERROR_CODES.FORBIDDEN, '无权删除该消息');
+    }
+    const messageDocument = transaction.collection('messages').doc(messageId);
+    const message = await getDocumentOrNull(messageDocument);
+    if (
+      !message
+      || normalizeConversationId(message.conversationId) !== resolved.conversationId
+    ) {
+      businessError(ERROR_CODES.MESSAGE_NOT_FOUND, '消息不存在');
+    }
+    const deletedField = getDeletedForField(slot);
+    if (message[deletedField]) {
+      return {
+        conversationId: resolved.conversationId,
+        messageId,
+        reused: true
+      };
+    }
+    await messageDocument.update({
+      data: {
+        [deletedField]: db.serverDate()
+      }
+    });
+    if (isConversationLatestMessage(resolved.conversation, message)) {
+      await transaction.collection('conversations')
+        .doc(resolved.conversationId)
+        .update({
+          data: {
+            [getLastMessageDeletedIdField(slot)]: messageId,
+            [getLastMessageDeletedAtField(slot)]: message.createdAt,
+            updatedAt: db.serverDate()
+          }
+        });
+    }
+    return {
+      conversationId: resolved.conversationId,
+      messageId,
+      reused: false
+    };
+  });
+  return success(result);
+}
+
+async function recallMessage(data, openId, trace) {
+  trace.step = 'recall.validate';
+  const conversationId = normalizeConversationId(data.conversationId);
+  const messageId = normalizeMessageId(data.messageId);
+  if (!conversationId || !messageId) {
+    return failure(ERROR_CODES.INVALID_ARGUMENT, '消息参数不正确');
+  }
+  const result = await runTransaction(async (transaction) => {
+    const resolved = await resolveConversation(
+      transaction.collection('conversations'),
+      conversationId
+    );
+    if (!resolved) {
+      businessError(ERROR_CODES.CONVERSATION_NOT_FOUND, '会话不存在或已失效');
+    }
+    const slot = getParticipantSlot(resolved.conversation, openId);
+    if (!slot) {
+      businessError(ERROR_CODES.FORBIDDEN, '无权撤回该消息');
+    }
+    const messageDocument = transaction.collection('messages').doc(messageId);
+    const message = await getDocumentOrNull(messageDocument);
+    if (
+      !message
+      || normalizeConversationId(message.conversationId) !== resolved.conversationId
+    ) {
+      businessError(ERROR_CODES.MESSAGE_NOT_FOUND, '消息不存在');
+    }
+    if (message.senderOpenid !== openId) {
+      businessError(ERROR_CODES.MESSAGE_NOT_OWNED, '只能撤回自己发送的消息');
+    }
+    if (message.recalled === true) {
+      return {
+        conversationId: resolved.conversationId,
+        message: toSafeMessage(message, openId),
+        reused: true
+      };
+    }
+    if (
+      !RECALLABLE_MESSAGE_TYPES.has(normalizeMessageType(message.type))
+      || isDeletedForParticipant(message, slot)
+    ) {
+      businessError(ERROR_CODES.MESSAGE_NOT_RECALLABLE, '该消息不可撤回');
+    }
+    const createdAt = toTimestamp(message.createdAt);
+    if (
+      !Number.isFinite(createdAt)
+      || Date.now() - createdAt > RECALL_WINDOW_MS
+      || Date.now() < createdAt - 30000
+    ) {
+      businessError(ERROR_CODES.MESSAGE_RECALL_EXPIRED, '已超过 2 分钟撤回时限');
+    }
+
+    await messageDocument.update({
+      data: {
+        recalled: true,
+        recalledAt: db.serverDate()
+      }
+    });
+    const recipientSlot = slot === 'A' ? 'B' : 'A';
+    const unreadField = `participant${recipientSlot}UnreadCount`;
+    const lastReadAt = resolved.conversation[
+      `participant${recipientSlot}LastReadAt`
+    ];
+    const updateData = {};
+    if (
+      normalizeCount(resolved.conversation[unreadField]) > 0
+      && (
+        !lastReadAt
+        || toTimestamp(lastReadAt) < createdAt
+      )
+    ) {
+      updateData[unreadField] = Math.max(
+        0,
+        normalizeCount(resolved.conversation[unreadField]) - 1
+      );
+    }
+    if (isConversationLatestMessage(resolved.conversation, message)) {
+      updateData.lastMessage = '[消息已撤回]';
+      updateData.lastMessageType = 'recalled';
+      updateData.lastMessageId = messageId;
+      updateData.updatedAt = db.serverDate();
+    }
+    if (Object.keys(updateData).length > 0) {
+      await transaction.collection('conversations')
+        .doc(resolved.conversationId)
+        .update({ data: updateData });
+    }
+    return {
+      conversationId: resolved.conversationId,
+      message: toSafeMessage({
+        ...message,
+        recalled: true,
+        recalledAt: new Date().toISOString()
+      }, openId),
+      reused: false
+    };
+  });
+  return success(result);
+}
+
+function getForwardMediaExtension(fileId, type) {
+  const path = getCloudFilePath(fileId);
+  const fileName = path.split('/').pop() || '';
+  const extension = fileName.includes('.')
+    ? fileName.slice(fileName.lastIndexOf('.') + 1).toLowerCase()
+    : '';
+  if (type === 'voice') {
+    return extension === 'mp3' ? 'mp3' : '';
+  }
+  return ['jpg', 'jpeg', 'png', 'webp'].includes(extension) ? extension : '';
+}
+
+async function isValidStoredForwardMedia(
+  message,
+  canonicalConversationId,
+  type
+) {
+  const media = message.media && typeof message.media === 'object'
+    ? message.media
+    : null;
+  const fileId = normalizeString(media && (media.fileId || media.fileID));
+  const pathConversationId = normalizeConversationId(
+    (getCloudFilePath(fileId).split('/'))[2]
+  );
+  if (!fileId || !pathConversationId) {
+    return false;
+  }
+  if (
+    !validateChatMediaPath(
+      fileId,
+      type,
+      pathConversationId,
+      normalizeString(message.senderPublicUserId),
+      normalizeClientMessageId(message.clientMessageId)
+    )
+  ) {
+    return false;
+  }
+  if (pathConversationId === canonicalConversationId) {
+    return true;
+  }
+  const legacyConversation = await getDocumentOrNull(
+    conversations.doc(pathConversationId)
+  );
+  return Boolean(
+    legacyConversation
+    && normalizeString(legacyConversation.status) === 'merged'
+    && normalizeConversationId(legacyConversation.mergedInto)
+      === canonicalConversationId
+  );
+}
+
+async function copyForwardMedia(
+  sourceMessage,
+  type,
+  targetConversationId,
+  senderPublicUserId,
+  clientMessageId
+) {
+  const sourceMedia = sourceMessage.media;
+  const sourceFileId = normalizeString(sourceMedia.fileId || sourceMedia.fileID);
+  const extension = getForwardMediaExtension(sourceFileId, type);
+  if (!extension) {
+    businessError(ERROR_CODES.MEDIA_FORWARD_FAILED, '媒体文件暂不可转发');
+  }
+  const downloaded = await cloud.downloadFile({ fileID: sourceFileId });
+  const fileContent = downloaded && downloaded.fileContent;
+  const size = fileContent && Number(fileContent.length || fileContent.byteLength);
+  const maximum = type === 'voice' ? MAX_VOICE_SIZE : MAX_IMAGE_SIZE;
+  if (!fileContent || !Number.isFinite(size) || size < 1 || size > maximum) {
+    businessError(ERROR_CODES.MEDIA_FORWARD_FAILED, '媒体文件暂不可转发');
+  }
+  const dateFolder = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const cloudPath = [
+    'chat-media',
+    type,
+    targetConversationId,
+    senderPublicUserId,
+    dateFolder,
+    `${clientMessageId}.${extension}`
+  ].join('/');
+  const uploaded = await cloud.uploadFile({ cloudPath, fileContent });
+  const fileId = normalizeString(uploaded && (uploaded.fileID || uploaded.fileId));
+  if (!fileId) {
+    businessError(ERROR_CODES.MEDIA_FORWARD_FAILED, '媒体文件暂不可转发');
+  }
+  return {
+    fileId,
+    media: {
+      ...sourceMedia,
+      fileId,
+      size
+    }
+  };
+}
+
+async function forwardMessage(data, openId, trace) {
+  trace.step = 'forward.validate';
+  const sourceConversationId = normalizeConversationId(data.sourceConversationId);
+  const targetConversationId = normalizeConversationId(data.targetConversationId);
+  const sourceMessageId = normalizeMessageId(data.sourceMessageId);
+  const clientMessageId = normalizeClientMessageId(data.clientMessageId);
+  if (
+    !sourceConversationId
+    || !targetConversationId
+    || !sourceMessageId
+    || !clientMessageId
+  ) {
+    return failure(ERROR_CODES.INVALID_ARGUMENT, '转发参数不正确');
+  }
+  const sourceResolved = await resolveConversation(
+    conversations,
+    sourceConversationId
+  );
+  const targetResolved = await resolveConversation(
+    conversations,
+    targetConversationId
+  );
+  if (!sourceResolved || !targetResolved) {
+    return failure(ERROR_CODES.CONVERSATION_NOT_FOUND, '会话不存在或已失效');
+  }
+  if (
+    targetResolved.conversationId !== targetConversationId
+    || sourceResolved.conversationId === targetConversationId
+  ) {
+    return failure(ERROR_CODES.INVALID_FORWARD_TARGET, '请选择其他有效会话');
+  }
+  const sourceSlot = getParticipantSlot(sourceResolved.conversation, openId);
+  const targetSlot = getParticipantSlot(targetResolved.conversation, openId);
+  if (!sourceSlot || !targetSlot) {
+    return failure(ERROR_CODES.FORBIDDEN, '无权转发到该会话');
+  }
+  const targetMessageId = createMessageId(
+    targetConversationId,
+    openId,
+    clientMessageId
+  );
+  const existingTargetMessage = await getDocumentOrNull(
+    db.collection('messages').doc(targetMessageId)
+  );
+  if (existingTargetMessage) {
+    if (
+      normalizeConversationId(existingTargetMessage.conversationId)
+        !== targetConversationId
+      || existingTargetMessage.senderOpenid !== openId
+    ) {
+      return failure(ERROR_CODES.INVALID_FORWARD_TARGET, '转发幂等键已失效');
+    }
+    return success({
+      message: toSafeMessage(existingTargetMessage, openId),
+      reused: true
+    });
+  }
+  const sourceMessage = await getDocumentOrNull(
+    db.collection('messages').doc(sourceMessageId)
+  );
+  const type = normalizeMessageType(sourceMessage && sourceMessage.type);
+  if (
+    !sourceMessage
+    || normalizeConversationId(sourceMessage.conversationId)
+      !== sourceResolved.conversationId
+    || sourceMessage.recalled === true
+    || isDeletedForParticipant(sourceMessage, sourceSlot)
+    || !FORWARDABLE_MESSAGE_TYPES.has(type)
+  ) {
+    return failure(ERROR_CODES.MESSAGE_NOT_FORWARDABLE, '原消息不可转发');
+  }
+
+  const payload = {
+    conversationId: targetConversationId,
+    clientMessageId,
+    type
+  };
+  if (type === 'text') {
+    payload.content = normalizeString(sourceMessage.content);
+  } else if (type === 'location') {
+    payload.location = sourceMessage.location;
+  } else if (type === 'product') {
+    payload.productId = normalizeProductId(
+      sourceMessage.product && sourceMessage.product.productId
+    );
+  }
+
+  const forwardOptions = {
+    requireCanonical: true,
+    forwardSource: {
+      conversationId: sourceConversationId,
+      canonicalConversationId: sourceResolved.conversationId,
+      messageId: sourceMessageId
+    }
+  };
+  let copiedFileId = '';
+  try {
+    if (type === 'voice' || type === 'image') {
+      const mediaValid = await isValidStoredForwardMedia(
+        sourceMessage,
+        sourceResolved.conversationId,
+        type
+      );
+      if (!mediaValid) {
+        return failure(ERROR_CODES.MESSAGE_NOT_FORWARDABLE, '原媒体消息不可转发');
+      }
+      const targetSenderPublicUserId = normalizeString(
+        targetResolved.conversation[`participant${targetSlot}UserId`]
+      );
+      const copied = await copyForwardMedia(
+        sourceMessage,
+        type,
+        targetConversationId,
+        targetSenderPublicUserId,
+        clientMessageId
+      );
+      copiedFileId = copied.fileId;
+      payload.media = copied.media;
+    }
+    const response = await sendMessage(
+      payload,
+      openId,
+      trace,
+      '',
+      forwardOptions
+    );
+    if (!response.success && copiedFileId) {
+      await cloud.deleteFile({ fileList: [copiedFileId] }).catch(() => {});
+    }
+    return response;
+  } catch (error) {
+    if (copiedFileId) {
+      await cloud.deleteFile({ fileList: [copiedFileId] }).catch(() => {});
+    }
+    throw error;
+  }
+}
+
 function classifyFailure(error) {
+  const codes = [
+    error && error.code,
+    error && error.errCode,
+    error && error.cause && error.cause.code,
+    error && error.cause && error.cause.errCode
+  ].filter((value) => value !== undefined && value !== null)
+    .map((value) => String(value).trim().toUpperCase());
+  if (
+    codes.includes('DATABASE_TRANSACTION_CONFLICT')
+    || codes.includes('DATABASE_REQUEST_FAILED')
+  ) {
+    return ERROR_CODES.DATABASE_ERROR;
+  }
   const message = [
     error && error.message,
     error && error.errMsg
@@ -1055,7 +2222,11 @@ exports.main = async (event = {}) => {
     'createOrGetConversation',
     'sendTextMessage',
     'sendMessage',
-    'markConversationRead'
+    'markConversationRead',
+    'hideConversation',
+    'deleteMessageForMe',
+    'recallMessage',
+    'forwardMessage'
   ];
   if (!allowedActions.includes(action)) {
     return failure(ERROR_CODES.INVALID_ACTION, '不支持的消息操作');
@@ -1069,10 +2240,16 @@ exports.main = async (event = {}) => {
   }
 
   const trace = {
+    traceId: createSafeTraceId(data.traceId),
+    action,
     step: 'start',
     productId: '',
     productFound: false
   };
+  trace.attemptDiagnostic = createAttemptDiagnosticCollector(
+    trace.traceId,
+    action
+  );
   try {
     trace.step = 'maintenance.check';
     await maintenance.assertWritable(db, businessError);
@@ -1083,17 +2260,47 @@ exports.main = async (event = {}) => {
       }, trace);
     }
     if (action === 'sendTextMessage') {
-      return await sendTextMessage(data, openId, trace);
+      return {
+        ...await sendTextMessage(data, openId, trace),
+        traceId: trace.traceId
+      };
     }
     if (action === 'sendMessage') {
-      return await sendMessage(data, openId, trace);
+      return {
+        ...await sendMessage(data, openId, trace),
+        traceId: trace.traceId
+      };
     }
-    return await markConversationRead(data, openId, trace);
+    if (action === 'markConversationRead') {
+      return await markConversationRead(data, openId, trace);
+    }
+    if (action === 'hideConversation') {
+      return {
+        ...await hideConversation(data, openId, trace),
+        traceId: trace.traceId
+      };
+    }
+    if (action === 'deleteMessageForMe') {
+      return await deleteMessageForMe(data, openId, trace);
+    }
+    if (action === 'recallMessage') {
+      return await recallMessage(data, openId, trace);
+    }
+    return await forwardMessage(data, openId, trace);
   } catch (error) {
     if (error && error.businessCode) {
-      return failure(error.businessCode, error.message);
+      return {
+        ...failure(error.businessCode, error.message),
+        traceId: trace.traceId
+      };
     }
     const code = classifyFailure(error);
+    logSafeTrace(trace, 'response', {
+      outcome: 'failed',
+      step: trace.step,
+      safeErrorCode: getSafeErrorCode(error),
+      retryable: isRetryableTransactionConflict(error)
+    });
     console.error('[messageAction] request failed', {
       action,
       step: trace.step,
@@ -1107,12 +2314,15 @@ exports.main = async (event = {}) => {
         code
       );
     }
-    return failure(
-      code,
-      code === ERROR_CODES.DATABASE_ERROR
-        ? '消息数据暂不可用，请稍后重试'
-        : '消息服务暂不可用，请稍后重试'
-    );
+    return appendAttemptDiagnostic({
+      ...failure(
+        code,
+        code === ERROR_CODES.DATABASE_ERROR
+          ? '消息数据暂不可用，请稍后重试'
+          : '消息服务暂不可用，请稍后重试'
+      ),
+      traceId: trace.traceId
+    }, trace);
   }
 };
 
@@ -1120,5 +2330,19 @@ exports.__test = Object.freeze({
   canCreateSchoolRelation,
   assertCanCreateSchoolRelation,
   createUserId,
-  createParticipantPair
+  createParticipantPair,
+  isRetryableTransactionConflict,
+  runTransaction,
+  getConversationActivitySnapshot,
+  conversationMatchesActivitySnapshot,
+  getTransactionControl,
+  getSafeErrorCode,
+  getWhitelistedDiagnosticCode,
+  isAttemptDiagnosticEnabled,
+  createAttemptDiagnosticCollector,
+  appendAttemptDiagnostic,
+  beginAttemptStage,
+  completeAttemptStage,
+  safeAttemptStages: SAFE_ATTEMPT_STAGES,
+  transactionMaxAttempts: TRANSACTION_MAX_ATTEMPTS
 });

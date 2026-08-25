@@ -11,6 +11,9 @@ const {
   runCloudBase,
   assert
 } = require('./phase-18-canary-core');
+const {
+  assertProductionMessageQueryCandidate
+} = require('./phase-25-minimum-safe-rollback-core');
 
 const FUNCTION = Object.freeze({
   name: 'messageQuery',
@@ -164,6 +167,9 @@ function run(options) {
     path.join(ROOT, 'cloudfunctions', FUNCTION.name, 'index.js'),
     'utf8'
   );
+  const rollbackFloor = assertProductionMessageQueryCandidate(source, {
+    lifecycleDataState: 'present'
+  });
   assert(/schoolName:\s*normalizeString\(record\s*&&\s*record\.schoolName\)/.test(source), 'messageQuery schoolName response is missing');
   const dependency = localDependencySummary();
   const before = summarize(readFunctionDetail(environmentId, FUNCTION.name), source);
@@ -175,6 +181,11 @@ function run(options) {
       writesBusinessData: false,
       changesAclOrIndexes: false,
       runtimeChange: false,
+      rollbackFloor: {
+        baselineId: rollbackFloor.baselineId,
+        sourceSha256: rollbackFloor.inspection.sourceSha256,
+        allowed: true
+      },
       dependency,
       before
     };
@@ -197,6 +208,11 @@ function run(options) {
     changesAclOrIndexes: false,
     runtimeChanged: false,
     environmentChanged: false,
+    rollbackFloor: {
+      baselineId: rollbackFloor.baselineId,
+      sourceSha256: rollbackFloor.inspection.sourceSha256,
+      allowed: true
+    },
     before,
     after,
     remotePackage

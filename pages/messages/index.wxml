@@ -18,6 +18,7 @@
       class="surface-card conversation-card"
       data-conversation-id="{{item.conversationId}}"
       bindtap="openConversation"
+      bindlongpress="onConversationLongPress"
     >
       <view class="conversation-avatar">
         <image

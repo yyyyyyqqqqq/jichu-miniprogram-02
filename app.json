@@ -14,6 +14,7 @@
     "pages/my-products/index",
     "pages/chat/index",
     "pages/chat-product-picker/index",
+    "pages/message-forward/index",
     "pages/user-profile/index",
     "pages/location-picker/index",
     "pages/appointment-create/index",

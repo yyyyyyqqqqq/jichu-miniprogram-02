@@ -387,7 +387,14 @@ async function writeSystemMessage(
     lastMessage: content.slice(0, LAST_MESSAGE_MAX_LENGTH),
     lastMessageType: 'system',
     lastMessageAt: db.serverDate(),
+    lastMessageId: messageId,
     lastSenderOpenid: actorOpenid,
+    participantAHiddenAt: null,
+    participantBHiddenAt: null,
+    participantAHiddenLastMessageId: '',
+    participantBHiddenLastMessageId: '',
+    participantAHiddenLastMessageAt: null,
+    participantBHiddenLastMessageAt: null,
     updatedAt: db.serverDate()
   };
   if (actorSlot === 'A') {

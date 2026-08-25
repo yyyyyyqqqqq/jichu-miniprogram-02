@@ -289,6 +289,29 @@
   font-size: 18rpx;
 }
 
+.recalled-message {
+  display: flex;
+  align-items: center;
+  padding: 8rpx 18rpx;
+  border-radius: 999rpx;
+  background: rgba(103, 118, 110, 0.09);
+  color: #87918c;
+  font-size: 21rpx;
+}
+
+.recalled-message__time {
+  margin-left: 12rpx;
+  color: #a5ada9;
+  font-size: 18rpx;
+}
+
+.forwarded-label {
+  display: block;
+  margin-bottom: 6rpx;
+  color: #89938e;
+  font-size: 18rpx;
+}
+
 .message-bubble {
   max-width: 76%;
   padding: 18rpx 20rpx 12rpx;

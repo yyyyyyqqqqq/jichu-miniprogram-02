@@ -109,13 +109,15 @@
       <view
         wx:for="{{messages}}"
         wx:key="messageId"
-        class="message-row {{item.type === 'system' ? 'message-row--system' : (item.isMine ? 'message-row--mine' : '')}}"
+        class="message-row {{item.type === 'system' || item.type === 'recalled' ? 'message-row--system' : (item.isMine ? 'message-row--mine' : '')}}"
       >
         <view
           wx:if="{{item.type === 'system'}}"
           class="system-message-card"
           data-appointment-id="{{item.appointmentId}}"
+          data-message-id="{{item.messageId}}"
           bindtap="openAppointmentMessage"
+          bindlongpress="onMessageLongPress"
         >
           <text class="system-message-label">面交预约</text>
           <text class="system-message-content">{{item.content}}</text>
@@ -123,15 +125,28 @@
           <text class="system-message-time">{{item.createdAtText}}</text>
         </view>
         <view
+          wx:elif="{{item.type === 'recalled'}}"
+          class="recalled-message"
+          data-message-id="{{item.messageId}}"
+          bindlongpress="onMessageLongPress"
+        >
+          <text>{{item.content}}</text>
+          <text class="recalled-message__time">{{item.createdAtText}}</text>
+        </view>
+        <view
           wx:else
           class="message-bubble message-bubble--{{item.type}} {{item.isMine ? 'message-bubble--mine' : ''}} {{item.sendStatus === 'failed' ? 'message-bubble--failed' : ''}}"
           data-client-message-id="{{item.clientMessageId}}"
+          data-message-id="{{item.messageId}}"
           bindtap="retryMessage"
+          bindlongpress="onMessageLongPress"
         >
+          <text wx:if="{{item.forwarded}}" class="forwarded-label">已转发</text>
           <text
             wx:if="{{item.type === 'text' || item.type === 'unsupported'}}"
             class="message-content"
             data-client-message-id="{{item.clientMessageId}}"
+            data-message-id="{{item.messageId}}"
             catchtap="retryMessage"
           >{{item.content}}</text>
 
