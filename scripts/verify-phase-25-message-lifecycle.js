@@ -125,10 +125,25 @@ check('forward derives a new server message from an existing safe source', () =>
 });
 
 check('long-press UX exposes only supported lifecycle operations', () => {
+  const deleteDialogStart = chatPage.indexOf('  confirmDeleteMessage(message) {');
+  const recallActionStart = chatPage.indexOf('  async recallMessage(message) {');
+  const retryConversationStart = chatPage.indexOf('  retryConversation() {');
+  const deleteDialog = chatPage.slice(deleteDialogStart, recallActionStart);
+  const recallAction = chatPage.slice(recallActionStart, retryConversationStart);
   assert(/bindlongpress="onConversationLongPress"/.test(read('pages/messages/index.wxml')), 'conversation long-press is missing');
   assert(/bindlongpress="onMessageLongPress"/.test(chatTemplate), 'message long-press is missing');
   assert(/canRecallMessage/.test(chatPage), 'client recall affordance ignores the two-minute window');
-  assert(/仅从你这里删除/.test(chatPage), 'delete-for-me copy is unclear');
+  assert(deleteDialogStart >= 0 && recallActionStart > deleteDialogStart, 'delete confirmation implementation is missing');
+  assert(retryConversationStart > recallActionStart, 'direct recall implementation is missing');
+  assert(/label:\s*['"]删除['"],\s*action:\s*['"]delete['"]/.test(chatPage), 'delete menu copy is not simplified');
+  assert(/title:\s*['"]确认删除？['"]/.test(deleteDialog), 'delete confirmation title is not simplified');
+  assert(!/\bcontent\s*:/.test(deleteDialog), 'delete confirmation still contains explanatory body copy');
+  assert(/if\s*\(!result\.confirm\)\s*\{\s*return;/.test(deleteDialog), 'canceling delete does not stop before mutation');
+  assert(!/仅从我这里删除|仅从你这里删除/.test(chatPage), 'legacy delete-for-me copy remains user-visible');
+  assert(!/wx\.showModal\(/.test(recallAction), 'recall still opens a second confirmation modal');
+  assert(/this\.recallMessage\(message\)/.test(chatPage), 'recall action is not dispatched directly');
+  assert(/messageLifecycleActionsInFlight/.test(chatPage), 'message lifecycle actions lack duplicate-request protection');
+  assert(/MessageService\.recallMessage\(/.test(recallAction), 'direct recall no longer uses the existing service boundary');
   assert(/新消息到达后会重新出现/.test(messagesPage), 'conversation hide copy omits resurface behavior');
 });
 

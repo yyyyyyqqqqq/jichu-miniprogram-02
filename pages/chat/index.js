@@ -152,6 +152,7 @@ Page({
     this.pendingSchoolRefresh = false;
     this.serverMessages = [];
     this.pendingMessages = [];
+    this.messageLifecycleActionsInFlight = new Set();
     this.nextCursor = null;
     this.pollInFlight = false;
     this.voicePressActive = false;
@@ -1956,7 +1957,7 @@ Page({
     if (MessageService.canRecallMessage(message)) {
       actions.push({ label: '撤回', action: 'recall' });
     }
-    actions.push({ label: '仅从我这里删除', action: 'delete' });
+    actions.push({ label: '删除', action: 'delete' });
     wx.showActionSheet({
       itemList: actions.map((item) => item.label),
       success: (result) => {
@@ -1980,22 +1981,50 @@ Page({
       return;
     }
     if (action === 'recall') {
-      this.confirmRecallMessage(message);
+      this.recallMessage(message);
       return;
     }
     this.confirmDeleteMessage(message);
   },
 
+  beginMessageLifecycleAction(action, message) {
+    const messageId = message && message.messageId;
+    if (!messageId) {
+      return '';
+    }
+    if (!this.messageLifecycleActionsInFlight) {
+      this.messageLifecycleActionsInFlight = new Set();
+    }
+    const key = `${action}:${messageId}`;
+    if (this.messageLifecycleActionsInFlight.has(key)) {
+      return '';
+    }
+    this.messageLifecycleActionsInFlight.add(key);
+    return key;
+  },
+
+  finishMessageLifecycleAction(key) {
+    if (key && this.messageLifecycleActionsInFlight) {
+      this.messageLifecycleActionsInFlight.delete(key);
+    }
+  },
+
   confirmDeleteMessage(message) {
     wx.showModal({
-      title: '删除消息',
-      content: '仅从你这里删除，对方仍可看到这条消息。',
+      title: '确认删除？',
+      cancelText: '取消',
       confirmText: '删除',
-      confirmColor: '#d84b32',
+      confirmColor: '#fa5151',
       success: async (result) => {
         if (!result.confirm) {
           return;
         }
+        const actionKey = this.beginMessageLifecycleAction('delete', message);
+        if (!actionKey) {
+          return;
+        }
+        wx.showLoading({ title: '删除中', mask: true });
+        let errorMessage = '';
         try {
           await MessageService.deleteMessageForMe(
             this.conversationId,
@@ -2008,45 +2037,51 @@ Page({
             (item) => item.messageId !== message.messageId
           );
           this.renderMessages(false);
-          wx.showToast({ title: '已删除', icon: 'success' });
         } catch (error) {
-          wx.showToast({
-            title: error && error.message ? error.message : '删除失败，请重试',
-            icon: 'none'
-          });
+          errorMessage = error && error.message
+            ? error.message
+            : '删除失败，请重试';
+        } finally {
+          wx.hideLoading();
+          this.finishMessageLifecycleAction(actionKey);
         }
+        wx.showToast({
+          title: errorMessage || '已删除',
+          icon: errorMessage ? 'none' : 'success'
+        });
       }
     });
   },
 
-  confirmRecallMessage(message) {
-    wx.showModal({
-      title: '撤回消息',
-      content: '撤回后双方都会看到撤回提示。',
-      confirmText: '撤回',
-      success: async (result) => {
-        if (!result.confirm) {
-          return;
-        }
-        try {
-          const response = await MessageService.recallMessage(
-            this.conversationId,
-            message.messageId
-          );
-          const byId = new Map(
-            this.serverMessages.map((item) => [item.messageId, item])
-          );
-          byId.set(response.message.messageId, response.message);
-          this.serverMessages = [...byId.values()];
-          this.renderMessages(false);
-          wx.showToast({ title: '已撤回', icon: 'success' });
-        } catch (error) {
-          wx.showToast({
-            title: error && error.message ? error.message : '撤回失败，请重试',
-            icon: 'none'
-          });
-        }
-      }
+  async recallMessage(message) {
+    const actionKey = this.beginMessageLifecycleAction('recall', message);
+    if (!actionKey) {
+      return;
+    }
+    wx.showLoading({ title: '撤回中', mask: true });
+    let errorMessage = '';
+    try {
+      const response = await MessageService.recallMessage(
+        this.conversationId,
+        message.messageId
+      );
+      const byId = new Map(
+        this.serverMessages.map((item) => [item.messageId, item])
+      );
+      byId.set(response.message.messageId, response.message);
+      this.serverMessages = [...byId.values()];
+      this.renderMessages(false);
+    } catch (error) {
+      errorMessage = error && error.message
+        ? error.message
+        : '撤回失败，请重试';
+    } finally {
+      wx.hideLoading();
+      this.finishMessageLifecycleAction(actionKey);
+    }
+    wx.showToast({
+      title: errorMessage || '已撤回',
+      icon: errorMessage ? 'none' : 'success'
     });
   },
 
