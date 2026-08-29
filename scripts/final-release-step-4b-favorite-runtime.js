@@ -72,7 +72,7 @@ function validatePage(result, expectedPage) {
   assert(typeof result.data.hasMore === 'boolean', 'favorite hasMore drifted');
   assert(result.data.list.length <= PAGE_SIZE, 'favorite page exceeded page size');
   for (const item of result.data.list) {
-    assert(item && typeof item.id === 'string' && item.id, 'favorite item id missing');
+    assert(item && typeof item._id === 'string' && item._id, 'favorite item id missing');
     assert(['available', 'reserved', 'offline', 'sold'].includes(item.status), 'favorite status filter drifted');
     assert(!Object.prototype.hasOwnProperty.call(item, 'sellerOpenid'), 'favorite private seller identity leaked');
   }
@@ -87,7 +87,7 @@ function validatePage(result, expectedPage) {
 function pageSignature(result) {
   return crypto.createHash('sha256')
     .update(JSON.stringify({
-      ids: result.data.list.map((item) => item.id),
+      ids: result.data.list.map((item) => item._id),
       total: result.data.total,
       hasMore: result.data.hasMore,
       page: result.data.page,
@@ -151,8 +151,8 @@ async function run(options) {
     }
     const secondPage = await invoke(2);
     assert(secondPage.result.data.total === warmup.result.data.total, 'favorite total differs between pages');
-    const firstIds = new Set(warmup.result.data.list.map((item) => item.id));
-    assert(secondPage.result.data.list.every((item) => !firstIds.has(item.id)), 'favorite pages overlap');
+    const firstIds = new Set(warmup.result.data.list.map((item) => item._id));
+    assert(secondPage.result.data.list.every((item) => !firstIds.has(item._id)), 'favorite pages overlap');
     assert(consoleErrors === 0 && exceptions === 0, 'DevTools recorded runtime errors');
 
     const report = {
@@ -171,7 +171,12 @@ async function run(options) {
       latencyMs: summarize(durations),
       payloadBytes: summarize(payloads),
       total: warmup.result.data.total,
+      firstPageRelationCount: Math.min(PAGE_SIZE, warmup.result.data.total),
       firstPageCount: warmup.result.data.list.length,
+      firstPageFilteredOrMissingCount: Math.max(
+        0,
+        Math.min(PAGE_SIZE, warmup.result.data.total) - warmup.result.data.list.length
+      ),
       secondPageCount: secondPage.result.data.list.length,
       stableOrderAndEnvelope: true,
       writeActionsIncluded: false,
