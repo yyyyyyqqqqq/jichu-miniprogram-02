@@ -890,9 +890,17 @@ function verifyStaticBoundaries(projectRoot, collector) {
     projectRoot,
     'cloudfunctions/messageAction/index.js'
   );
+  const messageBoundarySource = read(
+    projectRoot,
+    'cloudfunctions/messageAction/current-school-boundary.js'
+  );
   const appointmentSource = read(
     projectRoot,
     'cloudfunctions/appointmentAction/index.js'
+  );
+  const appointmentBoundarySource = read(
+    projectRoot,
+    'cloudfunctions/appointmentAction/current-school-boundary.js'
   );
   const authSource = read(projectRoot, 'cloudfunctions/authUser/index.js');
   const legacyListConditionSource = querySource.slice(
@@ -982,12 +990,14 @@ function verifyStaticBoundaries(projectRoot, collector) {
   );
   collector.check(
     /CROSS_SCHOOL_RELATION_FORBIDDEN/.test(messageSource)
-      && /userSchoolId\s*===\s*productSchoolId/.test(messageSource),
+      && /buyerSchoolId\s*===\s*productSchoolId/.test(messageBoundarySource)
+      && /sellerSchoolId\s*===\s*productSchoolId/.test(messageBoundarySource),
     'conversation creation lacks the Phase 19 school relation guard'
   );
   collector.check(
     /CROSS_SCHOOL_RELATION_FORBIDDEN/.test(appointmentSource)
-      && /buyerSchoolId\s*===\s*productSchoolId/.test(appointmentSource),
+      && /buyerSchoolId\s*===\s*productSchoolId/.test(appointmentBoundarySource)
+      && /sellerSchoolId\s*===\s*productSchoolId/.test(appointmentBoundarySource),
     'appointment creation lacks the Phase 19 school relation guard'
   );
   collector.check(

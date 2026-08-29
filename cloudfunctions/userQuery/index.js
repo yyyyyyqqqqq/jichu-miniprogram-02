@@ -182,6 +182,22 @@ async function findPublicUser(publicUserId) {
   return user;
 }
 
+async function resolvePublicSchoolName(user) {
+  const schoolId = normalizeSchoolId(user && user.schoolId);
+  if (!schoolId) {
+    return '';
+  }
+  const school = await getDocumentOrNull(schools.doc(schoolId));
+  if (
+    !school
+    || school.platformStatus !== 'active'
+    || school.officialStatus !== 'valid'
+  ) {
+    return '';
+  }
+  return normalizeText(school.name);
+}
+
 async function resolveViewerContext(context) {
   const openId = normalizeText(context && context.OPENID);
   const appId = normalizeText(context && context.APPID);
@@ -238,17 +254,22 @@ async function publicProfile(data, viewer) {
   if (!user) {
     return failure(ERROR_CODES.USER_NOT_FOUND, '该用户不存在');
   }
-  const countResult = await products.where({
-    sellerOpenid: user.openid,
-    schoolId: viewer.schoolId,
-    status: command.in(PUBLIC_PRODUCT_STATUSES)
-  }).count();
+  const [schoolName, countResult] = await Promise.all([
+    resolvePublicSchoolName(user),
+    products.where({
+      sellerOpenid: user.openid,
+      schoolId: viewer.schoolId,
+      status: command.in(PUBLIC_PRODUCT_STATUSES)
+    }).count()
+  ]);
+  const publicSchoolName = schoolName || '校园信息待完善';
   return success({
     profile: {
       publicUserId,
       nickname: normalizeText(user.nickname, '校园用户'),
       avatarUrl: normalizeText(user.avatarUrl),
-      campus: normalizeText(user.campus, '校园信息待完善'),
+      schoolName: publicSchoolName,
+      campus: publicSchoolName,
       bio: normalizeText(user.bio, '这个用户还没有填写简介'),
       joinDate: toIsoString(user.createdAt),
       activeProductCount: normalizeCount(countResult.total)

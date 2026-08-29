@@ -12,6 +12,7 @@ function assert(condition, message) {
 function createVerificationDatabase() {
   const stores = {
     users: new Map(),
+    schools: new Map(),
     products: new Map(),
     conversations: new Map(),
     messages: new Map(),
@@ -257,6 +258,13 @@ async function verifyAppointmentFlow(root) {
   const buyerTwoOpenId = 'appointment-buyer-two-openid';
   const buyerThreeOpenId = 'appointment-buyer-three-openid';
   const attackerOpenId = 'appointment-attacker-openid';
+  const schoolAId = 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  stores.schools.set(schoolAId, {
+    _id: schoolAId,
+    name: '学校 A',
+    platformStatus: 'active',
+    officialStatus: 'valid'
+  });
   const identities = [
     [buyerOpenId, '买家甲'],
     [buyerTwoOpenId, '买家乙'],
@@ -273,7 +281,7 @@ async function verifyAppointmentFlow(root) {
       avatarUrl: '',
       campus: '即出大学',
       status: 'active',
-      schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      schoolId: schoolAId,
       schoolName: '学校 A'
     });
   });
@@ -288,7 +296,7 @@ async function verifyAppointmentFlow(root) {
       version: 1,
       sellerOpenid: owner,
       sellerId: userId(owner),
-      schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      schoolId: schoolAId,
       schoolName: '学校 A',
       location: '图书馆南门'
     });
@@ -328,6 +336,7 @@ async function verifyAppointmentFlow(root) {
   addProduct('appointment-product-offline', 'offline');
   addProduct('appointment-product-self', 'available', buyerOpenId);
   addProduct('appointment-product-cross-school');
+  addProduct('appointment-product-seller-moved');
   stores.products.set('appointment-product-cross-school', {
     ...stores.products.get('appointment-product-cross-school'),
     schoolId: 's_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
@@ -394,6 +403,10 @@ async function verifyAppointmentFlow(root) {
   );
   const crossSchoolConversationId = addConversation(
     'appointment-product-cross-school',
+    buyerOpenId
+  );
+  const sellerMovedConversationId = addConversation(
+    'appointment-product-seller-moved',
     buyerOpenId
   );
 
@@ -567,6 +580,27 @@ async function verifyAppointmentFlow(root) {
       && crossSchoolCreate.code === 'CROSS_SCHOOL_RELATION_FORBIDDEN',
       'direct cross-school appointment creation or forged school scope was accepted'
     );
+    stores.users.set(userId(sellerOpenId), {
+      ...stores.users.get(userId(sellerOpenId)),
+      schoolId: 's_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      schoolName: '学校 B'
+    });
+    const sellerMovedCreate = await appointmentAction.main(
+      createEvent(sellerMovedConversationId, 'create_seller_moved', {
+        sellerSchoolId: schoolAId,
+        schoolId: schoolAId
+      })
+    );
+    assert(
+      sellerMovedCreate.success === false
+      && sellerMovedCreate.code === 'CROSS_SCHOOL_RELATION_FORBIDDEN',
+      'seller school drift or forged seller school was accepted'
+    );
+    stores.users.set(userId(sellerOpenId), {
+      ...stores.users.get(userId(sellerOpenId)),
+      schoolId: schoolAId,
+      schoolName: '学校 A'
+    });
 
     currentOpenId = attackerOpenId;
     const attackerCreate = await appointmentAction.main(

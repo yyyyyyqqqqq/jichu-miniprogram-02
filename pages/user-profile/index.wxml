@@ -22,7 +22,7 @@
       </view>
       <view class="public-copy">
         <view class="public-name">{{profile.nickname}}</view>
-        <view class="public-campus">{{profile.campus}}</view>
+        <view class="public-campus">{{profile.schoolName || profile.campus}}</view>
         <view class="public-join">{{profile.joinDateText}}</view>
       </view>
       <view class="active-count">

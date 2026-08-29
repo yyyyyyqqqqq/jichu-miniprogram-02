@@ -376,7 +376,12 @@ function verifySchoolSummary() {
   check(!chatTemplate.includes('conversation.otherUser.campus'), 'chat header still binds campus');
   check(!pickerTemplate.includes('owner.campus'), 'chat product picker still binds campus');
   check(/campus:\s*normalizeString\(record\s*&&\s*record\.campus\)/.test(appointmentQuerySource), 'appointmentQuery legacy campus audit marker changed unexpectedly');
-  check(/campus:\s*normalizeText\(user\.campus/.test(userQuerySource), 'userQuery legacy campus audit marker changed unexpectedly');
+  check(
+    /async function resolvePublicSchoolName/.test(userQuerySource)
+      && /schoolName:\s*publicSchoolName/.test(userQuerySource)
+      && /campus:\s*publicSchoolName/.test(userQuerySource),
+    'userQuery public profile no longer projects the authoritative school display name'
+  );
   check(/removeStorageSync\(CLOUD_CONFIG\.userCacheKey\)/.test(authStoreSource), 'logout no longer clears the cached user summary');
 }
 

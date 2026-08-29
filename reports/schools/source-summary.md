@@ -3,7 +3,7 @@
 - 原始文件：`list of universities.xls`
 - 文件格式：OLE Compound File / Excel 97-2003 BIFF (.xls)
 - 文件大小：464896 字节
-- SHA-256：`863404a90d6faed6ea2ea4c45df0c9e44e42378933893a9be7594d084a32d437`
+- SHA-256：`a0ceb41a15f335c0adfb2d0239137b879b1c58d1b57a322d3e1794866de7d09c`
 - 工作表：1 个（全国普通高等学校名单）
 - 隐藏工作表：0 个
 - 公式：未发现

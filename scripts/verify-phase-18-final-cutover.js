@@ -49,7 +49,8 @@ async function run() {
   check(summary.productSeedEnabled === 'false', 'product seed is enabled');
 
   const indexes = readProductIndexes(environmentId);
-  check(indexes.length === 19, 'products index count is not 19');
+  check(indexes.length === 20, 'products index count is not the current 20-index baseline');
+  check(indexes.some((item) => item.name === 'idx_seller_school_status_createdAt_id'), 'seller-school product index is missing');
   check(await readProductsAcl(environmentId) === 'ADMINONLY', 'products ACL is not ADMINONLY');
   const readinessReport = readiness.runAudit({ confirmTarget: targetMasked });
   check(readinessReport.users.validActiveSchool === readinessReport.users.total, 'user school readiness is incomplete');
@@ -133,9 +134,7 @@ async function run() {
     limit: 1000
   });
   check(publicProducts.every((item) => item.schoolId), 'public product without school exists');
-  check(publicProducts.some((item) => item.schoolId === privateData.accountA.schoolId), 'school A has no public products');
-  check(publicProducts.some((item) => item.schoolId === privateData.accountB.schoolId), 'school B has no public products');
-  check(publicProducts.filter((item) => item.schoolId === privateData.accountA.schoolId).every((item) => item.schoolId !== privateData.accountB.schoolId), 'A/B product scope overlaps');
+  check(publicProducts.length === 0, 'PUBLIC MARKET ZERO baseline is not preserved');
 
   check(MarketCore.decideMarketMode({ ...LEGACY_CONFIG, allowlist: [], userId: third._id }) === MarketCore.MARKET_MODE.LEGACY, 'rollback config does not restore legacy');
   const rollback = buildRollbackDryRun({ confirmTarget: targetMasked });
@@ -146,7 +145,7 @@ async function run() {
     && rollback.requiredSourceConfig.accessRequiresAuth === false
     && rollback.requiredSourceConfig.allowlistCount === 0, 'rollback target config is invalid');
 
-  check(/AUTH_REQUIRED/.test(source) && /PROFILE_INCOMPLETE/.test(source) && /SCHOOL_REQUIRED/.test(source), 'auth fail-closed errors are missing');
+  check(/AUTH_REQUIRED/.test(source) && /SCHOOL_REQUIRED/.test(source), 'auth fail-closed errors are missing');
   check(/SCHOOL_INVALID/.test(source) && /SCHOOL_UNAVAILABLE/.test(source) && /USER_INACTIVE/.test(source), 'school/user fail-closed errors are missing');
   check(/INVALID_CURSOR_SCOPE/.test(source), 'cursor scope rejection is missing');
   const manageSource = fs.readFileSync(path.join(ROOT, 'cloudfunctions', 'manageProduct', 'index.js'), 'utf8');

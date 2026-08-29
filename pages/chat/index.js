@@ -3,6 +3,7 @@ const AuthGuard = require('../../services/auth-guard');
 const MessageService = require('../../services/message-service');
 const ChatMediaService = require('../../services/chat-media-service');
 const AppointmentService = require('../../services/appointment-service');
+const AppointmentFeedback = require('../../utils/appointment-feedback');
 const ProductService = require('../../services/product-service');
 const SchoolRelation = require('../../utils/school-relation');
 const NavigationService = require('../../services/navigation-service');
@@ -1884,10 +1885,7 @@ Page({
     const product = this.data.conversation
       && this.data.conversation.product;
     if (product && product.isCrossSchool) {
-      wx.showToast({
-        title: '该商品属于其他学校，不能创建新的面交预约',
-        icon: 'none'
-      });
+      AppointmentFeedback.showCrossSchoolCreateForbidden();
       return;
     }
     if (

@@ -348,6 +348,8 @@ function createSchoolQueryMock(records) {
 }
 
 async function verifySchoolQuery(root) {
+  const previousCursorSecret = process.env.SCHOOL_QUERY_CURSOR_HMAC_SECRET;
+  process.env.SCHOOL_QUERY_CURSOR_HMAC_SECRET = 'school-query-test-secret-0123456789-abcdefghijklmnopqrstuvwxyz';
   const activeFixtures = JSON.parse(fs.readFileSync(
     path.join(root, 'data', 'schools', 'fixtures', 'active-schools.fixture.json'),
     'utf8'
@@ -383,6 +385,15 @@ async function verifySchoolQuery(root) {
     const next = await schoolQuery.main({ action: 'list', pageSize: 1, cursor: list.data.nextCursor });
     assert(next.success && next.data.items.length === 1, 'stable cursor failed');
     assert(!next.data.hasMore && !next.data.nextCursor, 'final school page exposes a phantom cursor');
+    const tamperedCursor = `${list.data.nextCursor.slice(0, -1)}${list.data.nextCursor.endsWith('a') ? 'b' : 'a'}`;
+    assert(
+      (await schoolQuery.main({ action: 'list', pageSize: 1, cursor: tamperedCursor })).code === 'INVALID_ARGUMENT',
+      'tampered cursor accepted'
+    );
+    assert(
+      (await schoolQuery.main({ action: 'list', province: '广东省', pageSize: 1, cursor: list.data.nextCursor })).code === 'INVALID_ARGUMENT',
+      'cursor scope binding failed'
+    );
     assert(
       [...list.data.items, ...next.data.items].every((record) => record.platformStatus === 'active'),
       'list exposed non-active schools'
@@ -411,6 +422,8 @@ async function verifySchoolQuery(root) {
   } finally {
     delete require.cache[require.resolve(modulePath)];
     Module._load = originalLoad;
+    if (previousCursorSecret === undefined) delete process.env.SCHOOL_QUERY_CURSOR_HMAC_SECRET;
+    else process.env.SCHOOL_QUERY_CURSOR_HMAC_SECRET = previousCursorSecret;
   }
 }
 

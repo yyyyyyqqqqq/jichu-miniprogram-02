@@ -19,7 +19,11 @@ const {
 
 const AUTOMATOR_MODULE = process.env.PHASE18_DUAL_AUTOMATOR_MODULE;
 const AUTOMATOR_WS_ENDPOINT = process.env.PHASE18_DUAL_AUTOMATOR_WS_ENDPOINT;
-const REMOTE_QR_PATH = path.join(ROOT, 'tmp', 'phase-18-second-account-remote-qr.png');
+const REMOTE_QR_PATH = path.join(
+  ROOT,
+  'tmp',
+  `phase-18-second-account-remote-qr-${Date.now()}.png`
+);
 
 function withTimeout(promise, label, timeoutMs) {
   return new Promise((resolve, reject) => {

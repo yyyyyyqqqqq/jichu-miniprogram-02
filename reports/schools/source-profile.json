@@ -1,11 +1,11 @@
 {
   "generatedFrom": "list of universities.xls",
-  "sourceSha256": "863404a90d6faed6ea2ea4c45df0c9e44e42378933893a9be7594d084a32d437",
+  "sourceSha256": "a0ceb41a15f335c0adfb2d0239137b879b1c58d1b57a322d3e1794866de7d09c",
   "inspection": {
     "file": {
       "name": "list of universities.xls",
       "size": 464896,
-      "sha256": "863404a90d6faed6ea2ea4c45df0c9e44e42378933893a9be7594d084a32d437",
+      "sha256": "a0ceb41a15f335c0adfb2d0239137b879b1c58d1b57a322d3e1794866de7d09c",
       "format": "OLE Compound File / Excel 97-2003 BIFF (.xls)",
       "signature": "D0CF11E0A1B11AE1",
       "sourcePage": "https://www.moe.gov.cn/jyb_xxgk/s5743/s5744/202606/t20260618_1441074.html",

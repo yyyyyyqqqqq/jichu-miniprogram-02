@@ -1,6 +1,9 @@
 const crypto = require('crypto');
 const cloud = require('wx-server-sdk');
 const maintenance = require('./maintenance');
+const {
+  canCreateCurrentSchoolRelation
+} = require('./current-school-boundary');
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV
@@ -10,6 +13,7 @@ const db = cloud.database();
 const products = db.collection('products');
 const conversations = db.collection('conversations');
 const users = db.collection('users');
+const schools = db.collection('schools');
 const PRODUCT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const SCHOOL_ID_PATTERN = /^s_[0-9a-f]{32}$/;
 const CONVERSATION_ID_PATTERN = /^c_[a-f0-9]{64}$/;
@@ -677,24 +681,43 @@ function createParticipantPair(userIdA, userIdB) {
   };
 }
 
-function canCreateSchoolRelation(user, openId, product) {
-  const userSchoolId = normalizeString(user && user.schoolId);
-  const productSchoolId = normalizeString(product && product.schoolId);
-  return Boolean(
-    user
-    && user.status === 'active'
-    && normalizeString(user.openid) === openId
-    && SCHOOL_ID_PATTERN.test(userSchoolId)
-    && SCHOOL_ID_PATTERN.test(productSchoolId)
-    && userSchoolId === productSchoolId
-  );
+function canCreateSchoolRelation(
+  buyer,
+  buyerOpenid,
+  seller,
+  sellerOpenid,
+  product,
+  school
+) {
+  return canCreateCurrentSchoolRelation({
+    buyer,
+    buyerOpenid,
+    seller,
+    sellerOpenid,
+    product,
+    school
+  });
 }
 
-function assertCanCreateSchoolRelation(user, openId, product) {
-  if (!canCreateSchoolRelation(user, openId, product)) {
+function assertCanCreateSchoolRelation(
+  buyer,
+  buyerOpenid,
+  seller,
+  sellerOpenid,
+  product,
+  school
+) {
+  if (!canCreateSchoolRelation(
+    buyer,
+    buyerOpenid,
+    seller,
+    sellerOpenid,
+    product,
+    school
+  )) {
     businessError(
       ERROR_CODES.CROSS_SCHOOL_RELATION_FORBIDDEN,
-      '暂不支持与其他学校的商品建立新的交易关系'
+      '卖家已更换学校，该商品暂不支持发起新的会话'
     );
   }
 }
@@ -1172,6 +1195,20 @@ async function createOrGetConversation(data, identity, trace) {
       );
     }
     const productSnapshot = toProductSnapshot(currentProduct, productId);
+    const currentProductSchoolId = normalizeString(currentProduct.schoolId);
+    const currentSchool = SCHOOL_ID_PATTERN.test(currentProductSchoolId)
+      ? await getDocumentOrNull(
+        transaction.collection('schools').doc(currentProductSchoolId)
+      )
+      : null;
+    assertCanCreateSchoolRelation(
+      transactionUser,
+      identity.openId,
+      transactionSeller,
+      currentSellerOpenid,
+      currentProduct,
+      currentSchool
+    );
     if (duplicate) {
       if (!conversationMatchesPair(duplicate, pair, userOpenids)) {
         businessError(ERROR_CODES.FORBIDDEN, '会话参与者校验失败');
@@ -1202,12 +1239,6 @@ async function createOrGetConversation(data, identity, trace) {
         '当前商品暂不能发起新会话'
       );
     }
-    assertCanCreateSchoolRelation(
-      transactionUser,
-      identity.openId,
-      currentProduct
-    );
-
     trace.step = 'conversation.transaction_write';
     await document.set({
       data: {

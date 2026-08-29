@@ -1,6 +1,9 @@
 const crypto = require('crypto');
 const cloud = require('wx-server-sdk');
 const maintenance = require('./maintenance');
+const {
+  canCreateCurrentSchoolRelation
+} = require('./current-school-boundary');
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV
@@ -12,6 +15,7 @@ const appointments = db.collection('appointments');
 const conversations = db.collection('conversations');
 const products = db.collection('products');
 const users = db.collection('users');
+const schools = db.collection('schools');
 
 const CONVERSATION_ID_PATTERN = /^c_[a-f0-9]{64}$/;
 const APPOINTMENT_ID_PATTERN = /^a_[a-f0-9]{64}$/;
@@ -200,24 +204,43 @@ function normalizeCount(value) {
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
 }
 
-function canCreateSchoolRelation(buyer, buyerOpenid, product) {
-  const buyerSchoolId = normalizeString(buyer && buyer.schoolId);
-  const productSchoolId = normalizeString(product && product.schoolId);
-  return Boolean(
-    buyer
-    && buyer.status === 'active'
-    && normalizeString(buyer.openid) === buyerOpenid
-    && SCHOOL_ID_PATTERN.test(buyerSchoolId)
-    && SCHOOL_ID_PATTERN.test(productSchoolId)
-    && buyerSchoolId === productSchoolId
-  );
+function canCreateSchoolRelation(
+  buyer,
+  buyerOpenid,
+  seller,
+  sellerOpenid,
+  product,
+  school
+) {
+  return canCreateCurrentSchoolRelation({
+    buyer,
+    buyerOpenid,
+    seller,
+    sellerOpenid,
+    product,
+    school
+  });
 }
 
-function assertCanCreateSchoolRelation(buyer, buyerOpenid, product) {
-  if (!canCreateSchoolRelation(buyer, buyerOpenid, product)) {
+function assertCanCreateSchoolRelation(
+  buyer,
+  buyerOpenid,
+  seller,
+  sellerOpenid,
+  product,
+  school
+) {
+  if (!canCreateSchoolRelation(
+    buyer,
+    buyerOpenid,
+    seller,
+    sellerOpenid,
+    product,
+    school
+  )) {
     businessError(
       ERROR_CODES.CROSS_SCHOOL_RELATION_FORBIDDEN,
-      '暂不支持与其他学校的商品建立新的交易关系'
+      '卖家已更换学校，该商品暂不支持发起新的面交预约'
     );
   }
 }
@@ -514,7 +537,21 @@ async function createAppointment(data, identity) {
   const buyer = PUBLIC_USER_ID_PATTERN.test(roles.buyerUserId)
     ? await getDocumentOrNull(users.doc(roles.buyerUserId))
     : null;
-  assertCanCreateSchoolRelation(buyer, roles.buyerOpenid, product);
+  const seller = PUBLIC_USER_ID_PATTERN.test(roles.sellerUserId)
+    ? await getDocumentOrNull(users.doc(roles.sellerUserId))
+    : null;
+  const productSchoolId = normalizeString(product.schoolId);
+  const school = SCHOOL_ID_PATTERN.test(productSchoolId)
+    ? await getDocumentOrNull(schools.doc(productSchoolId))
+    : null;
+  assertCanCreateSchoolRelation(
+    buyer,
+    roles.buyerOpenid,
+    seller,
+    roles.sellerOpenid,
+    product,
+    school
+  );
   const active = await findActiveAppointment(
     productId,
     roles.buyerOpenid,
@@ -580,10 +617,24 @@ async function createAppointment(data, identity) {
         transaction.collection('users').doc(currentRoles.buyerUserId)
       )
       : null;
+    const currentSeller = PUBLIC_USER_ID_PATTERN.test(currentRoles.sellerUserId)
+      ? await getDocumentOrNull(
+        transaction.collection('users').doc(currentRoles.sellerUserId)
+      )
+      : null;
+    const currentProductSchoolId = normalizeString(currentProduct.schoolId);
+    const currentSchool = SCHOOL_ID_PATTERN.test(currentProductSchoolId)
+      ? await getDocumentOrNull(
+        transaction.collection('schools').doc(currentProductSchoolId)
+      )
+      : null;
     assertCanCreateSchoolRelation(
       currentBuyer,
       currentRoles.buyerOpenid,
-      currentProduct
+      currentSeller,
+      currentRoles.sellerOpenid,
+      currentProduct,
+      currentSchool
     );
 
     await appointmentDocument.set({

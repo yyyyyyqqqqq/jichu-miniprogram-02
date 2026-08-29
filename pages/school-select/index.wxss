@@ -94,10 +94,11 @@
 }
 
 .search-box {
+  position: relative;
   height: 82rpx;
   display: flex;
   align-items: center;
-  padding: 0 18rpx;
+  padding: 0 94rpx 0 18rpx;
   border: 1rpx solid #dfe8e3;
   border-radius: 20rpx;
   background: #f8faf9;
@@ -118,17 +119,83 @@
   font-size: 26rpx;
 }
 
+.province-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18rpx;
+  padding: 22rpx 24rpx;
+  border: 1rpx solid #e7ece9;
+  border-radius: 18rpx;
+  background: #f8faf9;
+}
+
+.province-label {
+  color: #66736c;
+  font-size: 25rpx;
+}
+
+.province-value {
+  color: #173d2d;
+  font-size: 25rpx;
+  font-weight: 650;
+}
+
+.pagination-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14rpx;
+  padding-top: 22rpx;
+  text-align: center;
+}
+
+.window-note,
+.list-end {
+  color: #849089;
+  font-size: 22rpx;
+  line-height: 1.55;
+}
+
+.load-more-error {
+  color: #c8473b;
+  font-size: 22rpx;
+}
+
+.load-more-button {
+  height: 76rpx;
+  border: 1rpx solid #cce8da;
+  border-radius: 18rpx;
+  background: #eff9f4;
+  color: #167a52;
+  font-size: 25rpx;
+  font-weight: 650;
+  line-height: 74rpx;
+}
+
+.load-more-button::after {
+  border: 0;
+}
+
 .search-clear {
-  width: auto;
+  position: absolute;
+  top: 50%;
+  right: 6rpx;
+  width: 76rpx;
   min-width: 76rpx;
   height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   flex: none;
   margin: 0;
-  padding: 0 12rpx;
+  padding: 0 6rpx 0 0;
+  transform: translateY(-50%);
   background: transparent;
   color: #168b5e;
   font-size: 23rpx;
   line-height: 56rpx;
+  text-align: right;
 }
 
 .school-list {

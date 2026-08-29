@@ -30,7 +30,7 @@ const ERROR_MESSAGES = {
   PRODUCT_NOT_FOUND: '商品已不存在',
   PRODUCT_UNAVAILABLE: '当前商品不能进行面交预约',
   SELF_APPOINTMENT_NOT_ALLOWED: '不能预约自己的商品',
-  CROSS_SCHOOL_RELATION_FORBIDDEN: '暂不支持与其他学校的商品建立新的交易关系',
+  CROSS_SCHOOL_RELATION_FORBIDDEN: '卖家已更换学校，该商品暂不支持发起新的面交预约',
   CONVERSATION_NOT_FOUND: '会话不存在或已失效',
   FORBIDDEN: '无权访问该预约',
   APPOINTMENT_NOT_FOUND: '预约不存在或已失效',
@@ -46,6 +46,16 @@ const ERROR_MESSAGES = {
   UNKNOWN_ERROR: '预约服务暂不可用'
 };
 
+const CREATE_ERROR_FEEDBACK = Object.freeze({
+  CROSS_SCHOOL_RELATION_FORBIDDEN: Object.freeze({
+    type: 'modal',
+    title: '无法发起预约',
+    content: '卖家已更换学校，该商品暂不支持发起新的面交预约。',
+    showCancel: false,
+    confirmText: '知道了'
+  })
+});
+
 class AppointmentError extends Error {
   constructor(code, message) {
     super(message || ERROR_MESSAGES[code] || ERROR_MESSAGES.UNKNOWN_ERROR);
@@ -59,6 +69,23 @@ function createError(code, message) {
     code,
     ERROR_MESSAGES[code] || message || ERROR_MESSAGES.UNKNOWN_ERROR
   );
+}
+
+function getCreateErrorFeedback(error) {
+  const code = error && typeof error.code === 'string'
+    ? error.code.trim()
+    : '';
+  if (CREATE_ERROR_FEEDBACK[code]) {
+    return CREATE_ERROR_FEEDBACK[code];
+  }
+  return {
+    type: 'toast',
+    title: error && error.message
+      ? error.message
+      : '预约发起失败',
+    icon: 'none',
+    duration: 2600
+  };
 }
 
 function normalizeString(value) {
@@ -408,6 +435,7 @@ module.exports = {
   validateLocation,
   validateScheduledAt,
   formatAppointmentTime,
+  getCreateErrorFeedback,
   createIdempotencyKey,
   createAppointment,
   getAppointment,

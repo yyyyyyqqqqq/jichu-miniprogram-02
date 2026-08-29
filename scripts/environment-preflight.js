@@ -104,8 +104,11 @@ function runPreflight(options) {
   const inactiveReadAllowed = !write
     && action === 'audit'
     && options.allowInactiveRead === true;
+  const inactiveStagingWriteAllowed = write
+    && environmentName === 'staging'
+    && options.allowInactiveStagingWrite === true;
   assert(
-    activeTargetMatches || inactiveReadAllowed,
+    activeTargetMatches || inactiveReadAllowed || inactiveStagingWriteAllowed,
     `active client target is ${active.environmentName}, not ${environmentName}`,
     'ACTIVE_ENVIRONMENT_MISMATCH'
   );
@@ -130,6 +133,7 @@ function runPreflight(options) {
     action,
     write,
     activeTargetMatches,
+    inactiveStagingWriteAllowed,
     targetsDistinct: validation.productionId !== validation.stagingId
   };
 }
@@ -143,6 +147,7 @@ function publicSummary(result) {
     action: result.action,
     write: result.write,
     activeTargetMatches: result.activeTargetMatches,
+    inactiveStagingWriteAllowed: result.inactiveStagingWriteAllowed,
     targetsDistinct: result.targetsDistinct
   };
 }

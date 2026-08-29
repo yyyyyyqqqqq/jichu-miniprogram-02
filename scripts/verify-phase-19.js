@@ -212,13 +212,13 @@ async function verifyDetailAccess() {
   check(hidden.success === false && hidden.code === 'PRODUCT_NOT_FOUND', 'offline product leaked by id');
 }
 
-function expectForbidden(module, user, openId, product, message) {
+function expectForbidden(module, args, message) {
   check(
-    module.__test.canCreateSchoolRelation(user, openId, product) === false,
+    module.__test.canCreateSchoolRelation(...args) === false,
     `${message}: cross-school predicate allowed creation`
   );
   try {
-    module.__test.assertCanCreateSchoolRelation(user, openId, product);
+    module.__test.assertCanCreateSchoolRelation(...args);
   } catch (error) {
     check(
       error && error.businessCode === 'CROSS_SCHOOL_RELATION_FORBIDDEN',
@@ -246,13 +246,33 @@ function verifyRelationGuards() {
     schoolId: SCHOOL_B
   };
   const product = { schoolId: SCHOOL_A };
+  const sellerOpenId = 'phase19-seller';
+  const seller = {
+    openid: sellerOpenId,
+    status: 'active',
+    schoolId: SCHOOL_A
+  };
+  const school = {
+    _id: SCHOOL_A,
+    platformStatus: 'active',
+    officialStatus: 'valid'
+  };
   modules.forEach(([label, module]) => {
+    const relationArgs = label === '收藏'
+      ? [sameUser, openId, product]
+      : [sameUser, openId, seller, sellerOpenId, product, school];
     check(
-      module.__test.canCreateSchoolRelation(sameUser, openId, product) === true,
+      module.__test.canCreateSchoolRelation(...relationArgs) === true,
       `${label}: same-school creation was rejected`
     );
-    expectForbidden(module, crossUser, openId, product, label);
-    expectForbidden(module, sameUser, openId, { schoolId: '' }, `${label}历史无学校商品`);
+    const crossArgs = label === '收藏'
+      ? [crossUser, openId, product]
+      : [crossUser, openId, seller, sellerOpenId, product, school];
+    const legacyArgs = label === '收藏'
+      ? [sameUser, openId, { schoolId: '' }]
+      : [sameUser, openId, seller, sellerOpenId, { schoolId: '' }, school];
+    expectForbidden(module, crossArgs, label);
+    expectForbidden(module, legacyArgs, `${label}历史无学校商品`);
   });
 
   const favoriteSource = read('cloudfunctions/favoriteProduct/index.js');
@@ -266,7 +286,15 @@ function verifyRelationGuards() {
     messageSource.indexOf('async function createOrGetConversation'),
     messageSource.indexOf('async function sendMessage')
   );
-  check(conversationCreate.indexOf('const existing') < conversationCreate.indexOf('assertCanCreateSchoolRelation'), 'historical conversation reuse runs after the new-relation guard');
+  check(
+    conversationCreate.indexOf('assertCanCreateSchoolRelation')
+      < conversationCreate.indexOf('if (duplicate)'),
+    'new conversation product context bypasses the current-school guard'
+  );
+  check(
+    !/assertCanCreateSchoolRelation/.test(read('cloudfunctions/messageQuery/index.js')),
+    'historical conversation reads are school-gated'
+  );
   const appointmentSource = read('cloudfunctions/appointmentAction/index.js');
   const appointmentCreate = appointmentSource.slice(
     appointmentSource.indexOf('async function createAppointment'),

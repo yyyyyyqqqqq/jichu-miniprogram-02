@@ -31,7 +31,7 @@
         class="school-search-input"
         maxlength="40"
         value="{{keyword}}"
-        placeholder="搜索学校名称"
+        placeholder="学校名称前缀或 10 位学校标识码"
         confirm-type="search"
         disabled="{{isSubmitting || isConfirming || isReturning}}"
         bindinput="onKeywordInput"
@@ -46,6 +46,19 @@
         清除
       </button>
     </view>
+
+    <picker
+      mode="selector"
+      range="{{provinceOptions}}"
+      value="{{provinceIndex}}"
+      disabled="{{isSubmitting || isConfirming || isReturning}}"
+      bindchange="onProvinceChange"
+    >
+      <view class="province-picker">
+        <text class="province-label">省级地区</text>
+        <text class="province-value">{{province || '全部地区'}}⌄</text>
+      </view>
+    </picker>
 
     <loading-state
       wx:if="{{viewState === 'loading'}}"
@@ -87,6 +100,22 @@
           {{selectedSchoolId === item.id && isSubmitting ? '提交中' : (currentSchoolId === item.id ? '当前学校' : (isChangeMode ? '修改为此校' : '选择'))}}
         </text>
       </button>
+      <view class="pagination-footer">
+        <text wx:if="{{discardedCount > 0}}" class="window-note">
+          为保持流畅，已释放前 {{discardedCount}} 所学校；可用搜索或省级地区快速定位。
+        </text>
+        <text wx:if="{{loadMoreError}}" class="load-more-error">{{loadMoreError}}</text>
+        <button
+          wx:if="{{hasMore}}"
+          class="load-more-button"
+          loading="{{isLoadingMore}}"
+          disabled="{{isLoadingMore || isSubmitting || isConfirming || isReturning}}"
+          bindtap="onLoadMore"
+        >
+          {{isLoadingMore ? '加载中' : '加载更多'}}
+        </button>
+        <text wx:else class="list-end">已显示当前条件下的全部学校</text>
+      </view>
     </view>
 
     <view wx:if="{{errorMessage && viewState !== 'error'}}" class="submit-error">

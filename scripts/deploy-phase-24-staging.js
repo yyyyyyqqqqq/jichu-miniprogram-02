@@ -34,6 +34,9 @@ const PRODUCT_ENVIRONMENT_KEYS = Object.freeze([
   'PRODUCT_QUERY_CURSOR_HMAC_SECRET',
   'PRODUCT_SEED_ENABLED'
 ]);
+const SCHOOL_ENVIRONMENT_KEYS = Object.freeze([
+  'SCHOOL_QUERY_CURSOR_HMAC_SECRET'
+]);
 
 function sha256(value) {
   return crypto.createHash('sha256').update(String(value || '')).digest('hex');
@@ -58,15 +61,27 @@ function readStagingSecrets() {
   const config = require(filePath);
   const secret = String(config && config.staging && config.staging.productQueryCursorHmacSecret || '').trim();
   assert(secret.length >= 43, 'staging cursor secret must contain at least 256 bits', 'STAGING_SECRET_WEAK');
-  return { productQueryCursorHmacSecret: secret };
+  const schoolSecret = crypto
+    .createHmac('sha256', secret)
+    .update('schoolQuery cursor v1')
+    .digest('base64url');
+  return {
+    productQueryCursorHmacSecret: secret,
+    schoolQueryCursorHmacSecret: schoolSecret
+  };
 }
 
 function environmentVariablesFor(name, secrets) {
-  if (name !== 'productQuery') return {};
-  return {
-    PRODUCT_QUERY_CURSOR_HMAC_SECRET: secrets.productQueryCursorHmacSecret,
-    PRODUCT_SEED_ENABLED: 'false'
-  };
+  if (name === 'schoolQuery') {
+    return { SCHOOL_QUERY_CURSOR_HMAC_SECRET: secrets.schoolQueryCursorHmacSecret };
+  }
+  if (name === 'productQuery') {
+    return {
+      PRODUCT_QUERY_CURSOR_HMAC_SECRET: secrets.productQueryCursorHmacSecret,
+      PRODUCT_SEED_ENABLED: 'false'
+    };
+  }
+  return {};
 }
 
 function environmentSummary(detail) {
@@ -190,7 +205,9 @@ async function run(options) {
   const preflight = runPreflight({
     environmentName: options.environmentName,
     action: options.deploy ? 'deploy' : 'audit',
-    confirmTarget: options.confirmTarget
+    confirmTarget: options.confirmTarget,
+    allowInactiveRead: !options.deploy,
+    allowInactiveStagingWrite: options.deploy
   });
   assert(preflight.environmentName === 'staging', 'staging deploy refuses production', 'PRODUCTION_WRITE_REJECTED');
   const secrets = readStagingSecrets();
@@ -215,8 +232,11 @@ async function run(options) {
       wouldDeployOnly: FUNCTIONS.map((item) => item.name),
       local: publicLocal,
       secret: {
-        key: 'PRODUCT_QUERY_CURSOR_HMAC_SECRET',
-        fingerprint: sha256(secrets.productQueryCursorHmacSecret).slice(0, 16),
+        keys: ['PRODUCT_QUERY_CURSOR_HMAC_SECRET', 'SCHOOL_QUERY_CURSOR_HMAC_SECRET'],
+        fingerprints: {
+          productQuery: sha256(secrets.productQueryCursorHmacSecret).slice(0, 16),
+          schoolQuery: sha256(secrets.schoolQueryCursorHmacSecret).slice(0, 16)
+        },
         independentValueRequired: true
       },
       productSeedEnabled: false
@@ -257,7 +277,10 @@ async function run(options) {
     remote,
     packages,
     productQueryEnvironmentIndependentFromProduction: true,
-    secretFingerprint: sha256(secrets.productQueryCursorHmacSecret).slice(0, 16)
+    secretFingerprints: {
+      productQuery: sha256(secrets.productQueryCursorHmacSecret).slice(0, 16),
+      schoolQuery: sha256(secrets.schoolQueryCursorHmacSecret).slice(0, 16)
+    }
   };
 }
 
@@ -280,6 +303,7 @@ if (require.main === module) {
 module.exports = {
   FUNCTIONS,
   PRODUCT_ENVIRONMENT_KEYS,
+  SCHOOL_ENVIRONMENT_KEYS,
   parseArguments,
   readStagingSecrets,
   environmentVariablesFor,

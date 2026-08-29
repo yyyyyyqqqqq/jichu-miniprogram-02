@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const cloud = require('wx-server-sdk');
 
 cloud.init({
@@ -13,6 +14,8 @@ const DEFAULT_PAGE_SIZE = 20;
 const MAX_KEYWORD_LENGTH = 40;
 const SCHOOL_ID_PATTERN = /^s_[0-9a-f]{32}$/;
 const OFFICIAL_CODE_PATTERN = /^\d{10}$/;
+const CURSOR_VERSION = 1;
+const CURSOR_SECRET_ENV = 'SCHOOL_QUERY_CURSOR_HMAC_SECRET';
 const PROVINCES = new Set([
   '北京市', '天津市', '河北省', '山西省', '内蒙古自治区',
   '辽宁省', '吉林省', '黑龙江省', '上海市', '江苏省',
@@ -91,32 +94,64 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function cursorSecret() {
+  const secret = String(process.env[CURSOR_SECRET_ENV] || '').trim();
+  if (secret.length < 43) {
+    const error = new Error('school query cursor secret is unavailable');
+    error.code = 'CURSOR_SECRET_UNAVAILABLE';
+    throw error;
+  }
+  return secret;
+}
+
+function signCursorPayload(encodedPayload) {
+  return crypto
+    .createHmac('sha256', cursorSecret())
+    .update(encodedPayload)
+    .digest('base64url');
+}
+
 function encodeCursor(record, scope) {
   const payload = {
+    v: CURSOR_VERSION,
     n: record.nameNormalized,
     i: record._id,
     p: scope.province || '',
     k: scope.keyword || ''
   };
-  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');
+  const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  return `${encodedPayload}.${signCursorPayload(encodedPayload)}`;
 }
 
 function decodeCursor(value, scope) {
   if (value === undefined || value === null || value === '') {
     return null;
   }
-  if (typeof value !== 'string' || value.length > 512) {
+  if (typeof value !== 'string' || value.length > 768) {
     return undefined;
   }
   try {
-    const payload = JSON.parse(Buffer.from(value, 'base64').toString('utf8'));
+    const parts = value.split('.');
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      return undefined;
+    }
+    const expected = Buffer.from(signCursorPayload(parts[0]));
+    const actual = Buffer.from(parts[1]);
+    if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
+      return undefined;
+    }
+    const payload = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
     if (
       !payload
+      || payload.v !== CURSOR_VERSION
       || typeof payload.n !== 'string'
+      || !payload.n
+      || payload.n.length > 120
       || typeof payload.i !== 'string'
       || !SCHOOL_ID_PATTERN.test(payload.i)
       || payload.p !== (scope.province || '')
       || payload.k !== (scope.keyword || '')
+      || Object.keys(payload).sort().join(',') !== 'i,k,n,p,v'
     ) {
       return undefined;
     }
@@ -325,6 +360,7 @@ exports.main = main;
 exports.__test = {
   ERROR_CODES,
   PROVINCES,
+  CURSOR_SECRET_ENV,
   normalizeText,
   normalizeKeyword,
   normalizeProvince,

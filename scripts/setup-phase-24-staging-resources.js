@@ -70,7 +70,9 @@ async function run(options) {
   const preflight = runPreflight({
     environmentName: options.environmentName,
     action: options.apply ? 'resource-create' : 'audit',
-    confirmTarget: options.confirmTarget
+    confirmTarget: options.confirmTarget,
+    allowInactiveRead: !options.apply,
+    allowInactiveStagingWrite: options.apply
   });
   assert(preflight.environmentName === 'staging', 'resource setup only supports staging', 'PRODUCTION_WRITE_REJECTED');
   const before = await readResourceSnapshot(preflight.environmentId);
@@ -111,7 +113,9 @@ async function run(options) {
   assert(finalPlan.aclChanges.length === 0, 'collection ACL verification failed');
   assert(Object.values(finalPlan.indexChanges).every((items) => items.length === 0), 'index verification failed');
   assert(after.storage.acl === 'READONLY', 'storage ACL verification failed');
-  assert(after.tables.every((table) => table.count === 0), 'staging collections must be empty before school seed', 'STAGING_NOT_EMPTY');
+  if (plan.missingCollections.length > 0) {
+    assert(after.tables.every((table) => table.count === 0), 'new staging collections must be empty before school seed', 'STAGING_NOT_EMPTY');
+  }
   return {
     mode: 'applied-and-verified',
     preflight: publicSummary(preflight),

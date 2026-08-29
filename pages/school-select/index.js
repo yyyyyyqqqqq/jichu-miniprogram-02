@@ -8,6 +8,33 @@ const {
 } = require('../../constants/routes');
 
 const SEARCH_DEBOUNCE_MS = 350;
+const SCHOOL_PAGE_SIZE = 20;
+const MAX_RETAINED_SCHOOLS = 100;
+const PROVINCE_OPTIONS = Object.freeze([
+  '全部地区',
+  '北京市', '天津市', '河北省', '山西省', '内蒙古自治区',
+  '辽宁省', '吉林省', '黑龙江省', '上海市', '江苏省',
+  '浙江省', '安徽省', '福建省', '江西省', '山东省',
+  '河南省', '湖北省', '湖南省', '广东省', '广西壮族自治区',
+  '海南省', '重庆市', '四川省', '贵州省', '云南省',
+  '西藏自治区', '陕西省', '甘肃省', '青海省', '宁夏回族自治区',
+  '新疆维吾尔自治区'
+]);
+
+function mergeSchoolPage(current, incoming) {
+  const byId = new Map();
+  [...current, ...incoming].forEach((school) => {
+    if (school && school.id) {
+      byId.set(school.id, school);
+    }
+  });
+  const all = [...byId.values()];
+  const discarded = Math.max(0, all.length - MAX_RETAINED_SCHOOLS);
+  return {
+    items: discarded ? all.slice(discarded) : all,
+    discarded
+  };
+}
 
 function formatDateTime(value) {
   const date = value ? new Date(value) : null;
@@ -59,12 +86,20 @@ Page({
     schoolChangeRemainingMs: 0,
     cooldownText: '',
     keyword: '',
+    provinceOptions: PROVINCE_OPTIONS,
+    provinceIndex: 0,
+    province: '',
     schools: [],
     viewState: 'loading',
     isSearching: false,
     isSubmitting: false,
     selectedSchoolId: '',
     errorMessage: '',
+    nextCursor: '',
+    hasMore: false,
+    isLoadingMore: false,
+    loadMoreError: '',
+    discardedCount: 0,
     isConfirming: false,
     isReturning: false
   },
@@ -72,6 +107,7 @@ Page({
   onLoad(options) {
     this.isPageActive = true;
     this.requestVersion = 0;
+    this.seenCursors = new Set();
     this.hasLoadedSchools = false;
     this.isChangeMode = Boolean(options && options.mode === 'change');
     this.target = AuthGuard.normalizeTarget(options && options.target);
@@ -143,7 +179,7 @@ Page({
       && !this.data.isSubmitting
     ) {
       this.hasLoadedSchools = true;
-      this.loadSchools('');
+      this.loadSchools('', { reset: true });
     }
   },
 
@@ -232,7 +268,7 @@ Page({
     this.searchTimer = setTimeout(() => {
       this.searchTimer = null;
       if (this.isPageActive && !this.data.isSubmitting) {
-        this.loadSchools(keyword);
+        this.loadSchools(keyword, { reset: true });
       }
     }, SEARCH_DEBOUNCE_MS);
   },
@@ -249,7 +285,7 @@ Page({
       ? String(event.detail.value || '')
       : this.data.keyword;
     this.setData({ keyword });
-    this.loadSchools(keyword);
+    this.loadSchools(keyword, { reset: true });
   },
 
   onClearSearch() {
@@ -261,54 +297,130 @@ Page({
       this.searchTimer = null;
     }
     this.setData({ keyword: '' });
-    this.loadSchools('');
+    this.loadSchools('', { reset: true });
   },
 
-  async loadSchools(rawKeyword) {
+  onProvinceChange(event) {
+    if (this.data.isSubmitting || this.data.isReturning) {
+      return;
+    }
+    const provinceIndex = Number(event && event.detail && event.detail.value);
+    const safeIndex = Number.isInteger(provinceIndex)
+      && provinceIndex >= 0
+      && provinceIndex < PROVINCE_OPTIONS.length
+      ? provinceIndex
+      : 0;
+    this.setData({
+      provinceIndex: safeIndex,
+      province: safeIndex === 0 ? '' : PROVINCE_OPTIONS[safeIndex]
+    });
+    this.loadSchools(this.data.keyword, { reset: true });
+  },
+
+  async loadSchools(rawKeyword, options = {}) {
     if (!this.isPageActive || this.data.isSubmitting) {
       return false;
     }
+    const reset = options.reset !== false;
+    if (!reset && (this.data.isLoadingMore || !this.data.hasMore || !this.data.nextCursor)) {
+      return false;
+    }
     const keyword = this.normalizeKeyword(rawKeyword);
-    const requestVersion = this.requestVersion + 1;
-    this.requestVersion = requestVersion;
-    this.setData({
-      viewState: 'loading',
-      isSearching: Boolean(keyword),
-      schools: [],
-      errorMessage: ''
-    });
+    const province = this.data.province || '';
+    const cursor = reset ? '' : this.data.nextCursor;
+    const scopeKey = JSON.stringify({ keyword, province });
+    const requestVersion = reset ? this.requestVersion + 1 : this.requestVersion;
+    if (reset) {
+      this.requestVersion = requestVersion;
+      this.currentSchoolScope = scopeKey;
+      this.seenCursors = new Set();
+      this.setData({
+        viewState: 'loading',
+        isSearching: Boolean(keyword),
+        schools: [],
+        nextCursor: '',
+        hasMore: false,
+        isLoadingMore: false,
+        loadMoreError: '',
+        discardedCount: 0,
+        errorMessage: ''
+      });
+    } else {
+      if (this.currentSchoolScope !== scopeKey || this.seenCursors.has(cursor)) {
+        return false;
+      }
+      this.seenCursors.add(cursor);
+      this.setData({ isLoadingMore: true, loadMoreError: '' });
+    }
     try {
       const result = keyword
         ? await SchoolService.searchSchools({
           keyword,
-          pageSize: 20
+          province,
+          pageSize: SCHOOL_PAGE_SIZE,
+          cursor
         })
         : await SchoolService.listSchools({
-          pageSize: 20
+          province,
+          pageSize: SCHOOL_PAGE_SIZE,
+          cursor
         });
-      if (!this.isPageActive || requestVersion !== this.requestVersion) {
+      if (
+        !this.isPageActive
+        || requestVersion !== this.requestVersion
+        || this.currentSchoolScope !== scopeKey
+      ) {
         return false;
       }
-      const schools = result.items.filter((school) => (
+      const pageItems = result.items.filter((school) => (
         school
         && school.selectable === true
         && school.platformStatus === 'active'
       ));
+      const merged = mergeSchoolPage(reset ? [] : this.data.schools, pageItems);
+      const nextCursor = result.hasMore ? result.nextCursor : '';
+      if (result.hasMore && (!nextCursor || nextCursor === cursor)) {
+        throw new Error('学校分页游标异常，请重新加载');
+      }
       this.setData({
-        schools,
-        viewState: schools.length > 0 ? 'success' : 'empty',
+        schools: merged.items,
+        viewState: merged.items.length > 0 ? 'success' : 'empty',
         isSearching: Boolean(keyword),
+        nextCursor,
+        hasMore: result.hasMore,
+        isLoadingMore: false,
+        loadMoreError: '',
+        discardedCount: reset
+          ? merged.discarded
+          : this.data.discardedCount + merged.discarded,
         errorMessage: ''
       });
       return true;
     } catch (error) {
-      if (!this.isPageActive || requestVersion !== this.requestVersion) {
+      if (
+        !this.isPageActive
+        || requestVersion !== this.requestVersion
+        || this.currentSchoolScope !== scopeKey
+      ) {
+        return false;
+      }
+      if (!reset) {
+        this.seenCursors.delete(cursor);
+        this.setData({
+          isLoadingMore: false,
+          loadMoreError: error && error.message
+            ? error.message
+            : '下一页加载失败，请重试'
+        });
         return false;
       }
       this.setData({
         schools: [],
         viewState: 'error',
         isSearching: Boolean(keyword),
+        nextCursor: '',
+        hasMore: false,
+        isLoadingMore: false,
         errorMessage: error && error.message
           ? error.message
           : '学校列表加载失败，请稍后重试'
@@ -318,7 +430,15 @@ Page({
   },
 
   onRetry() {
-    this.loadSchools(this.data.keyword);
+    this.loadSchools(this.data.keyword, { reset: true });
+  },
+
+  onLoadMore() {
+    this.loadSchools(this.data.keyword, { reset: false });
+  },
+
+  onReachBottom() {
+    this.onLoadMore();
   },
 
   onEmptyAction() {

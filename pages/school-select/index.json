@@ -1,5 +1,6 @@
 {
   "navigationBarTitleText": "学校设置",
+  "onReachBottomDistance": 160,
   "usingComponents": {
     "empty-state": "/components/empty-state/index",
     "loading-state": "/components/loading-state/index"

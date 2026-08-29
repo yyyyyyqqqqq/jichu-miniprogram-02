@@ -6023,6 +6023,7 @@ async function verifyMessagingFunctionFlow() {
   const originalLoad = Module._load;
   const stores = {
     users: new Map(),
+    schools: new Map(),
     products: new Map(),
     conversations: new Map(),
     messages: new Map(),
@@ -6233,6 +6234,13 @@ async function verifyMessagingFunctionFlow() {
   const buyerOpenId = currentOpenId;
   const sellerOpenId = 'verification-seller-openid';
   const attackerOpenId = 'verification-attacker-openid';
+  const schoolAId = 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  stores.schools.set(schoolAId, {
+    _id: schoolAId,
+    name: '学校 A',
+    platformStatus: 'active',
+    officialStatus: 'valid'
+  });
   const buyerUserId = userId(buyerOpenId);
   const sellerUserId = userId(sellerOpenId);
   const attackerUserId = userId(attackerOpenId);
@@ -6248,7 +6256,7 @@ async function verifyMessagingFunctionFlow() {
       avatarUrl: '',
       campus: '即出大学',
       status: 'active',
-      schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      schoolId: schoolAId,
       schoolName: '学校 A'
     });
   });
@@ -6269,7 +6277,7 @@ async function verifyMessagingFunctionFlow() {
       sellerId: ownerUserId,
       sellerName: '卖家',
       sellerAvatar: '',
-      schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      schoolId: schoolAId,
       schoolName: '学校 A',
       createdAt: options.createdAt || new Date(
         Date.UTC(2026, 6, 18, 10, stores.products.size, 0)
@@ -6411,8 +6419,8 @@ async function verifyMessagingFunctionFlow() {
       && repeated.data.reused === true,
       'repeat conversation creation is not idempotent'
     );
-    stores.users.set(buyerUserId, {
-      ...stores.users.get(buyerUserId),
+    stores.users.set(sellerUserId, {
+      ...stores.users.get(sellerUserId),
       schoolId: 's_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       schoolName: '学校 B'
     });
@@ -6421,13 +6429,23 @@ async function verifyMessagingFunctionFlow() {
       data: { productId: 'product-message-1' }
     });
     assert(
-      historicalConversation.success === true
-      && historicalConversation.data.reused === true
-      && historicalConversation.data.conversationId === conversationId,
-      'historical cross-school conversation cannot be reused'
+      historicalConversation.success === false
+      && historicalConversation.code === 'CROSS_SCHOOL_RELATION_FORBIDDEN',
+      'stale product reused a historical pair to bypass the current-school boundary'
     );
-    stores.users.set(buyerUserId, {
-      ...stores.users.get(buyerUserId),
+    const readableHistoricalConversation = await messageQuery.main({
+      action: 'listConversations',
+      data: {}
+    });
+    assert(
+      readableHistoricalConversation.success === true
+      && readableHistoricalConversation.data.list.some(
+        (item) => item.conversationId === conversationId
+      ),
+      'historical cross-school conversation is no longer readable'
+    );
+    stores.users.set(sellerUserId, {
+      ...stores.users.get(sellerUserId),
       schoolId: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       schoolName: '学校 A'
     });

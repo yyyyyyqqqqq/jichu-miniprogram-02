@@ -1,6 +1,7 @@
 const AuthGuard = require('../../services/auth-guard');
 const MessageService = require('../../services/message-service');
 const AppointmentService = require('../../services/appointment-service');
+const AppointmentFeedback = require('../../utils/appointment-feedback');
 const NavigationService = require('../../services/navigation-service');
 const {
   ROUTES,
@@ -260,11 +261,7 @@ Page({
       if (!this.isPageActive) {
         return;
       }
-      wx.showToast({
-        title: error && error.message ? error.message : '预约发起失败',
-        icon: 'none',
-        duration: 2600
-      });
+      AppointmentFeedback.showCreateFailure(error);
     } finally {
       wx.hideLoading();
       if (this.isPageActive) {

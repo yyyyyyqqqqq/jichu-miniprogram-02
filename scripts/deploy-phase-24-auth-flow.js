@@ -269,6 +269,16 @@ function verifyRemotePackage(environmentId, name, expected) {
     if (expected.hasDirectWs) remoteRequire('ws');
     assert(sha256(packageSource) === expected.packageSha256, `${name} remote package.json differs`);
     assert(sha256(lockSource) === expected.lockSha256, `${name} remote package-lock.json differs`);
+    for (const [relativePath, expectedSha256] of Object.entries(
+      expected.extraFileSha256 || {}
+    )) {
+      const remotePath = path.join(temporaryDirectory, relativePath);
+      assert(fs.existsSync(remotePath), `${name} remote ${relativePath} is missing`);
+      assert(
+        sha256(fs.readFileSync(remotePath)) === expectedSha256,
+        `${name} remote ${relativePath} differs`
+      );
+    }
     if (expected.hasDirectWs) assert(installedWs === '8.21.3', `${name} remote ws is ${installedWs}`);
     if (!expected.hasDirectWs) {
       assert(!fs.existsSync(path.join(temporaryDirectory, 'node_modules', 'ws', 'package.json')), `${name} gained an unexpected direct ws installation`);
@@ -279,7 +289,8 @@ function verifyRemotePackage(environmentId, name, expected) {
       lockMatches: true,
       installedWs,
       installedSdk,
-      dependenciesLoadable: true
+      dependenciesLoadable: true,
+      extraFilesMatch: true
     };
   } finally {
     removeSafeTemporaryDirectory(temporaryDirectory, prefix);

@@ -166,14 +166,21 @@ async function getPublicProfile(publicUserId) {
     throw createError('INVALID_RESPONSE');
   }
   const presentation = buildUserPresentation(profile);
+  const schoolName = typeof profile.schoolName === 'string'
+    && profile.schoolName.trim()
+    ? profile.schoolName.trim()
+    : '';
   return {
     publicUserId: id,
     nickname: presentation.nickname,
     avatarUrl: presentation.avatarUrl,
     avatarText: presentation.avatarText,
-    campus: typeof profile.campus === 'string' && profile.campus.trim()
-      ? profile.campus.trim()
-      : '校园信息待完善',
+    schoolName,
+    campus: schoolName || (
+      typeof profile.campus === 'string' && profile.campus.trim()
+        ? profile.campus.trim()
+        : '校园信息待完善'
+    ),
     bio: typeof profile.bio === 'string' && profile.bio.trim()
       ? profile.bio.trim()
       : '这个用户还没有填写简介',

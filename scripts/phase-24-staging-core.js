@@ -26,6 +26,27 @@ const INDEX_DEFINITIONS = Object.freeze({
         ['nameNormalized', 1],
         ['_id', 1]
       ])
+    }),
+    Object.freeze({
+      name: 'idx_school_active_name_id',
+      unique: false,
+      keys: Object.freeze([
+        ['platformStatus', 1],
+        ['officialStatus', 1],
+        ['nameNormalized', 1],
+        ['_id', 1]
+      ])
+    }),
+    Object.freeze({
+      name: 'idx_school_active_province_name_id',
+      unique: false,
+      keys: Object.freeze([
+        ['platformStatus', 1],
+        ['officialStatus', 1],
+        ['province', 1],
+        ['nameNormalized', 1],
+        ['_id', 1]
+      ])
     })
   ]),
   products: Object.freeze([
