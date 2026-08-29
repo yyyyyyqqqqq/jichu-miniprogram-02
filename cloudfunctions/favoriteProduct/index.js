@@ -467,14 +467,14 @@ async function listMyFavorites(data, openId, trace) {
     .limit(pageSize)
     .get();
   const relations = Array.isArray(relationResult.data) ? relationResult.data : [];
-  const list = [];
-  for (const relation of relations) {
-    trace.step = 'list.read_products';
-    const product = await getDocumentOrNull(products.doc(relation.productId));
-    if (product && ALLOWED_LIST_STATUSES.has(product.status)) {
-      list.push(toFavoriteProduct(product, relation.createdAt));
-    }
-  }
+  trace.step = 'list.read_products';
+  const hydratedRelations = await Promise.all(relations.map(async (relation) => ({
+    relation,
+    product: await getDocumentOrNull(products.doc(relation.productId))
+  })));
+  const list = hydratedRelations
+    .filter(({ product }) => product && ALLOWED_LIST_STATUSES.has(product.status))
+    .map(({ relation, product }) => toFavoriteProduct(product, relation.createdAt));
   return success({
     list,
     total,
