@@ -80,6 +80,8 @@ const CLOUD_CONFIG = {
   manageProductTimeoutMs: 15000,
   favoriteProductFunctionName: 'favoriteProduct',
   favoriteProductTimeoutMs: 15000,
+  feedbackActionFunctionName: 'feedbackAction',
+  feedbackActionTimeoutMs: 20000,
   userQueryFunctionName: 'userQuery',
   userQueryTimeoutMs: 15000,
   messageQueryFunctionName: 'messageQuery',

@@ -1,0 +1,11 @@
+{
+  "name": "feedback-action",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "dependencies": {
+    "nodemailer": "9.0.6",
+    "ws": "8.21.3",
+    "wx-server-sdk": "^4.0.2"
+  }
+}

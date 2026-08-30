@@ -6,6 +6,7 @@ const ROUTES = {
   MESSAGES: '/pages/messages/index',
   PROFILE: '/pages/profile/index',
   PROFILE_EDIT: '/pages/profile-edit/index',
+  FEEDBACK: '/pages/feedback/index',
   LOGIN: '/pages/login/index',
   SCHOOL_SELECT: '/pages/school-select/index',
   FAVORITES: '/pages/favorites/index',
@@ -23,6 +24,7 @@ const ROUTES = {
 const AUTH_TARGETS = {
   HOME: 'home',
   PROFILE: 'profile',
+  FEEDBACK: 'feedback',
   PUBLISH: 'publish',
   MESSAGES: 'messages',
   FAVORITES: 'favorites',
@@ -45,6 +47,10 @@ const AUTH_TARGET_CONFIG = {
   [AUTH_TARGETS.PROFILE]: {
     route: ROUTES.PROFILE,
     method: 'switchTab'
+  },
+  [AUTH_TARGETS.FEEDBACK]: {
+    route: ROUTES.FEEDBACK,
+    method: 'redirectTo'
   },
   [AUTH_TARGETS.PUBLISH]: {
     route: ROUTES.PUBLISH,

@@ -1,0 +1,36 @@
+<view class="page-shell feedback-page">
+  <view class="page-title">意见反馈</view>
+  <view class="page-subtitle">欢迎告诉我们使用中遇到的问题或建议</view>
+
+  <view class="surface-card feedback-card">
+    <view class="field-label">反馈内容</view>
+    <textarea
+      class="feedback-textarea"
+      value="{{content}}"
+      maxlength="{{maxLength}}"
+      placeholder="请尽量描述清楚问题、发生场景和你的建议"
+      placeholder-class="feedback-placeholder"
+      disabled="{{isSubmitting}}"
+      bindinput="onContentInput"
+    />
+    <view class="content-count">{{contentLength}} / {{maxLength}}</view>
+
+    <view wx:if="{{errorMessage}}" class="feedback-notice feedback-notice--error">
+      {{errorMessage}}
+    </view>
+    <view wx:if="{{successMessage}}" class="feedback-notice feedback-notice--success">
+      {{successMessage}}
+    </view>
+
+    <button
+      class="submit-button"
+      loading="{{isSubmitting}}"
+      disabled="{{isSubmitting}}"
+      bindtap="onSubmitTap"
+    >
+      {{isSubmitting ? '正在提交' : '提交反馈'}}
+    </button>
+  </view>
+
+  <view class="privacy-note">反馈仅用于改进产品，不会在邮件中附带你的微信身份信息。</view>
+</view>

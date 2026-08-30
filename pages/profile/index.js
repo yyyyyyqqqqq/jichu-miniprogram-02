@@ -158,6 +158,15 @@ Page({
     }
   },
 
+  async goFeedback() {
+    const allowed = await AuthGuard.requireIdentity({
+      target: AUTH_TARGETS.FEEDBACK
+    });
+    if (allowed) {
+      NavigationService.safeNavigateTo(ROUTES.FEEDBACK);
+    }
+  },
+
   async retryAuth() {
     await AuthStore.refreshCurrentUser();
   },
