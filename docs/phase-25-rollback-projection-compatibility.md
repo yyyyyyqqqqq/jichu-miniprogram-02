@@ -20,13 +20,13 @@
 | baseline id | `phase25-message-query-projection-floor-v1` |
 | required function | `cloudfunctions/messageQuery` |
 | approved source SHA-256 | `c4472a128fac981c5e1fa141288876e271d6ec397ef7d7686378596835304f30` |
-| source candidate | `PHASE25_UNCOMMITTED_CANDIDATE` |
+| sealed source commit | `4967995d1ca20f0fef8050b91864721dddafbab5` |
 | forbidden Phase 24 SHA-256 | `a758d68da1d811d692a6bf0330580b3ecf155e215bb91b71a7a91cd6339b0313` |
 | compatible clients | Phase 24-like、Phase 25 |
 | compatible `messageAction` | Phase 24、Phase 25 |
 | compatible `appointmentAction` | Phase 24、Phase 25 |
 
-真实 source/hash 映射与 allowlist 定义在 `scripts/phase-25-minimum-safe-rollback-core.js`。由于 134.md 明确禁止 commit/tag，本轮只能记录真实未提交 candidate；负责人后续封版时应把 `sourceCommit` 更新为最终 commit，并在任何源码变化后重新 seal hash 和重跑全套验证。
+真实 source/hash 映射与 allowlist 定义在 `scripts/phase-25-minimum-safe-rollback-core.js`。Phase 25 已于最终提交 `4967995d1ca20f0fef8050b91864721dddafbab5` 封版，Final Release Step 5 已将 `sourceCommit` 从当时的未提交 candidate 元数据更新为该确定性恢复点；任何后续源码变化仍必须重新 seal hash 并重跑全套验证。
 
 不可低于的运行时底座是服务端 `messageQuery`。`services/message-service.js`、`pages/chat` 与 `pages/messages` 的 Phase 25 版本提供更完整的字段标准化和交互体验，但不是保护 recall/delete/hide 读取隐私的最低条件。服务端必须在任何客户端渲染前删除不应返回的数据。
 
@@ -101,7 +101,7 @@ Minimum-safe projection 未改变 system message 的合法列表形态和 `appoi
 
 | 验证 | 结果 |
 | --- | --- |
-| dedicated rollback compatibility | PASS：10 gates / 30 assertions |
+| dedicated rollback compatibility | PASS：11 gates / 35 assertions |
 | Phase 25 lifecycle | PASS：8 gates / 57 assertions |
 | hide/send race | PASS：899 assertions/scenarios |
 | production diagnostic gate | PASS：61 assertions |

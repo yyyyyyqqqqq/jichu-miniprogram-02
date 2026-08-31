@@ -5,7 +5,7 @@ const MINIMUM_SAFE_ROLLBACK_BASELINE = Object.freeze({
   functionName: 'messageQuery',
   sourceSha256: 'c4472a128fac981c5e1fa141288876e271d6ec397ef7d7686378596835304f30',
   phase24ForbiddenSha256: 'a758d68da1d811d692a6bf0330580b3ecf155e215bb91b71a7a91cd6339b0313',
-  sourceCommit: 'PHASE25_UNCOMMITTED_CANDIDATE',
+  sourceCommit: '4967995d1ca20f0fef8050b91864721dddafbab5',
   compatibleClients: Object.freeze(['phase24', 'phase25']),
   compatibleMessageActions: Object.freeze(['phase24', 'phase25']),
   compatibleAppointmentActions: Object.freeze(['phase24', 'phase25']),
