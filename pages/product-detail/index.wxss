@@ -13,15 +13,32 @@
   padding-bottom: 34rpx;
 }
 
+.detail-error-action-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 70rpx;
+  /* Override the isolated empty-state action and native button defaults only here. */
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  border: 0;
+  font-size: 25rpx !important;
+  font-weight: 700;
+  line-height: 1.2 !important;
+  text-align: center;
+}
+
+.detail-error-action-button::after {
+  border: 0;
+}
+
 .detail-home-button {
   width: 260rpx;
-  height: 70rpx;
   margin: -12rpx auto 0;
   border-radius: 999rpx;
   background: #f1f5f3;
   color: #66716b;
-  font-size: 24rpx;
-  line-height: 70rpx;
 }
 
 .detail-cover {

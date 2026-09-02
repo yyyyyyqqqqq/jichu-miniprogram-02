@@ -1445,6 +1445,34 @@ record('core page cleanup and navigation failure recovery are present', () => {
   assert(/isReturning:\s*false/.test(loginSource), 'login navigation failure does not unlock the return state');
 });
 
+record('product detail error actions share scoped typography and flex centering', () => {
+  const template = readText(path.join(root, 'pages/product-detail/index.wxml'));
+  const style = readText(path.join(root, 'pages/product-detail/index.wxss'));
+  const emptyTemplate = readText(path.join(root, 'components/empty-state/index.wxml'));
+  const emptySource = readText(path.join(root, 'components/empty-state/index.js'));
+  const shared = (style.match(/\.detail-error-action-button\s*\{([^}]+)\}/) || [])[1] || '';
+  const home = (style.match(/\.detail-home-button\s*\{([^}]+)\}/) || [])[1] || '';
+
+  assert(/externalClasses:\s*\['action-class'\]/.test(emptySource)
+    && /class="empty-action action-class"/.test(emptyTemplate), 'empty-state lacks the opt-in action styling hook');
+  assert(/action-class="detail-error-action-button"/.test(template)
+    && /class="detail-error-action-button detail-home-button"/.test(template), 'error actions do not share the same page-scoped class');
+  for (const declaration of [
+    'display: flex;', 'align-items: center;', 'justify-content: center;',
+    'height: 70rpx;', 'font-size: 25rpx !important;', 'font-weight: 700;',
+    'line-height: 1.2 !important;', 'padding-top: 0 !important;',
+    'padding-bottom: 0 !important;', 'border: 0;', 'text-align: center;'
+  ]) assert(shared.includes(declaration), `error action typography missing: ${declaration}`);
+  assert(!/font-size|font-weight|line-height/.test(home), 'home action overrides shared text styling');
+  assert(/\.detail-error-action-button::after\s*\{\s*border:\s*0;\s*\}/.test(style), 'scoped native button border reset is missing');
+  assert(home.includes('width: 260rpx;') && home.includes('margin: -12rpx auto 0;')
+    && home.includes('border-radius: 999rpx;') && home.includes('background: #f1f5f3;')
+    && home.includes('color: #66716b;'), 'secondary error action geometry or colors changed');
+  assert(/bind:action="onErrorAction"/.test(template)
+    && /wx:if="\{\{canRetry\}\}"[\s\S]*bindtap="goHome"/.test(template)
+    && /bindtap="onAction"/.test(emptyTemplate), 'error action event or visibility bindings changed');
+});
+
 record('runtime logs are minimal and do not include sensitive payloads', () => {
   const runtimeFiles = files.filter((file) => (
     path.extname(file) === '.js'

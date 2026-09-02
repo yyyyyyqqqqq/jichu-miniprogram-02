@@ -10,11 +10,12 @@
         title="{{errorTitle}}"
         description="{{errorDescription}}"
         action-text="{{errorActionText}}"
+        action-class="detail-error-action-button"
         bind:action="onErrorAction"
       />
       <button
         wx:if="{{canRetry}}"
-        class="detail-home-button"
+        class="detail-error-action-button detail-home-button"
         bindtap="goHome"
       >
         返回首页

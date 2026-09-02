@@ -7,7 +7,7 @@
   <text wx:if="{{description}}" class="empty-description">{{description}}</text>
   <button
     wx:if="{{showAction && actionText}}"
-    class="empty-action"
+    class="empty-action action-class"
     bindtap="onAction"
   >
     {{actionText}}

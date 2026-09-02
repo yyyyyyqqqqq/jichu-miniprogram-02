@@ -1,4 +1,6 @@
 Component({
+  externalClasses: ['action-class'],
+
   properties: {
     title: {
       type: String,
