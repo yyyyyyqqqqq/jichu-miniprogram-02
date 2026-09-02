@@ -147,6 +147,60 @@ async function findOne(collection, condition) {
   return Array.isArray(result.data) ? result.data[0] || null : null;
 }
 
+function extractRecord(result) {
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+  if (result.data && !Array.isArray(result.data)) {
+    return result.data;
+  }
+  return Array.isArray(result.data) && result.data.length > 0
+    ? result.data[0]
+    : null;
+}
+
+function isMissingDocumentError(error) {
+  const code = String(error && (error.errCode || error.code || '')).toLowerCase();
+  const message = String(error && (error.message || error.errMsg) || '').toLowerCase();
+  return code.includes('not_found')
+    || code.includes('not found')
+    || message.includes('not found')
+    || message.includes('not exist')
+    || message.includes('does not exist');
+}
+
+async function getDocumentOrNull(document) {
+  try {
+    return extractRecord(await document.get());
+  } catch (error) {
+    if (isMissingDocumentError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function assertActiveUser(identity, dependencies = {}) {
+  if (!identity || !identity.openId || !identity.appId || !identity.userId) {
+    businessError(ERROR_CODES.AUTH_REQUIRED, '请先登录');
+  }
+  const userCollection = dependencies.usersCollection || db.collection('users');
+  const user = await getDocumentOrNull(userCollection.doc(identity.userId));
+  if (!user) {
+    businessError(ERROR_CODES.USER_NOT_FOUND, '当前用户记录不存在');
+  }
+  if (typeof user.openid !== 'string' || user.openid !== identity.openId) {
+    businessError(
+      ERROR_CODES.SCHOOL_CONTEXT_MISMATCH,
+      '无法确认当前用户身份'
+    );
+  }
+  if (user.status !== 'active') {
+    businessError(ERROR_CODES.USER_INACTIVE, '当前账户暂不可用');
+  }
+  return user;
+}
+
 async function resolveMarketSchoolContext(identity, dependencies = {}) {
   if (!identity || !identity.openId || !identity.appId || !identity.userId) {
     businessError(ERROR_CODES.AUTH_REQUIRED, '请先登录并选择学校');
@@ -766,14 +820,12 @@ exports.main = async (event = {}) => {
       return await getProductDetail(data, getIdentity());
     }
 
-    const context = cloud.getWXContext();
-    const openId = context && typeof context.OPENID === 'string'
-      ? context.OPENID
-      : '';
-    if (!openId) {
+    const identity = getIdentity();
+    if (!identity.openId || !identity.appId || !identity.userId) {
       return failure(ERROR_CODES.UNAUTHORIZED, '登录状态已失效，请重新登录');
     }
-    return await listMyProducts(data, openId);
+    await assertActiveUser(identity);
+    return await listMyProducts(data, identity.openId);
   } catch (error) {
     if (error && error.businessCode) {
       return failure(error.businessCode, error.message);
@@ -814,5 +866,7 @@ exports.__test = Object.freeze({
   buildSchoolScopedCondition,
   getProductDetail,
   resolveDetailAccess,
+  createUserId: MarketCore.createUserId,
+  assertActiveUser,
   DETAIL_ACCESS_MODE
 });

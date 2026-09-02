@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const cloud = require('wx-server-sdk');
 
 cloud.init({
@@ -104,6 +105,7 @@ const ERROR_CODES = {
   INVALID_ACTION: 'INVALID_ACTION',
   INVALID_PARAMS: 'INVALID_PARAMS',
   UNAUTHORIZED: 'UNAUTHORIZED',
+  USER_DISABLED: 'USER_DISABLED',
   PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
   PRODUCT_FORBIDDEN: 'PRODUCT_FORBIDDEN',
   PRODUCT_DELETED: 'PRODUCT_DELETED',
@@ -171,11 +173,27 @@ function getProductVersion(product) {
   return normalizeVersion(product && product.version) || 1;
 }
 
-function getOpenId() {
+function getIdentity() {
   const context = cloud.getWXContext();
-  return context && typeof context.OPENID === 'string'
-    ? context.OPENID
+  const openId = context && typeof context.OPENID === 'string'
+    ? context.OPENID.trim()
     : '';
+  const appId = context && typeof context.APPID === 'string'
+    ? context.APPID.trim()
+    : '';
+  return {
+    openId,
+    appId,
+    userId: openId && appId ? createUserId(appId, openId) : ''
+  };
+}
+
+function createUserId(appId, openId) {
+  const digest = crypto
+    .createHash('sha256')
+    .update(`${appId}:${openId}`)
+    .digest('hex');
+  return `u_${digest.slice(0, 32)}`;
 }
 
 function normalizeText(value) {
@@ -375,6 +393,39 @@ function extractProduct(result) {
     return data[0] || null;
   }
   return data && typeof data === 'object' ? data : null;
+}
+
+function isMissingDocumentError(error) {
+  const code = String(error && (error.errCode || error.code || '')).toLowerCase();
+  const message = String(error && (error.message || error.errMsg) || '').toLowerCase();
+  return code.includes('not_found')
+    || code.includes('not found')
+    || message.includes('not found')
+    || message.includes('not exist')
+    || message.includes('does not exist');
+}
+
+async function getDocumentOrNull(document) {
+  try {
+    return extractProduct(await document.get());
+  } catch (error) {
+    if (isMissingDocumentError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function assertActiveUser(identity, dependencies = {}) {
+  const userCollection = dependencies.usersCollection || db.collection('users');
+  const user = await getDocumentOrNull(userCollection.doc(identity.userId));
+  if (!user || typeof user.openid !== 'string' || user.openid !== identity.openId) {
+    businessError(ERROR_CODES.UNAUTHORIZED, '登录状态已失效，请重新登录');
+  }
+  if (user.status !== 'active') {
+    businessError(ERROR_CODES.USER_DISABLED, '当前账户暂不可用');
+  }
+  return user;
 }
 
 async function findProduct(productId) {
@@ -981,12 +1032,14 @@ exports.main = async (event = {}) => {
     return failure(ERROR_CODES.INVALID_PARAMS, '缺少有效商品 ID');
   }
 
-  const openId = getOpenId();
-  if (!openId) {
+  const identity = getIdentity();
+  if (!identity.openId || !identity.appId || !identity.userId) {
     return failure(ERROR_CODES.UNAUTHORIZED, '登录状态已失效，请重新登录');
   }
 
   try {
+    await assertActiveUser(identity);
+    const { openId } = identity;
     if (Object.prototype.hasOwnProperty.call(TRANSITIONS, action)) {
       return success(await performTransition(productId, openId, action));
     }
@@ -1006,3 +1059,8 @@ exports.main = async (event = {}) => {
     return mapUnexpectedFailure(error, action);
   }
 };
+
+exports.__test = Object.freeze({
+  createUserId,
+  assertActiveUser
+});

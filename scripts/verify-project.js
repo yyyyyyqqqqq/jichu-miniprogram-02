@@ -2025,6 +2025,21 @@ async function verifyProductQueryFunctionFlow() {
       assert(['products', 'users', 'schools'].includes(name), `unexpected productQuery collection ${name}`);
       const sourceRecords = name === 'products' ? records : auxiliaryRecords[name];
       return {
+        doc(id) {
+          return {
+            async get() {
+              const record = sourceRecords.find((item) => item._id === id);
+              if (!record) {
+                const error = new Error(
+                  `document.get:fail document with _id ${id} does not exist`
+                );
+                error.code = 'DATABASE_DOCUMENT_NOT_EXIST';
+                throw error;
+              }
+              return { data: record };
+            }
+          };
+        },
         where(condition) {
           return createQuery(condition, sourceRecords);
         }
@@ -2624,6 +2639,12 @@ async function verifyProductEditServiceFlow() {
 
 async function verifyManageProductFunctionFlow() {
   const functionPath = path.join(root, 'cloudfunctions/manageProduct/index.js');
+  const appId = 'manage-product-verification-app';
+  const activeUserId = `u_${require('crypto')
+    .createHash('sha256')
+    .update(`${appId}:owner-openid`)
+    .digest('hex')
+    .slice(0, 32)}`;
   const originalLoad = Module._load;
   const ownerImageA = 'cloud://test-env.bucket/products/u_owner/20260718/a.jpg';
   const ownerImageB = 'cloud://test-env.bucket/products/u_owner/20260718/b.jpg';
@@ -2804,6 +2825,10 @@ async function verifyManageProductFunctionFlow() {
       schoolName: '示例大学'
     }]
   ]);
+  users.set(activeUserId, {
+    ...users.get('u_owner'),
+    _id: activeUserId
+  });
   const schools = new Map([
     ['s_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', {
       _id: 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -2873,6 +2898,22 @@ async function verifyManageProductFunctionFlow() {
       }
     },
     collection(name) {
+      if (name === 'users') {
+        return {
+          doc(id) {
+            return {
+              async get() {
+                if (!users.has(id)) {
+                  const error = new Error('document does not exist');
+                  error.code = 'DATABASE_DOCUMENT_NOT_EXIST';
+                  throw error;
+                }
+                return { data: users.get(id) };
+              }
+            };
+          }
+        };
+      }
       assert(name === 'products', `unexpected manageProduct collection ${name}`);
       return {
         where(condition) {
@@ -2930,7 +2971,8 @@ async function verifyManageProductFunctionFlow() {
     },
     getWXContext() {
       return {
-        OPENID: currentOpenId
+        OPENID: currentOpenId,
+        APPID: appId
       };
     },
     async deleteFile({ fileList }) {

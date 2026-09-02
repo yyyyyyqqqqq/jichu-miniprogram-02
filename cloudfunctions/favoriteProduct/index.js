@@ -25,6 +25,7 @@ const ERROR_CODES = {
   INVALID_ACTION: 'INVALID_ACTION',
   INVALID_PARAMS: 'INVALID_PARAMS',
   UNAUTHORIZED: 'UNAUTHORIZED',
+  USER_DISABLED: 'USER_DISABLED',
   PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
   PRODUCT_NOT_FAVORITABLE: 'PRODUCT_NOT_FAVORITABLE',
   CANNOT_FAVORITE_OWN_PRODUCT: 'CANNOT_FAVORITE_OWN_PRODUCT',
@@ -198,6 +199,18 @@ async function getDocumentOrNull(document) {
     }
     throw error;
   }
+}
+
+async function assertActiveUser(identity, dependencies = {}) {
+  const userCollection = dependencies.usersCollection || users;
+  const user = await getDocumentOrNull(userCollection.doc(identity.userId));
+  if (!user || typeof user.openid !== 'string' || user.openid !== identity.openId) {
+    businessError(ERROR_CODES.UNAUTHORIZED, '登录状态已失效，请重新登录');
+  }
+  if (user.status !== 'active') {
+    businessError(ERROR_CODES.USER_DISABLED, '当前账户暂不可用');
+  }
+  return user;
 }
 
 async function runTransaction(callback) {
@@ -505,10 +518,10 @@ exports.main = async (event = {}) => {
 
   const context = cloud.getWXContext();
   const openId = context && typeof context.OPENID === 'string'
-    ? context.OPENID
+    ? context.OPENID.trim()
     : '';
   const appId = context && typeof context.APPID === 'string'
-    ? context.APPID
+    ? context.APPID.trim()
     : '';
   if (!openId || !appId) {
     return failure(ERROR_CODES.UNAUTHORIZED, '登录状态已失效，请重新登录');
@@ -521,6 +534,8 @@ exports.main = async (event = {}) => {
 
   const trace = { step: 'route_action' };
   try {
+    trace.step = 'auth.read_user';
+    await assertActiveUser(identity);
     if (action === 'getFavoriteStatus') {
       return await getFavoriteStatus(data, identity, trace);
     }
@@ -558,5 +573,6 @@ exports.main = async (event = {}) => {
 exports.__test = Object.freeze({
   canCreateSchoolRelation,
   assertCanCreateSchoolRelation,
-  createUserId
+  createUserId,
+  assertActiveUser
 });

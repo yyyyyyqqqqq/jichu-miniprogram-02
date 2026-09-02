@@ -180,7 +180,7 @@ function toSafeUser(record, schoolState = {}) {
     bio: typeof record.bio === 'string' ? record.bio : '',
     campus: normalizeText(record.campus),
     role: 'user',
-    status: record.status === 'disabled' ? 'disabled' : 'active',
+    status: record.status === 'active' ? 'active' : 'disabled',
     profileCompleted: Boolean(
       record.profileCompleted === true
       && nickname
@@ -405,14 +405,14 @@ function assertExistingUser(existing, identity) {
   if (!existing) {
     return;
   }
-  if (existing.status === 'disabled') {
-    businessError(ERROR_CODES.USER_DISABLED, '当前账户暂不可用');
-  }
   if (
     typeof existing.openid !== 'string'
     || existing.openid !== identity.openId
   ) {
     businessError(ERROR_CODES.AUTH_FAILED, '无法确认当前用户记录');
+  }
+  if (existing.status !== 'active') {
+    businessError(ERROR_CODES.USER_DISABLED, '当前账户暂不可用');
   }
 }
 
@@ -825,6 +825,7 @@ exports.__test = Object.freeze({
   SCHOOL_CHANGE_COOLDOWN_MS,
   getSchoolChangePolicy,
   assertSchoolChangeAllowed,
+  assertExistingUser,
   normalizeSchoolVersion,
   toIsoString
 });

@@ -1,4 +1,5 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const Module = require('module');
 const path = require('path');
 
@@ -13,6 +14,7 @@ function createDatabaseHarness(initialProducts) {
     initialProducts.map((product) => [product._id, Object.assign({}, product)])
   );
   const views = new Map();
+  const users = new Map();
   let transactionQueue = Promise.resolve();
 
   function resolveValue(value) {
@@ -28,6 +30,9 @@ function createDatabaseHarness(initialProducts) {
     }
     if (name === 'productViews') {
       return views;
+    }
+    if (name === 'users') {
+      return users;
     }
     throw new Error(`unexpected product view collection ${name}`);
   }
@@ -85,6 +90,13 @@ function createDatabaseHarness(initialProducts) {
 
   const database = {
     command,
+    collection(name) {
+      return {
+        doc(id) {
+          return createDocument(name, id);
+        }
+      };
+    },
     serverDate() {
       return { $serverDate: true };
     },
@@ -103,7 +115,8 @@ function createDatabaseHarness(initialProducts) {
   return {
     database,
     products,
-    views
+    views,
+    users
   };
 }
 
@@ -206,6 +219,25 @@ async function verifyProductViewFlow(projectRoot) {
     }
   ]);
   let currentOpenId = 'buyer-a-openid';
+  const appId = 'product-view-verification-app';
+  [
+    'buyer-a-openid',
+    'buyer-b-openid',
+    'owner-openid',
+    'buyer-c-openid',
+    'buyer-concurrent-openid'
+  ].forEach((openId) => {
+    const userId = `u_${crypto
+      .createHash('sha256')
+      .update(`${appId}:${openId}`)
+      .digest('hex')
+      .slice(0, 32)}`;
+    harness.users.set(userId, {
+      _id: userId,
+      openid: openId,
+      status: 'active'
+    });
+  });
   let nowMs = Date.parse('2026-07-26T08:00:00.000Z');
 
   const cloudMock = {
@@ -216,7 +248,8 @@ async function verifyProductViewFlow(projectRoot) {
     },
     getWXContext() {
       return {
-        OPENID: currentOpenId
+        OPENID: currentOpenId,
+        APPID: appId
       };
     }
   };

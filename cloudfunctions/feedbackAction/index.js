@@ -8,6 +8,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
 const db = cloud.database();
 const FEEDBACKS_COLLECTION = 'feedbacks';
+const USERS_COLLECTION = 'users';
 const RECIPIENT = '2915487801@qq.com';
 const CONTENT_MAX_LENGTH = 1000;
 const REQUEST_ID_PATTERN = /^[a-zA-Z0-9_-]{8,80}$/;
@@ -19,6 +20,7 @@ const ERROR_CODES = Object.freeze({
   OK: 'OK',
   INVALID_ACTION: 'INVALID_ACTION',
   UNAUTHORIZED: 'UNAUTHORIZED',
+  USER_DISABLED: 'USER_DISABLED',
   INVALID_CONTENT: 'INVALID_CONTENT',
   INVALID_REQUEST_ID: 'INVALID_REQUEST_ID',
   RATE_LIMITED: 'RATE_LIMITED',
@@ -56,6 +58,10 @@ function createDigest(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+function createUserId(appId, openId) {
+  return `u_${createDigest(`${appId}:${openId}`).slice(0, 32)}`;
+}
+
 function createFeedbackId(openId, requestId) {
   return `fb_${createDigest(`${openId}:${requestId}`)}`;
 }
@@ -71,6 +77,49 @@ function normalizeDate(value) {
 async function queryDocumentById(collection, id) {
   const result = await collection.where({ _id: id }).limit(1).get();
   return result && Array.isArray(result.data) ? result.data[0] || null : null;
+}
+
+function extractRecord(result) {
+  if (!result || typeof result !== 'object') return null;
+  if (result.data && !Array.isArray(result.data)) return result.data;
+  return Array.isArray(result.data) && result.data.length > 0
+    ? result.data[0]
+    : null;
+}
+
+function isMissingDocumentError(error) {
+  const code = normalizeText(error && (error.errCode || error.code)).toLowerCase();
+  const message = [error && error.message, error && error.errMsg]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return code === 'document_not_found'
+    || code === 'database_document_not_exist'
+    || message.includes('document not exists')
+    || message.includes('document does not exist');
+}
+
+async function getDocumentOrNull(document) {
+  try {
+    return extractRecord(await document.get());
+  } catch (error) {
+    if (isMissingDocumentError(error)) return null;
+    throw error;
+  }
+}
+
+async function assertActiveUser(dependencies, identity) {
+  const userId = createUserId(identity.appId, identity.openId);
+  const user = await getDocumentOrNull(
+    dependencies.database.collection(USERS_COLLECTION).doc(userId)
+  );
+  if (!user || user.openid !== identity.openId) {
+    businessError(ERROR_CODES.UNAUTHORIZED, '无法确认当前用户身份');
+  }
+  if (user.status !== 'active') {
+    businessError(ERROR_CODES.USER_DISABLED, '当前账户暂不可用');
+  }
+  return user;
 }
 
 function assertRateLimit(records, now) {
@@ -173,11 +222,14 @@ function createHandler(dependencies) {
 
     const context = dependencies.getContext() || {};
     const openId = normalizeText(context.OPENID);
-    if (!openId) {
+    const appId = normalizeText(context.APPID);
+    if (!openId || !appId) {
       return failure(ERROR_CODES.UNAUTHORIZED, '请先登录后提交反馈');
     }
 
     try {
+      diagnosticStage = 'active-user-check';
+      await assertActiveUser(dependencies, { openId, appId });
       diagnosticStage = 'validate';
       const content = normalizeContent(request.content);
       const suppliedRequestId = normalizeText(request.requestId);
@@ -305,7 +357,9 @@ exports.__test = Object.freeze({
   ONE_DAY_MS,
   RECIPIENT,
   normalizeContent,
+  createUserId,
   createFeedbackId,
+  assertActiveUser,
   assertRateLimit,
   readMailConfiguration,
   normalizeEnvironmentName,

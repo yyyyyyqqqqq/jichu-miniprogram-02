@@ -124,7 +124,12 @@
     "feedback:production-zero-write": "node scripts/verify-feedback-production-zero-write.js",
     "feedback:production-mail-fixture": "node scripts/manage-feedback-production-mail-fixture.js",
     "feedback:production-real-mail": "node scripts/verify-feedback-production-real-mail.js",
-    "verify": "node scripts/verify-project.js"
+    "disabled-account-revocation:verify": "node scripts/verify-disabled-account-revocation.js",
+    "disabled-account:staging-actor": "node scripts/manage-disabled-account-staging-actor.js",
+    "disabled-account:deploy": "node scripts/deploy-disabled-account-hotfix.js",
+    "disabled-account:staging-runtime": "node scripts/verify-disabled-account-staging-runtime.js",
+    "disabled-account:production-integrity": "node scripts/capture-disabled-account-production-integrity.js",
+    "verify": "node scripts/verify-project.js && node scripts/verify-disabled-account-revocation.js"
   },
   "dependencies": {
     "@e965/xlsx": "0.20.3"

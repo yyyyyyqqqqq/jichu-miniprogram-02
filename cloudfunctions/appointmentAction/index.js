@@ -46,6 +46,7 @@ const ERROR_CODES = {
   OK: 'OK',
   INVALID_ACTION: 'INVALID_ACTION',
   UNAUTHORIZED: 'UNAUTHORIZED',
+  USER_DISABLED: 'USER_DISABLED',
   INVALID_PARAMS: 'INVALID_PARAMS',
   PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
   PRODUCT_UNAVAILABLE: 'PRODUCT_UNAVAILABLE',
@@ -97,6 +98,10 @@ function createDigest(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+function createUserId(appId, openId) {
+  return `u_${createDigest(`${appId}:${openId}`).slice(0, 32)}`;
+}
+
 function createAppointmentId(conversationId, openId, idempotencyKey) {
   return `a_${createDigest(
     `${conversationId}:${openId}:${idempotencyKey}`
@@ -143,6 +148,18 @@ async function getDocumentOrNull(document) {
     }
     throw error;
   }
+}
+
+async function assertActiveUser(identity) {
+  const userId = createUserId(identity.appId, identity.openId);
+  const user = await getDocumentOrNull(users.doc(userId));
+  if (!user || user.openid !== identity.openId) {
+    businessError(ERROR_CODES.UNAUTHORIZED, '无法确认当前用户身份');
+  }
+  if (user.status !== 'active') {
+    businessError(ERROR_CODES.USER_DISABLED, '当前账户暂不可用');
+  }
+  return user;
 }
 
 async function runTransaction(callback) {
@@ -1279,6 +1296,7 @@ exports.main = async (event = {}) => {
   }
 
   try {
+    await assertActiveUser({ openId, appId });
     await maintenance.assertWritable(db, businessError);
     if (action === 'create') {
       return await createAppointment(data, { openId, appId });
@@ -1312,6 +1330,8 @@ exports.main = async (event = {}) => {
 };
 
 exports.__test = Object.freeze({
+  createUserId,
+  assertActiveUser,
   canCreateSchoolRelation,
   assertCanCreateSchoolRelation,
   buildAppointmentRoles

@@ -1,4 +1,5 @@
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 const Module = require('module');
 const { execFileSync } = require('child_process');
@@ -101,8 +102,14 @@ function createQuery(store, condition = null) {
 function createHarness() {
   const buyerOpenId = 'rollback-floor-buyer-openid';
   const sellerOpenId = 'rollback-floor-seller-openid';
-  const buyerUserId = `u_${'a'.repeat(32)}`;
-  const sellerUserId = `u_${'b'.repeat(32)}`;
+  const appId = 'rollback-floor-appid';
+  const userId = (openId) => `u_${crypto
+    .createHash('sha256')
+    .update(`${appId}:${openId}`)
+    .digest('hex')
+    .slice(0, 32)}`;
+  const buyerUserId = userId(buyerOpenId);
+  const sellerUserId = userId(sellerOpenId);
   const conversationId = `c_${'c'.repeat(64)}`;
   const appointmentId = `a_${'d'.repeat(64)}`;
   const productId = 'rollback-floor-product';
@@ -170,7 +177,7 @@ function createHarness() {
       return database;
     },
     getWXContext() {
-      return { OPENID: currentOpenId, APPID: 'rollback-floor-appid' };
+      return { OPENID: currentOpenId, APPID: appId };
     }
   };
   const originalLoad = Module._load;
@@ -183,6 +190,8 @@ function createHarness() {
 
   stores.users.set(buyerUserId, {
     _id: buyerUserId,
+    openid: buyerOpenId,
+    status: 'active',
     nickname: '买家',
     avatarUrl: '',
     schoolName: '学校 A',
@@ -190,6 +199,8 @@ function createHarness() {
   });
   stores.users.set(sellerUserId, {
     _id: sellerUserId,
+    openid: sellerOpenId,
+    status: 'active',
     nickname: '卖家',
     avatarUrl: '',
     schoolName: '学校 A',
@@ -485,11 +496,36 @@ async function verifyRuntimeMatrix() {
 }
 
 async function verifyGuard() {
-  await gate('minimum-safe artifact maps to the real candidate hash', async () => {
+  await gate('minimum-safe artifact remains sealed beneath the revocation hotfix', async () => {
+    const baselineSource = execFileSync(
+      'git',
+      [
+        'show',
+        `${MINIMUM_SAFE_ROLLBACK_BASELINE.sourceCommit}:cloudfunctions/messageQuery/index.js`
+      ],
+      { cwd: ROOT, encoding: 'utf8', windowsHide: true }
+    );
+    const baselineInspection = inspectMessageQuerySource(baselineSource);
+    assert(
+      baselineInspection.sourceSha256
+        === MINIMUM_SAFE_ROLLBACK_BASELINE.sourceSha256,
+      'sealed baseline hash differs from its recorded source commit'
+    );
+    assert(
+      baselineInspection.approved
+        && baselineInspection.requiredBehaviorMarkersPresent,
+      'sealed baseline lacks a required privacy marker'
+    );
     const currentSource = fs.readFileSync(QUERY_PATH, 'utf8');
-    const inspection = inspectMessageQuerySource(currentSource);
-    assert(inspection.sourceSha256 === MINIMUM_SAFE_ROLLBACK_BASELINE.sourceSha256, 'sealed baseline hash differs from the real messageQuery candidate');
-    assert(inspection.approved && inspection.requiredBehaviorMarkersPresent, 'sealed candidate lacks a required privacy marker');
+    const currentInspection = inspectMessageQuerySource(currentSource);
+    assert(
+      currentInspection.requiredBehaviorMarkersPresent,
+      'revocation hotfix candidate regressed a required privacy marker'
+    );
+    assert(
+      currentSource.includes('await assertActiveUser({ openId, appId });'),
+      'revocation hotfix candidate lacks the active-user boundary'
+    );
   });
 
   await gate('E Phase24 and unknown query rollback targets are forbidden', async () => {

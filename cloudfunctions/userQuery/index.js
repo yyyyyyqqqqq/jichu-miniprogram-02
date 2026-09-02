@@ -176,7 +176,7 @@ async function findPublicUser(publicUserId) {
     _id: publicUserId
   }).limit(1).get();
   const user = extractRecord(result);
-  if (!user || user.status === 'disabled' || !user.openid) {
+  if (!user || user.status !== 'active' || !user.openid) {
     return null;
   }
   return user;
@@ -207,7 +207,7 @@ async function resolveViewerContext(context) {
     };
   }
   const user = await getDocumentOrNull(users.doc(createUserId(appId, openId)));
-  if (!user || user.status === 'disabled' || user.openid !== openId) {
+  if (!user || user.status !== 'active' || user.openid !== openId) {
     return {
       error: failure(ERROR_CODES.UNAUTHORIZED, '登录状态已失效，请重新登录')
     };

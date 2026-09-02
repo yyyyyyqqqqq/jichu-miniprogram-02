@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const cloud = require('wx-server-sdk');
 const maintenance = require('./maintenance');
 
@@ -31,6 +32,7 @@ const ERROR_CODES = {
   OK: 'OK',
   INVALID_ACTION: 'INVALID_ACTION',
   UNAUTHORIZED: 'UNAUTHORIZED',
+  USER_DISABLED: 'USER_DISABLED',
   INVALID_PARAMS: 'INVALID_PARAMS',
   CONVERSATION_NOT_FOUND: 'CONVERSATION_NOT_FOUND',
   APPOINTMENT_NOT_FOUND: 'APPOINTMENT_NOT_FOUND',
@@ -66,6 +68,14 @@ function businessError(code, message) {
 
 function normalizeString(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function createUserId(appId, openId) {
+  return `u_${crypto
+    .createHash('sha256')
+    .update(`${appId}:${openId}`)
+    .digest('hex')
+    .slice(0, 32)}`;
 }
 
 function normalizePositiveInteger(value, fallback, maximum) {
@@ -110,6 +120,18 @@ async function getDocumentOrNull(document) {
     }
     throw error;
   }
+}
+
+async function assertActiveUser(identity) {
+  const userId = createUserId(identity.appId, identity.openId);
+  const user = await getDocumentOrNull(users.doc(userId));
+  if (!user || user.openid !== identity.openId) {
+    businessError(ERROR_CODES.UNAUTHORIZED, '无法确认当前用户身份');
+  }
+  if (user.status !== 'active') {
+    businessError(ERROR_CODES.USER_DISABLED, '当前账户暂不可用');
+  }
+  return user;
 }
 
 function toIsoString(value) {
@@ -467,11 +489,13 @@ exports.main = async (event = {}) => {
 
   const context = cloud.getWXContext();
   const openId = context && normalizeString(context.OPENID);
-  if (!openId) {
+  const appId = context && normalizeString(context.APPID);
+  if (!openId || !appId) {
     return failure(ERROR_CODES.UNAUTHORIZED, '请先登录后使用预约功能');
   }
 
   try {
+    await assertActiveUser({ openId, appId });
     await maintenance.assertAvailable(db, businessError);
     if (action === 'detail') {
       return await detail(data, openId);
@@ -497,3 +521,8 @@ exports.main = async (event = {}) => {
     );
   }
 };
+
+exports.__test = Object.freeze({
+  createUserId,
+  assertActiveUser
+});

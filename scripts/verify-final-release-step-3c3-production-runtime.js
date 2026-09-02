@@ -1,7 +1,19 @@
 'use strict';
 
 const fs = require('fs');
-const { runPreflight, publicSummary, assert } = require('./environment-preflight');
+const path = require('path');
+const {
+  ROOT,
+  runPreflight,
+  publicSummary,
+  assert
+} = require('./environment-preflight');
+
+const OUTPUT_PATH = path.join(
+  ROOT,
+  'tmp',
+  'disabled-account-production-historical-readonly-runtime.json'
+);
 
 const AUTOMATOR_MODULE = String(process.env.STEP3C3_AUTOMATOR_MODULE || '').trim();
 const AUTOMATOR_WS_ENDPOINT = String(process.env.STEP3C3_AUTOMATOR_WS_ENDPOINT || '').trim();
@@ -71,7 +83,10 @@ async function run() {
     const appointments = await callCloud('appointmentQuery', 'listMine', { pageSize: 20 });
     assert(appointments.success && appointments.data && Array.isArray(appointments.data.list), 'historical appointments failed');
     assert(consoleErrors === 0 && exceptions === 0, 'DevTools recorded errors');
-    return {
+    const report = {
+      schemaVersion: 1,
+      completedAt: new Date().toISOString(),
+      mode: 'DISABLED_ACCOUNT_PRODUCTION_HISTORICAL_READONLY_RUNTIME',
       environment: publicSummary(preflight),
       publicProfile: {
         runtimeCallPassed: true,
@@ -83,10 +98,17 @@ async function run() {
       historicalChat: { listReadable: true, messagesReadable: true },
       historicalAppointment: { listReadable: true, recordsObserved: appointments.data.list.length },
       writesRequested: false,
+      businessWrites: 0,
       consoleErrors,
       exceptions,
       passed: true
     };
+    fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
+    fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(report, null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600
+    });
+    return report;
   } finally {
     await withTimeout(miniProgram.disconnect(), 'automation disconnect', 5000).catch(() => {});
   }
@@ -100,4 +122,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { run };
+module.exports = { OUTPUT_PATH, run };

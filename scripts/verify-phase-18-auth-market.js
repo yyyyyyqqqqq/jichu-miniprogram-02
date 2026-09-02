@@ -1,4 +1,5 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const Module = require('module');
@@ -156,19 +157,26 @@ async function verifyAuthMarket() {
 async function verifyCrossSchoolRelist() {
   const schoolA = 's_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   const schoolB = 's_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  const appId = 'wx-auth-market-relist';
+  const openId = 'owner-openid';
+  const ownerUserId = `u_${crypto
+    .createHash('sha256')
+    .update(`${appId}:${openId}`)
+    .digest('hex')
+    .slice(0, 32)}`;
   const products = new Map([['product-relist-school', {
     _id: 'product-relist-school',
     sellerOpenid: 'owner-openid',
-    sellerId: 'u_owner',
+    sellerId: ownerUserId,
     schoolId: schoolA,
     schoolName: '学校 A',
     status: 'offline',
     version: 2,
     offlineAt: { original: true }
   }]]);
-  const users = new Map([['u_owner', {
-    _id: 'u_owner',
-    openid: 'owner-openid',
+  const users = new Map([[ownerUserId, {
+    _id: ownerUserId,
+    openid: openId,
     status: 'active',
     schoolId: schoolB,
     schoolName: '学校 B'
@@ -181,7 +189,23 @@ async function verifyCrossSchoolRelist() {
   }]]);
   const db = {
     command: { all(value) { return { $all: value }; } },
-    collection() { return createCollection([]); },
+    collection(name) {
+      if (name !== 'users') return createCollection([]);
+      return {
+        doc(id) {
+          return {
+            async get() {
+              if (!users.has(id)) {
+                const error = new Error('document does not exist');
+                error.code = 'DATABASE_DOCUMENT_NOT_EXIST';
+                throw error;
+              }
+              return { data: users.get(id) };
+            }
+          };
+        }
+      };
+    },
     serverDate() { return { $serverDate: true }; },
     async runTransaction(callback) {
       const transaction = {
@@ -198,17 +222,17 @@ async function verifyCrossSchoolRelist() {
       return { result: await callback(transaction) };
     }
   };
-  const contextRef = { current: { OPENID: 'owner-openid' } };
+  const contextRef = { current: { OPENID: openId, APPID: appId } };
   const manageProduct = loadWithCloudMock('cloudfunctions/manageProduct/index.js', db, contextRef);
   const allowed = await manageProduct.main({ action: 'relist', productId: 'product-relist-school' });
   check(allowed.success === true && allowed.data.status === 'available', 'historical product owner could not relist the product');
   check(products.get('product-relist-school').schoolId === schoolA, 'historical product relist changed product school');
-  check(users.get('u_owner').schoolId === schoolB, 'historical product relist changed the owner school');
+  check(users.get(ownerUserId).schoolId === schoolB, 'historical product relist changed the owner school');
 
   products.set('product-relist-unassigned', {
     _id: 'product-relist-unassigned',
     sellerOpenid: 'owner-openid',
-    sellerId: 'u_owner',
+    sellerId: ownerUserId,
     status: 'offline',
     version: 1,
     offlineAt: { original: true }

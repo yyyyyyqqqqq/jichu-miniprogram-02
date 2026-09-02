@@ -112,6 +112,7 @@ const ERROR_CODES = {
   INVALID_ARGUMENT: 'INVALID_ARGUMENT',
   LOGIN_REQUIRED: 'LOGIN_REQUIRED',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
+  USER_DISABLED: 'USER_DISABLED',
   PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
   PRODUCT_UNAVAILABLE: 'PRODUCT_UNAVAILABLE',
   PRODUCT_SELLER_UNAVAILABLE: 'PRODUCT_SELLER_UNAVAILABLE',
@@ -764,6 +765,18 @@ async function getDocumentOrNull(document) {
     }
     throw error;
   }
+}
+
+async function assertActiveUser(identity) {
+  const userId = createUserId(identity.appId, identity.openId);
+  const user = await getDocumentOrNull(users.doc(userId));
+  if (!user || user.openid !== identity.openId) {
+    businessError(ERROR_CODES.LOGIN_REQUIRED, '无法确认当前用户身份');
+  }
+  if (user.status !== 'active') {
+    businessError(ERROR_CODES.USER_DISABLED, '当前账户暂不可用');
+  }
+  return user;
 }
 
 function isRetryableTransactionConflict(error) {
@@ -2282,6 +2295,8 @@ exports.main = async (event = {}) => {
     action
   );
   try {
+    trace.step = 'active-user.check';
+    await assertActiveUser({ openId, appId });
     trace.step = 'maintenance.check';
     await maintenance.assertWritable(db, businessError);
     if (action === 'createOrGetConversation') {
@@ -2361,6 +2376,7 @@ exports.__test = Object.freeze({
   canCreateSchoolRelation,
   assertCanCreateSchoolRelation,
   createUserId,
+  assertActiveUser,
   createParticipantPair,
   isRetryableTransactionConflict,
   runTransaction,

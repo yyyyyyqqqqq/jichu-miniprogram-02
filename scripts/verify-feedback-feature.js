@@ -46,24 +46,28 @@ function loadSubject() {
 
 function createDatabase(initialRecords = [], options = {}) {
   const records = new Map(initialRecords.map((record) => [record._id, { ...record }]));
-  function collection() {
+  const userRecords = new Map(
+    (options.users || []).map((record) => [record._id, { ...record }])
+  );
+  function collection(name = 'feedbacks') {
+    const selectedRecords = name === 'users' ? userRecords : records;
     return {
       doc(id) {
         return {
           async get() {
-            if (!records.has(id)) {
+            if (!selectedRecords.has(id)) {
               const error = new Error('document does not exist');
               error.code = 'DATABASE_DOCUMENT_NOT_EXIST';
               throw error;
             }
-            return { data: { ...records.get(id) } };
+            return { data: { ...selectedRecords.get(id) } };
           },
           async set({ data }) {
-            records.set(id, { _id: id, ...data });
+            selectedRecords.set(id, { _id: id, ...data });
           },
           async update({ data }) {
             if (options.failUpdate) throw Object.assign(new Error('update failed'), { code: 'DATABASE_ERROR' });
-            records.set(id, { ...records.get(id), ...data });
+            selectedRecords.set(id, { ...selectedRecords.get(id), ...data });
           }
         };
       },
@@ -75,9 +79,13 @@ function createDatabase(initialRecords = [], options = {}) {
             return query;
           },
           async get() {
-            const data = [...records.values()]
+            const data = [...selectedRecords.values()]
               .filter((record) => (
-                filter._id ? record._id === filter._id : record.userOpenid === filter.userOpenid
+                filter._id
+                  ? record._id === filter._id
+                  : filter.openid
+                    ? record.openid === filter.openid
+                    : record.userOpenid === filter.userOpenid
               ))
               .filter((record) => (
                 !filter.createdAt || new Date(record.createdAt) >= filter.createdAt.$gte
@@ -93,6 +101,7 @@ function createDatabase(initialRecords = [], options = {}) {
   }
   return {
     records,
+    userRecords,
     collection,
     async runTransaction(callback) {
       if (options.failTransaction) throw Object.assign(new Error('database unavailable'), { code: 'DATABASE_ERROR' });
@@ -103,6 +112,21 @@ function createDatabase(initialRecords = [], options = {}) {
 
 function createHarness(subject, options = {}) {
   const database = options.database || createDatabase(options.records || [], options);
+  const openId = options.openId === undefined ? 'trusted-openid' : options.openId;
+  const appId = options.appId === undefined ? 'trusted-appid' : options.appId;
+  if (
+    options.seedUser !== false
+    && openId
+    && appId
+    && database.userRecords
+  ) {
+    const userId = subject.createUserId(appId, openId);
+    database.userRecords.set(userId, {
+      _id: userId,
+      openid: options.userOpenId === undefined ? openId : options.userOpenId,
+      status: options.userStatus || 'active'
+    });
+  }
   const sent = [];
   const logs = [];
   const mailer = {
@@ -129,7 +153,7 @@ function createHarness(subject, options = {}) {
   const handler = subject.createHandler({
     database,
     command: { gte: (value) => ({ $gte: value }) },
-    getContext: () => ({ OPENID: options.openId === undefined ? 'trusted-openid' : options.openId }),
+    getContext: () => ({ OPENID: openId, APPID: appId }),
     mailer,
     environment,
     now: () => new Date(now),
@@ -214,6 +238,24 @@ async function run() {
   await check('missing trusted identity is rejected', async () => {
     const result = await createHarness(subject, { openId: '' }).handler(request());
     assert(!result.success && result.code === 'UNAUTHORIZED', 'anonymous request was accepted');
+  });
+  await check('disabled authoritative user is rejected before persistence or mail', async () => {
+    const harness = createHarness(subject, { userStatus: 'disabled' });
+    const result = await harness.handler({
+      ...request(),
+      OPENID: 'forged-openid',
+      status: 'active'
+    });
+    const payload = JSON.stringify(result);
+    assert(!result.success && result.code === 'USER_DISABLED', 'disabled user was accepted');
+    assert(harness.database.records.size === 0, 'disabled request persisted feedback');
+    assert(harness.sent.length === 0, 'disabled request attempted to send mail');
+    assert(
+      !payload.includes('trusted-openid')
+      && !payload.includes('trusted-appid')
+      && !Object.prototype.hasOwnProperty.call(result, 'stack'),
+      'disabled response leaked identity or stack data'
+    );
   });
   await check('invalid request id is rejected', async () => {
     const result = await createHarness(subject).handler(request('hello', 'bad!'));

@@ -496,6 +496,17 @@ async function verifyImmutableEditing(projectRoot, collector) {
   const originalLoad = Module._load;
   const products = new Map();
   const openId = 'phase17-owner-openid';
+  const appId = 'phase17-manage-product-app';
+  const activeUserId = `u_${crypto
+    .createHash('sha256')
+    .update(`${appId}:${openId}`)
+    .digest('hex')
+    .slice(0, 32)}`;
+  const users = new Map([[activeUserId, {
+    _id: activeUserId,
+    openid: openId,
+    status: 'active'
+  }]]);
   const sellerId = `u_${'c'.repeat(32)}`;
   const schoolId = `s_${'d'.repeat(32)}`;
   const baseProduct = {
@@ -535,6 +546,7 @@ async function verifyImmutableEditing(projectRoot, collector) {
   products.set(legacyProduct._id, clone(legacyProduct));
 
   const collection = createManageCollection(products);
+  const userCollection = createManageCollection(users);
   const db = {
     command: {
       all(value) {
@@ -544,6 +556,9 @@ async function verifyImmutableEditing(projectRoot, collector) {
       }
     },
     collection(name) {
+      if (name === 'users') {
+        return userCollection;
+      }
       if (name !== 'products') {
         throw new Error(`unexpected manageProduct collection ${name}`);
       }
@@ -575,7 +590,8 @@ async function verifyImmutableEditing(projectRoot, collector) {
     },
     getWXContext() {
       return {
-        OPENID: openId
+        OPENID: openId,
+        APPID: appId
       };
     },
     async deleteFile() {

@@ -17,6 +17,7 @@ const ERROR_CODES = {
   INVALID_ACTION: 'INVALID_ACTION',
   INVALID_PARAMS: 'INVALID_PARAMS',
   UNAUTHORIZED: 'UNAUTHORIZED',
+  USER_DISABLED: 'USER_DISABLED',
   DATABASE_ERROR: 'DATABASE_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
 };
@@ -47,6 +48,12 @@ function failure(code, message) {
   };
 }
 
+function businessError(code, message) {
+  const error = new Error(message);
+  error.businessCode = code;
+  throw error;
+}
+
 function normalizeProductId(value) {
   const productId = value === null || value === undefined
     ? ''
@@ -66,6 +73,14 @@ function createViewId(productId, openId) {
     .digest('hex')
     .slice(0, 48);
   return `pv_${digest}`;
+}
+
+function createUserId(appId, openId) {
+  const digest = crypto
+    .createHash('sha256')
+    .update(`${appId}:${openId}`)
+    .digest('hex');
+  return `u_${digest.slice(0, 32)}`;
 }
 
 function toTimestamp(value) {
@@ -129,6 +144,18 @@ async function getDocumentOrNull(document) {
     }
     throw error;
   }
+}
+
+async function assertActiveUser(identity, dependencies = {}) {
+  const userCollection = dependencies.usersCollection || db.collection('users');
+  const user = await getDocumentOrNull(userCollection.doc(identity.userId));
+  if (!user || typeof user.openid !== 'string' || user.openid !== identity.openId) {
+    businessError(ERROR_CODES.UNAUTHORIZED, '登录状态已失效，请重新登录');
+  }
+  if (user.status !== 'active') {
+    businessError(ERROR_CODES.USER_DISABLED, '当前账户暂不可用');
+  }
+  return user;
 }
 
 async function runTransaction(callback) {
@@ -245,13 +272,25 @@ exports.main = async (event = {}) => {
   const openId = context && typeof context.OPENID === 'string'
     ? context.OPENID.trim()
     : '';
-  if (!openId) {
+  const appId = context && typeof context.APPID === 'string'
+    ? context.APPID.trim()
+    : '';
+  if (!openId || !appId) {
     return failure(ERROR_CODES.UNAUTHORIZED, '登录状态已失效，请重新登录');
   }
+  const identity = {
+    openId,
+    appId,
+    userId: createUserId(appId, openId)
+  };
 
   try {
+    await assertActiveUser(identity);
     return await recordView(data, openId);
   } catch (error) {
+    if (error && error.businessCode) {
+      return failure(error.businessCode, error.message);
+    }
     console.error('[productViewAction] request failed', {
       action,
       code: error && (error.errCode || error.code || '')
@@ -280,6 +319,13 @@ exports._test = {
   VIEW_WINDOW_MS,
   VIEW_RECORD_RETENTION_MS,
   createViewId,
+  createUserId,
+  assertActiveUser,
   isWithinViewWindow,
   normalizeProductId
 };
+
+exports.__test = Object.freeze({
+  createUserId,
+  assertActiveUser
+});
