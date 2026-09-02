@@ -62,7 +62,7 @@ rollout 前 fresh PRE 确认 production `feedbacks` collection 和 `feedbackActi
 
 稳定、被 Git 忽略的私密配置路径：
 
-`D:\codex\jichu mini program02\config\cloud.secrets.private.js`
+`config/cloud.secrets.private.js`（相对于本地项目根目录）
 
 该文件 `staging` 与 `production` 节点的 SMTP 字段均已由负责人填写。受控工具只检查存在性并定向注入对应环境；没有向终端输出、复制、散列、记录或提交私密值。
 

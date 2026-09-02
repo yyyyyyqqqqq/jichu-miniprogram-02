@@ -1,419 +1,209 @@
-# 即出——校园闲置物品线下面交平台
+# 即出
 
-“即出”是一个面向校园内部的闲置物品信息与线下面交微信小程序。用户可以浏览闲置、查看详情，并通过商品私信沟通校园面交。项目不提供在线支付、担保交易、快递物流或购物车。
+面向校园内部的闲置物品信息与线下面交微信小程序。
+用户在同校市场发现商品，通过私信沟通并预约面交；项目不提供在线支付、担保交易、快递物流或购物车。
 
-## 当前阶段
+## 当前状态
 
-第十二至第二十四阶段均已完成。Phase 24 已完成登录身份与资料解耦、显式登录事务、独立 staging 真新用户验收、按无序用户对唯一聊天会话、历史数据迁移加固、production migration、目标索引、四个正式业务函数部署、自动 smoke，以及双账号和第三账号真机人工闭环。最终 production 只读核验确认唯一会话、消息、预约、权限、索引、函数和 maintenance 状态全部正常；本次提交由最终 annotated tag `phase-24-complete` 封版。
+- **Final Release Complete**：核心业务及生产收尾已完成。
+- **Post-Final-Release security audit complete**：公开仓库 SAFE，安全 READY；可维护性 C，建议发布后渐进重构。
+- **Disabled-account revocation hotfix complete**：受保护请求统一校验服务端权威账号状态。
+- Phase 25 消息生命周期、全国高校、收藏性能优化和 Feedback 均已完成生产验收。
+- 微信官方审核与正式发布尚未执行，是否进入审核由项目负责人决定。
 
-- 微信原生小程序基础工程与统一公共样式
-- 首页组合搜索、分类筛选、综合/最新/价格排序、下拉刷新和稳定分页
-- 首页首次加载、查询中、空状态、整页错误和加载更多错误分离
-- 商品详情完整展示、参数校验、不可公开商品过滤和独立重试
-- `available`、`reserved` 公开列表与 `sold` 商品详情状态展示
-- 商品详情卖家入口、校园面交安全提示和原生页面分享
-- 发布、个人中心和后续业务页面骨架
-- 首页、消息、我的自定义 TabBar，以及独立的中间发布按钮
-- Product、Auth、Navigation Service 边界
-- 18 条多分类统一 Product Mock 数据继续作为开发 fixture 保留
-- 草稿、下架和删除商品公开查询隔离
-- 原生价格、发布时间和数量格式化工具
-- Loading、空状态和错误状态公共组件
-- 增强的 Node.js 完整性和业务边界验证脚本
-- 微信云开发真实环境初始化
-- `authUser` 云函数与幂等用户记录设计
-- 真实微信身份与用户主动资料分层；每次显式登录均使用 `chooseAvatar`、`input type="nickname"` 完成资料确认
-- 确定性用户 ID 防止重复与并发首次登录产生多条用户记录
-- 非阻塞登录状态恢复、主动登录和客户端退出
-- 个人中心登录状态、错误重试和安全本地摘要
-- 发布、消息、收藏、联系卖家等统一登录守卫
-- 固定目标白名单和登录后安全返回
-- `productQuery` 商品列表与详情查询云函数
-- 首页与详情页通过 ProductService 读取 `products` 云数据库
-- 云端搜索、分类、四种排序和真实 `skip + limit` 分页
-- 客户端商品数据标准化、超时和统一错误映射
-- 第四、第五阶段人工验收通过的云数据库商品读取与发布数据
-- 登录用户商品发布表单、客户端与服务端双重校验
-- 最多 6 张商品图片选择、预览、删除与云存储上传
-- `createProduct` 云函数可信身份校验、幂等写入与稳定错误结构
-- 上传失败、保存失败、超时重试与孤儿图片清理
-- 发布成功跳转商品详情，以及首页列表刷新标记
-- 生产商品查询云函数移除测试数据写入口
-- 商品公开字段过滤、查询页码限幅和严格云文件路径校验
-- 列表卡片隐藏浏览量，详情弱化展示“人浏览 · 人收藏”
-- 登录买家浏览使用独立云函数、滚动 24 小时事务去重和卖家本人排除
-- 图片解码、类型、大小与用户目录清理范围校验
-- 登录回跳失败恢复、日志脱敏检查和发布前安全清单
-- “我的发布”按在售、已下架、已售出查询当前登录用户商品
-- `manageProduct` 云函数服务端所有权校验和幂等状态迁移
-- 商品下架、重新上架、标记已售及列表刷新
-- 所有者专用商品编辑页、字段白名单与 version 并发保护
-- 商品软删除、服务端图片差异清理和失败重试状态
-- 商品详情真实收藏/取消收藏、收藏状态与数量同步
-- 独立收藏关系、事务计数、重复请求幂等和本人商品收藏拒绝
-- “我的收藏”真实分页、刷新、状态提示和取消收藏
-- 安全公开用户 ID、公开资料白名单和卖家主页
-- 用户公开在售商品分页，以及详情页到卖家主页的安全跳转
-- 商品详情通过可信 `productId` 创建或复用一对一商品会话
-- 真实消息中心、会话游标分页、未读角标、下拉刷新和错误恢复
-- 一对一文本聊天、历史消息游标分页、8 秒轻量轮询和发送失败重试
-- 语音录制与播放、相册与拍摄、位置快照、双方其他商品卡片
-- 富消息媒体目录隔离、受控商品查询、服务端商品快照与同键幂等重试
-- 确定性会话 ID、确定性消息 ID、事务摘要与未读计数更新
-- 会话参与者读写校验、服务端发送者身份和严格安全响应映射
-- 商品发布与编辑统一使用用户主动触发的地图选点，并复用共享地点服务
-- 新商品强制提交规范化结构化地点，旧商品保留文本地点兼容编辑与展示
-- 商品公开查询不返回精确结构化地点，不使用自动、后台或持续定位
-- 面交预约按钮、资料保存按钮和发布页地点占位文字的垂直居中收尾
-- 教育部 2026 年普通高等学校名单只读解析、规范化、异常校验和可复现产物
-- 2952 所普通高校的安全 dry-run、幂等云端导入、唯一标识和运营状态隔离
-- `schools` 集合 `ADMINONLY` 权限、唯一与查询索引，以及只返回 active 学校的 `schoolQuery`
-- 客户端 `SchoolService` 查询边界与 active 学校只读响应
-- 本地受控学校状态运维、确定性确认批次、条件更新、激活审计和回滚 dry-run
-- 两所真实测试学校线上 list/search/detail、字段白名单和两页游标闭环
-- 用户学校状态派生、首次绑定、同校幂等、有效学校不可直接改绑和不可用学校重选
-- 登录后首次选校页面、搜索防抖、确认交互、AuthStore 缓存同步和统一学校守卫
-- 新发布商品由 `createProduct` 根据可信用户与 `schools` 权威记录绑定固定 `schoolId / schoolName`
-- 发布页只读展示当前学校，客户端创建请求不提交学校字段，普通商品编辑和状态变化不能修改学校
-- 商品查询返回安全学校摘要；历史无学校商品稳定返回空学校摘要且继续保持原公开查询行为
-- 商品详情由服务端返回同校、跨校只读、所有者或未就绪访问模式，客户端学校参数不参与授权
-- 合法公开商品可通过商品 ID 跨校只读访问，首页、搜索与分类继续严格保持同校发现
-- 好友与朋友圈分享只携带商品 ID，接收方按自己的权威学校重新判定详情权限
-- 收藏、新会话和新预约在服务端事务内执行同校闸门，统一拒绝跨校新增关系
-- 历史收藏、会话与预约继续保留和复用；卖家换校后仍可管理本人历史商品且商品学校不迁移
-- 首次选校与后续换校分离：首次不启动冷却，真实换校由服务端事务写入可信 `schoolChangedAt` 并递增 `schoolVersion`
-- 每次真实换校后准确 7×24 小时内禁止再次修改，同校请求为零写入 no-op，客户端时间、缓存和伪造字段不能绕过
-- 换校成功后首页、搜索、分类、分页与旧 cursor 主动失效，旧学校晚到响应不能覆盖新学校状态
-- 小程序进入前台时刷新服务端用户学校版本，多设备可发现换校并清理旧学校市场状态
-- 历史收藏、会话与预约继续按 relation/participant 读取，不因当前学校变化而消失
-- 收藏、消息、聊天和预约页使用统一轻量“其他学校商品”状态，不改变商品业务状态
-- 历史跨校会话继续允许参与双方读取和发送消息；新 conversation 与新 appointment 仍由服务端同校闸门限制
-- 卖家公开主页由服务端按查看者权威当前学校过滤商品和统计，客户端 school 参数无效
-- “我的发布”继续按 owner 展示所有历史学校商品，并复用发布校园标签和不可变学校规则
-- 12 个生产云函数的依赖、运行时、handler、资源配置与线上安装包统一审计
-- 8 个业务集合保持 `ADMINONLY`，现有索引覆盖经真实查询复核，Phase 23 未写业务数据或修改 ACL/索引
-- 写入口伪造身份、畸形参数与未知 action 生产探针 18/18 通过，探针前后 8 集合数量和受控投影一致
-- 18 个只读场景、90 个 warm 样本的生产性能基线，0 错误、0 超时；`productViews` 清理按明确阈值延后
+上述状态不表示零技术债或保证微信审核通过。当前审计、接受的风险和后续优先级见 [最终安全与可维护性报告](docs/post-release-security-maintainability-audit.md)。
 
-第十九阶段完整记录见 `docs/phase-19-cross-school-detail-access.md`；第二十阶段记录见 `docs/phase-20-school-change-cooldown.md`；第二十一阶段记录见 `docs/phase-21-historical-relation-school-adaptation.md`；第二十二阶段生产快照、残留分类、迁移幂等与安全收口记录见 `docs/phase-22-school-data-migration-finalization.md`；第二十三阶段生产安全、依赖与性能封板记录见 `docs/phase-23-production-security-performance-hardening.md`。Phase 24 Round 1、Round 2、登录事务和唯一会话上线记录分别见 `docs/phase-24-ux-audit-and-critical-flow-fixes.md`、`docs/phase-24-auth-flow-refactor.md`、`docs/phase-24-login-profile-confirmation.md` 与 `docs/phase-24-pair-conversation.md`。
+## 核心功能
 
-## 技术栈
+- **登录与资料**：真实微信身份、主动确认头像和昵称、独立选校、登录回跳与退出。
+- **全国高校**：2,952 所 active 普通高校，支持列表、搜索与稳定分页。
+- **同校市场**：按权威学校隔离首页、搜索和分类，支持综合、最新、价格排序及分页。
+- **商品发布与管理**：多图发布、地图选点、编辑、上下架、售出、软删除与图片清理。
+- **收藏与卖家主页**：收藏/取消、本人收藏列表、公开资料与当前校园在售商品；收藏数据补全已采用有界并行优化。
+- **聊天**：同一用户对唯一会话，支持文本、语音、图片、位置快照、商品卡片和预约系统消息。
+- **消息生命周期**：会话隐藏、仅自己删除、消息撤回与转发，保留重试、幂等和并发保护。
+- **面交预约**：创建、接受、拒绝、取消、完成及相关商品状态联动。
+- **历史跨校关系**：换校后仍可访问本人既有收藏、会话和预约；跨校新增关系仍受服务端限制。
+- **Feedback**：登录用户提交纯文本反馈，服务端先落库再通知固定收件方，包含幂等和基础频率限制。
 
-- 微信原生小程序
-- JavaScript
-- WXML / WXSS
-- Node.js 内置模块（仅用于本地验证）
-- 微信云开发与 `wx-server-sdk`
-- 本地学校数据解析使用锁定版本 `@e965/xlsx`
-- 无第三方 UI 库
-- 小程序客户端无 npm 运行时依赖
+学校真实变更有服务端冷却与版本校验；客户端缓存、时间和请求中的学校字段不能替代权威记录。
+公开商品分享按接收者身份重新判定访问范围，商品发布时的学校快照不会随卖家换校自动迁移。
 
-小程序客户端使用 `wx.cloud.callFunction()` 调用认证、商品查询、浏览记录、发布、状态管理、收藏、公开主页、消息和学校查询云函数，不直接访问 `users`、`products`、`productViews`、`favorites`、`conversations`、`messages` 或 `schools` 集合。
+## 安全设计
 
-## 目录结构
+- **服务端权威身份**：云函数从平台上下文取得调用者身份，不信任客户端伪造的身份字段。
+- **Active-user gate**：受保护业务前重新读取用户、校验身份绑定与 active 状态；禁用账号不能靠旧客户端缓存继续获得业务权限。
+- **数据库隔离**：9 个业务集合采用 `ADMINONLY`，普通客户端不直接读写数据库。
+- **对象授权**：商品检查所有者；聊天、预约检查参与者、角色及状态；知道 object ID 不等于有访问权。
+- **学校边界**：新商品与新关系由权威用户/学校记录约束；历史关系按所有者或参与者授权。
+- **安全响应**：使用明确的 DTO 字段白名单；公开响应不包含私有身份或精确私密地点，聊天/预约私有内容仅向授权参与者返回，不返回完整用户记录或原始数据库错误。
+- **输入与重放保护**：显式字段校验、幂等键、版本/状态机以及受查询范围约束的游标。
+- **秘密隔离**：本机及云端私有配置保管凭据，公开 example 仅保留 placeholder。
+
+公开商品详情、匿名学校查询及首次账号 onboarding 是有意保留的例外，不等于开放私人消息或关系写入。
+Active gate 保证请求入口的账号校验，不意味着撤销已下载数据或使已知媒体链接立即失效。
+
+聊天媒体仍采用现有 `READONLY` 存储策略：业务 API 先校验参与者，但完整 fileID 泄漏后存在访问风险。
+媒体私有授权、统一反滥用和上传内容校验的进一步加固属于已记录的发布后工作。
+
+## Architecture
 
 ```text
-.
-├── app.js / app.json / app.wxss
-├── components/           公共展示组件
-├── cloudfunctions/       微信云函数
-│   └── authUser/         登录与当前用户查询
-│   └── productQuery/     公开商品与本人发布查询
-│   └── productViewAction/ 有效浏览记录与 24 小时去重
-│   └── createProduct/    登录用户商品校验与幂等写入
-│   └── manageProduct/    本人商品状态、编辑、软删除与图片清理
-│   └── favoriteProduct/  收藏关系、事务计数与本人收藏列表
-│   └── userQuery/        用户公开资料与公开在售商品
-│   └── messageQuery/     会话、消息历史与双方可分享商品安全查询
-│   └── messageAction/    会话创建、文本/富消息发送与标记已读
-│   └── schoolQuery/      已激活学校的列表、搜索与详情只读查询
-├── config/               云环境统一配置
-├── constants/            分类、商品状态和路由常量
-├── custom-tab-bar/       自定义底部导航
-├── mock/                 统一 Mock 商品数据
-├── data/schools/         学校规范化数据、清单和本地测试 fixture
-├── reports/schools/      学校源画像、校验、dry-run 与导入报告
-├── pages/                页面与后续业务骨架
-├── scripts/              项目验证及学校解析、差异和导入脚本
-├── services/             商品、认证、学校和导航服务
-├── store/                轻量应用与认证状态
-└── utils/                异步与格式化工具
+Mini Program Page / Component
+          ↓
+Service / Store / Guard
+          ↓
+Cloud Function
+          ↓
+Cloud Database / Storage
 ```
 
-## 使用微信开发者工具导入
+页面负责交互；Service 负责数据标准化、调用和错误映射；Store 负责客户端状态。
+权限、可信身份、学校、事务和最终业务规则由云函数决定，客户端状态仅辅助展示。
+文件通过受控媒体服务上传/预览；数据库业务访问经过云函数。
 
-1. 打开微信开发者工具，选择“导入项目”。
-2. 项目目录选择本地克隆目录 `<PROJECT_ROOT>`。
-3. 保持 `project.config.json` 中的 `YOUR_WECHAT_APP_ID` 不变，在被 Git 忽略的 `project.private.config.json` 顶层填写真实 `appid`。
-4. 复制 `config/cloud.private.example.js` 为 `config/cloud.private.js`，只在副本中填写真实云环境 ID。
-5. 确认当前账号有该 AppID 和云环境权限；不要提交两个本机私有配置文件。
-6. 按下方说明准备 `products` 集合并部署 `productQuery` 与 `createProduct`。
-7. 点击“编译”，首页应显示来自云数据库的商品列表。
+### 技术栈
 
-## 云开发配置
+- 微信原生小程序：JavaScript、WXML、WXSS、自定义 TabBar。
+- 微信云开发：Cloud Functions、Cloud Database、Cloud Storage 与 `wx-server-sdk`。
+- `Nodemailer`：仅用于 `feedbackAction` 服务端邮件通知，不进入小程序客户端。
+- Node.js 本地验证工具；学校数据解析使用锁定版本 `@e965/xlsx`。
+- 无第三方 UI 框架，小程序客户端无 npm 运行时依赖。
 
-公开文件中的占位符不得替换。开发前创建本机文件 `config/cloud.private.js`：
-
-```js
-module.exports = {
-  environmentId: '你的真实云环境 ID'
-};
-```
-
-### 本地配置与隐私
-
-公开仓库只保留可复用占位符和 `config/cloud.private.example.js`。真实值的来源固定为：
-
-- AppID：`project.private.config.json` 顶层 `appid`，覆盖 `project.config.json` 的公开占位符。
-- 云环境 ID：`config/cloud.private.js` 的 `environmentId`，由 `config/cloud.js` 加载后交给统一云初始化。
-
-若运行时私有云配置缺失或仍是占位符，应用会返回 `CLOUD_CONFIG_MISSING`，不会静默连接其他环境。真实 AppID、云环境 ID、本机路径和私有配置只应保存在本地。`project.private.config.json`、`config/cloud.private.js`、`.env*`、依赖目录、临时部署产物、数据库导出、诊断日志、私有截图、用户数据目录和编号内部交接文档均由 `.gitignore` 排除。不要提交 AppSecret、SecretId、SecretKey、访问令牌、私钥、完整 OPENID 或生产用户数据。
-
-认证云函数（`login`、`current`、`updateProfile`）：
+### 目录
 
 ```text
-cloudfunctions/authUser
+app.*                  小程序入口与全局样式
+pages/                 页面
+components/            公共组件
+custom-tab-bar/        底部导航
+services/              业务与媒体服务
+store/                 应用、认证状态
+utils/                 公共校验与工具
+constants/             路由、分类和状态
+cloudfunctions/        13 个独立云函数
+config/                公开配置入口与私有配置示例
+assets/                图标资源
+data/schools/          公开学校数据及本地 fixture
+reports/schools/       学校处理与验证报告
+mock/                  显式本地开发 fixture
+scripts/               本地验证和受控运维工具
+docs/                  阶段记录、发布与安全报告
 ```
 
-商品查询云函数：
+正式业务不会在云调用失败时静默回退到 Mock。
 
-```text
-cloudfunctions/productQuery
-```
+## Cloud Functions
 
-商品发布云函数：
+| Function | 用途 |
+| --- | --- |
+| `authUser` | 登录、当前用户、资料、首次选校和换校 |
+| `productQuery` | 同校市场、公开商品详情、本人发布 |
+| `createProduct` | 可信身份/学校下的幂等商品创建 |
+| `manageProduct` | 本人商品状态、编辑、软删除与图片清理 |
+| `favoriteProduct` | 收藏关系、计数与本人收藏列表 |
+| `userQuery` | 安全公开资料与查看者校园的商品 |
+| `productViewAction` | 有效浏览计数与滚动窗口去重 |
+| `messageQuery` | 会话、消息历史、送达状态与可分享商品 |
+| `messageAction` | 建会话、发送、已读、隐藏、删除、撤回和转发 |
+| `appointmentQuery` | 本人预约、详情及会话当前预约 |
+| `appointmentAction` | 预约创建、状态转换与商品联动 |
+| `schoolQuery` | active 学校列表、搜索和详情 |
+| `feedbackAction` | 反馈提交、幂等/基础配额与服务端邮件 |
 
-```text
-cloudfunctions/createProduct
-```
+## Data Collections
 
-云函数通过 `cloud.getWXContext()` 获取真实微信身份，客户端不会传递或接收身份标识。云端使用 AppID 与身份标识的 SHA-256 摘要生成确定性用户文档 ID，避免并发首次登录生成重复用户。昵称和头像不从微信静默获取：身份建立后，用户通过官方 `chooseAvatar` 与 `input type="nickname"` 主动确认；临时头像经类型、解码和 5MB 大小校验后上传到当前用户专属云存储目录。选校是独立步骤，资料字段不参与可信身份或校园业务授权。
+所有集合均通过云函数访问；此处仅列模型用途，不提供真实记录。
 
-首次登录前，请在云开发控制台创建 `users` 集合。建议关闭客户端直接读写，仅允许云函数访问。
+| Collection | 用途 |
+| --- | --- |
+| `users` | 权威账号、资料与校园状态 |
+| `products` | 商品、生命周期与发布校园快照 |
+| `favorites` | 用户与商品的收藏关系 |
+| `conversations` | 用户对会话、摘要与可见性 |
+| `messages` | 消息内容、类型和生命周期 |
+| `appointments` | 面交预约、角色和状态 |
+| `schools` | 公开高校资料与运营状态 |
+| `productViews` | 去重浏览窗口与计数记录 |
+| `feedbacks` | 反馈、幂等及通知处理状态 |
 
-以下 PowerShell 模板不绑定任何生产环境或本机路径：
+## Privacy / Private Configuration
+
+公开仓库中的占位符不得替换为真实值。按对应 example 创建本机副本：
+
+| 私有文件 | 用途 |
+| --- | --- |
+| `project.private.config.json` | 真实 AppID 等开发者工具本机配置 |
+| `config/cloud.private.js` | 当前环境角色与真实环境 ID |
+| `config/cloud.targets.private.js` | 相互独立的 staging / production 目标 |
+| `config/cloud.secrets.private.js` | 按环境隔离的 SMTP 凭据及 cursor secret |
+
+私有配置由 Git 忽略，服务端秘密只由受控工具注入目标云环境，不能打包到客户端。
+示例文件使用 placeholder 或空值；缺少配置应失败关闭，不应猜测目标或自动连接生产。
+
+不要提交真实身份、用户正文、私有文件链接、数据库导出、原始日志、截图、部署包或私有运维证据。
+`.gitignore` 同时排除临时目录、依赖、私有诊断及内部编号交接文件。
+历史审计已披露早期非凭据部署标识残留；“无可用秘密泄漏”不等于“历史没有任何标识”。
+
+## Local Development
+
+1. 克隆仓库，用微信开发者工具导入项目根目录。
+2. 保留公开 `project.config.json` 中的 placeholder，在本机私有配置中填写真实 AppID。
+3. 按 `config/` 中 example 准备环境配置；日常开发使用独立 staging，不复用 production 数据。
+4. 在根目录按锁文件准备本地依赖；需要部署的云函数保持各自 package/lock 独立。
+5. 配置缺失时先修正本机副本；不要把真实值写回公开文件。
+6. 编译小程序，执行本地回归；云端资源准备和部署使用对应受控流程。
 
 ```powershell
-$PROJECT_ROOT = "<PROJECT_ROOT>"
-$WECHAT_DEVTOOLS_CLI_PATH = "<WECHAT_DEVTOOLS_CLI_PATH>"
-$CLOUDBASE_ENV_ID = "YOUR_CLOUDBASE_ENV_ID"
-
-& $WECHAT_DEVTOOLS_CLI_PATH cloud functions deploy `
-  --env $CLOUDBASE_ENV_ID `
-  --paths "$PROJECT_ROOT\cloudfunctions\authUser" `
-  --remote-npm-install `
-  --project $PROJECT_ROOT
-```
-
-部署商品查询云函数：
-
-```powershell
-& $WECHAT_DEVTOOLS_CLI_PATH cloud functions deploy `
-  --env $CLOUDBASE_ENV_ID `
-  --paths "$PROJECT_ROOT\cloudfunctions\productQuery" `
-  --remote-npm-install `
-  --project $PROJECT_ROOT
-```
-
-部署商品发布云函数：
-
-```powershell
-& $WECHAT_DEVTOOLS_CLI_PATH cloud functions deploy `
-  --env $CLOUDBASE_ENV_ID `
-  --paths "$PROJECT_ROOT\cloudfunctions\createProduct" `
-  --remote-npm-install `
-  --project $PROJECT_ROOT
-```
-
-集合创建、权限、索引、测试数据初始化与验证步骤见：
-
-```text
-docs/phase-4-cloud-products.md
-```
-
-商品发布部署、云存储检查与人工验收步骤见：
-
-```text
-docs/phase-5-cloud-product-publish.md
-```
-
-第六阶段安全、权限、索引、回归和发布准备步骤见：
-
-```text
-docs/phase-6-security-release-readiness.md
-```
-
-## 商品数据与架构
-
-正式数据访问统一经过：
-
-```text
-Page → ProductService → productQuery → products
-```
-
-页面与组件使用标准化后的 `id`，Service 负责兼容数据库 `_id`、空字段、数字、数组、日期、状态与卖家信息。
-
-公开商品查询默认只返回：
-
-```text
-available / reserved / sold
-```
-
-旧数据中的 `published` 会在客户端标准化为 `available`。`draft`、`offline` 和 `deleted` 不会出现在首页，也不能通过公开详情接口读取。
-
-`mock/products.js` 仍作为本地开发 fixture 保留，但正式运行不会静默回退到 Mock。
-
-商品发布统一经过：
-
-```text
-Publish Page
-→ ProductPublishService 上传云存储图片
-→ createProduct 取得可信微信身份并查询 users
-→ createProduct 校验 active 用户和 active + valid 权威学校
-→ 服务端写入发布时固定的 schoolId / schoolName
-→ products 幂等写入
-→ ProductService / productQuery 读取新商品
-```
-
-客户端仅提交经过校验的商品字段和云文件 `fileID`，不会提交商品学校。卖家、学校、状态、计数及服务端时间均由云函数构造，发布请求 ID 与用户 ID 共同生成确定性商品文档 ID，避免超时重试产生重复商品。新商品的 `schoolId / schoolName` 是发布时快照，普通编辑、上下架和售出不会改变；历史无学校商品不会因编辑而自动补齐，也不能重新上架进入 strict 市场。首页、搜索、分类、排序和分页均由服务端按当前用户权威学校隔离；合法跨校详情保持只读语义。
-
-商品地点由用户点击后调用微信地图选择器取得，发布页、编辑页和预约地点页复用 `LocationService` 做取消、权限错误、字段清理与坐标范围处理。新发布商品必须包含规范化的 `locationDetail`，`createProduct` 会再次执行严格服务端校验；编辑旧商品时，`manageProduct` 兼容只有文本 `location` 的历史数据，但地点一旦被修改就必须提交新的合法结构化地点。公开商品查询继续只返回适合展示的文本地点，不返回精确坐标或地址。
-
-项目不会在页面加载时自动获取位置，也不执行后台定位、持续定位或位置变化监听。地图只在用户明确点击并确认选点时打开；取消选择不会覆盖已有地点。
-
-## 认证架构
-
-```text
-App 非阻塞启动
-→ AuthStore 后台 bootstrap
-→ AuthService 调用 authUser/current
-→ 云端校准真实登录状态
-```
-
-主动登录：
-
-```text
-受限入口或登录页
-→ AuthGuard 白名单目标
-→ AuthStore.loginIdentity → authUser/loginIdentity 创建或复用真实用户
-→ AuthStore 进入 profileConfirmRequired
-→ 用户主动选择/确认头像和昵称
-→ AvatarService 上传当前用户专属头像
-→ AuthStore.confirmLoginProfile → authUser/updateProfile
-→ 有有效学校：直接继续；无有效学校：进入 school-select
-→ 返回原目标页面
-```
-
-本地只缓存：
-
-```text
-id / nickname / avatarUrl / profileCompleted / schoolId / schoolName / schoolVersion
-```
-
-本地缓存仅用于恢复期间的展示优化，不作为可信权限依据。
-
-第七阶段 A 的架构、索引、状态迁移和人工验收步骤见：
-
-```text
-docs/phase-7a-my-products-lifecycle.md
-```
-
-第七阶段 B 的编辑、并发、软删除和图片生命周期说明见：
-
-```text
-docs/phase-7b-product-edit-soft-delete.md
-```
-
-第八阶段收藏、事务计数、公开用户 ID 和卖家主页说明见：
-
-```text
-docs/phase-8-favorites-public-profile.md
-```
-
-第九阶段会话模型、消息幂等、未读计数、索引和验收边界见：
-
-```text
-docs/phase-9-messaging-chat.md
-```
-
-Phase 24 按无序用户对唯一会话、商品上下文、历史迁移与回滚门禁见：
-
-```text
-docs/phase-24-pair-conversation.md
-```
-
-真实微信登录与双账号人工验收步骤见：
-
-```text
-docs/phase-9-real-login-test-prep.md
-```
-
-第十阶段面交预约、状态机、地图选点、云端集合与部署结果见：
-
-```text
-docs/phase-10-appointment-meetup.md
-```
-
-第十二阶段浏览量展示、滚动 24 小时去重、云端部署和验收说明见：
-
-```text
-docs/phase-12-product-view-counting.md
-```
-
-第十三阶段语音、图片、位置、商品消息、安全边界和最终验收结论见：
-
-```text
-docs/phase-13-rich-chat-messages.md
-```
-
-第十四阶段多学校影响审计、数据模型、查询索引、迁移、安全和阶段 15—25 实施设计见：
-
-```text
-docs/phase-14-multi-school-audit.md
-```
-
-第十五阶段官方高校来源、解析规则、数据校验、受控导入、云端权限索引和只读查询结果见：
-
-```text
-docs/phase-15-school-data-and-query.md
-```
-
-第十六阶段用户学校字段、首次选择、认证摘要、路由守卫、部署和人工验收步骤见：
-
-```text
-docs/phase-16-user-school-selection.md
-```
-
-## 本阶段未实现
-
-- 已删除商品恢复、图片排序
-- 文件、视频消息与消息撤回
-- WebSocket、数据库 watch、订阅通知和消息 Tab 总未读角标
-- 同校市场大规模数据下的扫描量与延迟持续治理
-- 任何在线支付、担保支付或物流能力
-
-聊天代码和 production 数据模型均已切换为同一无序用户对唯一会话，商品只是当前/最近上下文；文本、语音、图片、位置、双方其他商品卡片及预约状态系统消息均保留。20 条历史重复会话已归档为 merged alias，消息和预约均指向 6 条确定性 active canonical；legacy alias 继续解析到 canonical。位置是用户确认后发送的单次快照，不是持续实时共享；实时推送仍未实现。
-
-## 本地验证
-
-```powershell
-node scripts/verify-project.js
-```
-
-或：
-
-```powershell
+npm ci
 npm run verify
+npm run feedback:verify
 ```
 
-验证覆盖 JSON、页面和组件四件套、真实身份唯一性与并发登录、统一云初始化、显式登录事务、资料校验、头像安全、登录守卫、商品查询与生命周期、收藏、聊天、预约、媒体和位置边界，以及学校数据、首次选校、可信商品绑定、学校切换、强制登录、同校隔离、四排序 seek 游标、搜索/分类、跨校游标拒绝、迁移、回滚、checkpoint、resume、hash 和 maintenance。最终封版前 Phase 18—24 主回归 544 项、pair conversation/migration 专项 52 项、综合验证 81 项及 190 个 JavaScript 文件语法检查全部通过。
+根目录依赖主要用于学校数据工具；上述本地验证不会要求初始化生产测试数据。
+`scripts/` 含有迁移、fixture、部署和清理工具，不能把所有脚本批量执行为“测试”。
+任何生产写入均需单独授权、明确目标及该流程规定的快照/回滚门禁。
 
-## 后续阶段
+## Verification
 
-Phase 24 已完成 production rollout 和最终验证。后续工作进入 Phase 25 RC、微信官方审核与正式发布准备；这些后续阶段不改变 `phase-24-complete` 对当前工程和 production 专项状态的封版结论。
+- Final Release 的功能、生产安全验收与回滚边界已记录在 [最终收尾](docs/final-release-step-5-final-closure.md)。
+- `npm run verify` 包含 81 组综合验证与永久 disabled revocation 矩阵，覆盖 46 个受保护操作。
+- `npm run feedback:verify` 覆盖 39 项 Feedback 边界。
+- 当前 auth、学校、消息、预约、收藏和 Final Release 本地回归已重新执行。
+- 本轮 fresh 核验 production 9 个集合的 `ADMINONLY` 与 13 个函数入口源码；没有生产写入。
+- 既有 hotfix production-safe probes 18/18 通过；原始私有证据不随仓库公开。
 
-## Git 仓库
+更多记录：
 
-<https://github.com/yyyyyyqqqqq/jichu-miniprogram-02>
+- [安全、公开仓库与可维护性审计](docs/post-release-security-maintainability-audit.md)
+- [禁用账号撤权修复](docs/post-release-disabled-account-revocation-hotfix.md)
+- [全国高校上线](docs/final-release-step-3b-production-school-activation.md)
+- [收藏性能优化上线](docs/final-release-step-4b-performance-rollout.md)
+- [Feedback 功能与验收](docs/final-release-feedback-feature.md)
+- [消息生命周期与最小安全回滚边界](docs/phase-25-rollback-projection-compatibility.md)
 
-默认分支：`main`
+旧阶段报告描述其当时状态；当前结论以最新审计为准。
+
+## Known Technical Debt
+
+- **Runtime modernization**：4 个函数使用 Node16、9 个使用 Node18；已 EOL，发布后高优先级迁往经平台支持验证的 LTS。
+- **SDK 传递依赖**：各云函数仍有既有 5 high / 1 moderate npm audit 告警，已接受为发布后整改项，不代表漏洞已消失。
+- **大型模块**：聊天页面、消息/预约事务及综合验证脚本较大，建议按职责渐进拆分。
+- **媒体隐私**：已知 fileID 的 capability 风险、短时访问授权和随机对象键需进一步加固。
+- **安全 helper 重复**：独立云函数内有小量 gate 重复；先保持统一 contract 回归，再评估受控抽取。
+- **反滥用与上传**：统一服务端配额、并发边界及真实媒体 bytes/MIME 校验仍可增强。
+
+可维护性 C 表示推荐重构，不表示上线后无法安全修 bug；不建议在审核前集中改写核心事务和认证结构。
+
+## Post-Release
+
+后续工作需独立规划与验收：
+
+- Nearby School 等经确认的新需求。
+- 受支持 runtime、依赖风险治理与持续安全复核。
+- 私有媒体访问、反滥用和日志留存加固。
+- 聊天/预约、认证状态与测试工具的渐进可维护性重构。
+- 有数据支撑的分页、setData、媒体和查询性能优化。
+
+本仓库的 Final Release Complete 不代表已经完成微信官方审核或面向用户正式发布。
+当前审计完成后停止工程变更，等待负责人决定下一步。
